@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS user_tools;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS matrices;
 
+DROP TABLE IF EXISTS compliance_unit_sections;
 DROP TABLE IF EXISTS compliance_suggestions;
 DROP TABLE IF EXISTS compliance_feedback;
 DROP TABLE IF EXISTS compliance_facts;
@@ -314,6 +315,33 @@ CREATE TABLE compliance_feedback (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_cfb_pair ON compliance_feedback (product, factory, verdict);
+
+-- What sections a product can physically HAVE, learned from datasheets.
+--
+-- Distinct from compliance_sections, which is about the SPECIFICATION's
+-- hierarchy ("PART 2 PRODUCTS > 2.02 CASING"). This is about the EQUIPMENT:
+-- an AHU selection report lists its own sections — Mixing Box, Filter, Coil
+-- Cooling DX, Fan, Empty Section — and that list tells the AI two things it
+-- otherwise has to guess:
+--   1. which datasheet values belong to which part of the unit, so a casing
+--      clause is never answered with the coil's tube thickness;
+--   2. whether a clause is even about something this unit has.
+--
+-- Rows arrive as 'draft' from real datasheets and an admin promotes them.
+-- times_seen is how often a section has appeared, so the common ones sort to
+-- the top of the review queue.
+CREATE TABLE compliance_unit_sections (
+  id          TEXT PRIMARY KEY,
+  product     TEXT NOT NULL,
+  name_norm   TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  notes       TEXT NOT NULL DEFAULT '',   -- admin's description of the section
+  times_seen  INTEGER NOT NULL DEFAULT 1,
+  status      TEXT NOT NULL DEFAULT 'draft',  -- draft | trusted | blocked
+  first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_cus_name ON compliance_unit_sections (product, name_norm);
 
 -- ------------------------------------------------------------------ seed
 INSERT INTO settings (key, value) VALUES

@@ -295,3 +295,90 @@ export async function rebuildSections(context, product, factory, actorId) {
   await context.env.DB.batch(batch);
   return batch.length;
 }
+
+/* ==========================================================================
+   UNIT SECTION CATALOGUE
+   --------------------------------------------------------------------------
+   What sections a product can physically have — Mixing Box, Filter, Coil
+   Cooling DX, Fan, Empty Section — learned from the selection reports people
+   upload, never typed into code.
+
+   Two payoffs. First, datasheet values stop crossing between sections, so a
+   casing clause is never answered with the cooling coil's tube thickness.
+   Second, the model can tell whether a clause is even ABOUT something this
+   unit has, instead of assuming every requirement applies.
+
+   New sections arrive as 'draft' and an admin promotes them. A datasheet is
+   evidence, not authority: one badly parsed PDF should not be able to teach
+   the system that "Page 4/12" is a section of an air handling unit.
+   ========================================================================== */
+
+export function normSectionName(s) {
+  return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+export async function learnUnitSections(context, product, names) {
+  const clean = [...new Set(
+    (Array.isArray(names) ? names : [])
+      .map(n => String(n || '').replace(/\s+/g, ' ').trim())
+      .filter(n => n.length >= 4 && n.length <= 60)
+  )].slice(0, 30);
+  if (!clean.length) return 0;
+
+  const stmt = context.env.DB.prepare(
+    `INSERT INTO compliance_unit_sections (id, product, name_norm, name, times_seen, updated_at)
+     VALUES (?1, ?2, ?3, ?4, 1, datetime('now'))
+     ON CONFLICT(product, name_norm) DO UPDATE SET
+       times_seen = times_seen + 1, name = ?4, updated_at = datetime('now')`
+  );
+  try {
+    await context.env.DB.batch(clean.map(n =>
+      stmt.bind('cus_' + crypto.randomUUID().slice(0, 12), product, normSectionName(n), n)));
+    return clean.length;
+  } catch (err) {
+    if (!isMissingTable(err)) throw err;
+    return 0;
+  }
+}
+
+export async function loadUnitSections(context, product) {
+  try {
+    const { results } = await context.env.DB.prepare(
+      `SELECT name, name_norm, notes, status, times_seen FROM compliance_unit_sections
+        WHERE product = ?1 AND status <> 'blocked'
+        ORDER BY times_seen DESC LIMIT 60`
+    ).bind(product).all();
+    return results || [];
+  } catch (err) {
+    if (!isMissingTable(err)) throw err;
+    return [];
+  }
+}
+
+// The prompt block. Says what this unit HAS, what the product can have but
+// this unit does NOT, and what to do about the difference.
+export function unitSectionsBlock(product, present, catalogue) {
+  if (!present.length && !catalogue.length) return '';
+  const here = present.map(n => String(n).trim()).filter(Boolean);
+  const hereNorm = new Set(here.map(normSectionName));
+  // Only sections an admin has confirmed are used to assert an absence.
+  const absent = catalogue
+    .filter(c => c.status === 'trusted' && !hereNorm.has(c.name_norm))
+    .map(c => c.name + (c.notes ? ' (' + c.notes + ')' : ''));
+
+  let out = '\nUNIT CONFIGURATION\n';
+  if (here.length) {
+    out += `The selected unit is built from these sections, in order: ${here.join(', ')}.\n` +
+      `Datasheet values are labelled with the section they belong to. A value from one ` +
+      `section NEVER describes another — the coil's tube thickness is not the casing's ` +
+      `panel thickness, whatever the clause asks about.\n`;
+  }
+  if (absent.length) {
+    out += `Sections a ${product} can have but THIS unit does not: ${absent.join(', ')}.\n` +
+      `If a clause requires one of these, the selected unit does not include it. You may ` +
+      `NOT answer Comply on configuration grounds. Unless a past verified answer shows how ` +
+      `such a clause is normally answered, use TO VERIFY and name the section that is ` +
+      `missing — the absence is a commercial question, not a technical one you can settle.\n`;
+  }
+  return out;
+}

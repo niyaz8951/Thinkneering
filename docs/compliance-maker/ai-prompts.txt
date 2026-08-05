@@ -49,12 +49,30 @@ It must answer each clause by working DOWN this ladder and STOPPING at the
 first step that resolves it.
 
 STEP 1 — THE SELECTION DATASHEET (highest authority)
-  If a datasheet was uploaded, its extracted fields are supplied as a list of
-  Label: Value pairs.
+  If a datasheet was uploaded, the fields that concern THIS clause are
+  attached directly to it — not left in a list of seventeen at the top of the
+  prompt for the model to search through.
+
+  The matching is done in code, using synonym groups, so a clause about
+  "casing thickness" reaches a field labelled "Panel • Insulation". Those are
+  the same subject in specification English, and the model should not have to
+  work that out under time pressure.
+
+  Where both the clause and a matched field state a measurement in the same
+  unit, THE COMPARISON IS COMPUTED BEFORE THE PROMPT IS SENT and written into
+  it as a fact, for example:
+
+    Clause requires 50 mm. Datasheet "Panel • Insulation" is 62 mm, which is
+    GREATER than the requirement. The product's actual value is 62 mm —
+    state 62 mm, never 50 mm.
+
+  The model does no arithmetic. It is told the numbers and told which one is
+  the product's. Whether 62 mm against a 50 mm requirement is Comply or
+  Deviation stays a judgement, and that stays with the model and the engineer
+  reviewing it.
 
   For any clause stating a requirement with a number, material, class or
-  rating, it must FIRST look for the matching field and compare the two
-  technically.
+  rating, it must use the matched field and compare the two technically.
     - Field satisfies the requirement -> Comply, and the remark states the
       actual value.
     - Field contradicts the requirement -> Not Comply, citing the actual value.
@@ -128,6 +146,44 @@ WHY: an empty knowledge base should make it MORE cautious, not free to
 improvise. Silence about what the factory builds is not permission to guess.
 
 --------------------------------------------------------------------------------
+PART C2 — WHAT THIS UNIT IS MADE OF
+--------------------------------------------------------------------------------
+
+A selection report lists the unit's own sections — "1) Mixing Box Supply",
+"2) Filter Supply", "4) Coil Cooling DX Supply", "6) Fan Supply". That list is
+read from the PDF and used twice.
+
+FIRST, EVERY DATASHEET VALUE IS TAGGED WITH THE SECTION IT CAME FROM, and a
+clause only ever sees values from the section it is about.
+
+  This is not a refinement. The sample unit has "Tube Material • Thickness:
+  Copper • 0.4 mm" on the cooling coil. A clause about CASING thickness
+  matches that field on the word "thickness" alone. Untagged, the tool would
+  answer a casing clause with the coil's tube gauge — a plausible number from
+  the wrong part of the machine, which is worse than no answer at all.
+
+  Whole-unit data is always available to every clause. Section data is not.
+
+SECOND, THE MODEL IS TOLD WHICH SECTIONS THIS UNIT HAS AND WHICH IT DOES NOT:
+
+  "The selected unit is built from these sections, in order: ...
+   Sections a [product] can have but THIS unit does not: ...
+   If a clause requires one of these, the selected unit does not include it.
+   You may NOT answer Comply on configuration grounds. Unless a past verified
+   answer shows how such a clause is normally answered, use TO VERIFY and name
+   the section that is missing — the absence is a commercial question, not a
+   technical one you can settle."
+
+WHY IT STOPS SHORT OF "NOT COMPLY": a missing section usually means it was not
+selected, not that the product cannot have it. That is a conversation with the
+consultant, not a fact the tool should assert on its own.
+
+Only sections an ADMIN HAS CONFIRMED are used to assert an absence. Sections
+seen in a datasheet but not yet reviewed stay drafts and are never used to say
+a unit is missing something — one badly parsed PDF should not be able to teach
+the system that "Page 4/12" is a section of an air handler.
+
+--------------------------------------------------------------------------------
 PART D — WHERE THE CLAUSE SITS
 --------------------------------------------------------------------------------
 
@@ -192,6 +248,13 @@ PART F — HOW THE REMARK MUST READ
   - Never mention internal catalogues, datasheets, selection reports or file
     names. State the value, not the document it came from.
   - Follow the wording of the past verified answers closely.
+
+  - NEVER REPEAT A MEASUREMENT FROM THE CLAUSE AS THE PRODUCT'S VALUE. The
+    clause states what is REQUIRED. Only a datasheet field or a past verified
+    answer states what the product IS. If the clause asks for 50 mm and the
+    datasheet says 62 mm, the answer says 62 mm. If the clause asks for 50 mm
+    and no source states a thickness at all, the thickness is unknown — that
+    is TO VERIFY, not "50 mm".
 
 WHY THE BANNED WORDS: a consultant reads hedging as an unanswered question.
 WHY NO FILE NAMES: the matrix is an external document; internal references
@@ -277,6 +340,33 @@ human description with a machine one.
 
 
 ================================================================================
+THE CHECK THAT RUNS AFTER THE MODEL ANSWERS
+================================================================================
+
+Instructions are not enforcement. Every answer is inspected before it is
+shown, logged, or exported.
+
+If a remark quotes a MEASUREMENT that appears in the clause and in none of the
+supplied sources, the model has restated the requirement as its answer. That
+answer is withdrawn and replaced with:
+
+  TO VERIFY — "Requires confirmation of [value] against the selected unit —
+  the specification value cannot be quoted as the product value."
+
+Only numbers carrying a unit of measurement are checked (mm, kg, kW, Pa, %,
+and so on). Bare numbers are ignored deliberately: "AHRI 430" and "Section
+237313" are references, and repeating them is correct.
+
+The count of withdrawn answers is reported in the status line after every run
+rather than hidden. A rising count means the datasheet is not being read well,
+which is something you want to know.
+
+WHY A CHECK AND NOT JUST A BETTER INSTRUCTION: the prompt has forbidden
+invented numbers from the beginning, and the model did it anyway. An
+instruction is a request. A check is a guarantee.
+
+
+================================================================================
 THINGS WORTH ARGUING WITH
 ================================================================================
 
@@ -302,7 +392,14 @@ These are judgement calls, not facts. Each is a reasonable place to disagree.
    Good for consistency, and it means that remark can never drift. But it also
    means changing that sentence requires a code change, not a database edit.
 
-5. TEMPERATURE IS 0.1.
+5. THE SYNONYM GROUPS ARE IN CODE, NOT THE DATABASE.
+   "Casing = panel = skin" is a property of specification English, not of any
+   factory, which is why it did not go in with the product facts. But it is
+   still a list somebody has to maintain, and a missing group means a
+   datasheet field silently fails to reach the clause that needed it. If you
+   find yourself wanting to edit it often, it should move to the database.
+
+6. TEMPERATURE IS 0.1.
    Nearly deterministic. Same clause, same answer. If answers feel rigid or
    repetitive across different phrasings of the same requirement, this is the
    dial.

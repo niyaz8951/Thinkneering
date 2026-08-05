@@ -1,5 +1,5 @@
 import { json, bad, id, now, slugify, hashPassword, audit, requireAdmin } from '../../_lib.js';
-import { PRODUCT_FACTORIES, isValidFactory, rebuildSections, isMissingTable, SETUP_HINT } from '../../_compliance.js';
+import { PRODUCT_FACTORIES, isValidFactory, rebuildSections, isMissingTable, SETUP_HINT, normSectionName } from '../../_compliance.js';
 
 const guard = (data) => {
   try { requireAdmin(data.user); return null; }
@@ -138,10 +138,21 @@ export const onRequestGet = async ({ env, params, request, data }) => {
         (results || []).forEach((r) => { tally[r.verdict] = r.n; });
       } catch { /* table not migrated yet */ }
 
+      // The product's equipment-section catalogue, learned from datasheets.
+      // Product-level, not per factory: an AHU has the same possible sections
+      // wherever it is built.
+      let unitSections = [];
+      try {
+        ({ results: unitSections } = await DB.prepare(
+          `SELECT * FROM compliance_unit_sections WHERE product = ?1
+            ORDER BY status='blocked', times_seen DESC, name LIMIT 100`
+        ).bind(product).all());
+      } catch { unitSections = []; }
+
       return json({
         product, factory, pairs: PRODUCT_FACTORIES,
         facts: facts || [], sections: sections || [],
-        feedback: feedback || [], tally
+        feedback: feedback || [], tally, unitSections: unitSections || []
       });
     }
 
@@ -470,6 +481,37 @@ async function run(env, actor, body, op, ts) {
       }
       await log('sections.rebuild', { product, factory, sections: n });
       return json({ ok: true, sections: n });
+    }
+
+    case 'compliance.unitsection.save': {
+      const name = String(body.name || '').trim();
+      if (!name) return bad('A section needs a name.');
+      await DB.prepare(
+        `UPDATE compliance_unit_sections
+            SET name=?2, name_norm=?3, notes=?4, status=?5, updated_at=?6 WHERE id=?1`
+      ).bind(body.id, name, normSectionName(name), String(body.notes || '').trim(),
+             body.status || 'trusted', ts).run();
+      await log('unitsection:' + body.id, { name, status: body.status });
+      return json({ ok: true });
+    }
+
+    case 'compliance.unitsection.delete': {
+      await DB.prepare('DELETE FROM compliance_unit_sections WHERE id=?1').bind(body.id).run();
+      await log('unitsection:' + body.id);
+      return json({ ok: true });
+    }
+
+    // Confirm every draft section for a product in one go. Reviewing a
+    // datasheet's section list is a single judgement in practice — they come
+    // from one document and are right or wrong together.
+    case 'compliance.unitsections.trust_all': {
+      const product = String(body.product || '').trim();
+      const r = await DB.prepare(
+        `UPDATE compliance_unit_sections SET status='trusted', updated_at=?2
+          WHERE product=?1 AND status='draft'`
+      ).bind(product, ts).run();
+      await log('unitsections.trust_all', { product });
+      return json({ ok: true, changed: (r.meta && r.meta.changes) || 0 });
     }
 
     // Write the one-line "what this section is" from its sample clauses.

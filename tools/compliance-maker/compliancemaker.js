@@ -79,6 +79,7 @@
   var currentName = 'compliance-matrix';
   var selectionText = '';          // extracted selection datasheet text (fallback)
   var selectionFields = [];        // structured {label, value} pairs — primary source
+  var unitSections = [];           // sections the selected unit actually has
   var selectionName = '';
   var pendingFile = null;          // chosen PDF, not yet processed
   var activeSource = 'pdf';        // 'pdf' | 'text'
@@ -518,6 +519,7 @@
     var suggested = 0;
     var batchesWithNoUsableAnswers = 0;
     var lastDebugSnippet = '';
+    var guardedCount = 0;
 
     function stillCurrent() { return currentRows === targetRows; }
 
@@ -539,6 +541,14 @@
             ? ' ' + batchesWithNoUsableAnswers + ' batch(es) came back empty after retries — ' +
               'those rows are left blank for you to fill in.'
             : '';
+          // Worth saying out loud: these are answers that were withdrawn
+          // because they quoted the specification's own number back as the
+          // product's value. Silently downgrading them would hide a real
+          // signal about how well the datasheet is being read.
+          if (guardedCount) {
+            extra += ' ' + guardedCount + ' answer(s) were withdrawn for restating a required value ' +
+              'as the actual value — set to TO VERIFY.';
+          }
           setAiStatus('AI suggested statuses for ' + suggested + ' of ' + blanks.length +
             ' blank rows — orange = verified source, amber = unverified GUESS (see the row count below; verify every filled row before sending).' +
             (conf ? ' ' + conf + ' answer(s) CONFLICT with the log (red).' : '') + extra,
@@ -566,6 +576,8 @@
           factory: factory,
           selection: selectionText,        // fallback raw text (may be empty)
           selectionFields: selectionFields, // primary structured source (may be empty)
+          unitSections: unitSections,       // the sections this unit has
+
           items: batch.map(function (x) {
             return { spec: x.r.spec, path: x.r._path || '', context: x.r._aiContext || [] };
           })
@@ -590,6 +602,7 @@
           row.auto = { type: isGuess ? 'ai-guess' : 'ai', score: 0, from: '', comments: s.comments || '' };
           suggested++;
         });
+        guardedCount += (d.guarded || 0);
         if (!gotAny) {
           batchesWithNoUsableAnswers++;
           // Still captured for the console — useful when diagnosing, but no
@@ -1199,20 +1212,69 @@
     return { label: label, re: new RegExp('^' + escapeRegex(label).replace(/ /g, '\\s+') + '\\s+(.+)$', 'i') };
   });
 
+  // A selection report is organised into the unit's own sections, numbered
+  // like "1) Mixing Box Supply", "4) Coil Cooling DX Supply". Those headings
+  // are the most valuable thing in the document and the extractor used to
+  // throw them away.
+  var UNIT_SECTION_RE = /^(\d{1,2})\)\s*([A-Z][A-Za-z0-9 ./&+-]{3,60})$/;
+  // Sub-blocks inside a section ("Geometry", "Cooling", "Motor Data"). Worth
+  // keeping distinct from the section itself but not worth listing as a
+  // section of the unit.
+  var SUB_BLOCK_RE = /^(Unit Data|Geometry|Cooling|Heating|Motor Data|Sound Report|Options List|Section List|Electrical Power Inputs Data)$/i;
+
+  function normSection(s) {
+    return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  // The sections THIS unit actually has, in document order.
+  function extractUnitSections(lines) {
+    var out = [], seen = {};
+    lines.forEach(function (raw) {
+      var m = String(raw).trim().replace(/\s+/g, ' ').match(UNIT_SECTION_RE);
+      if (!m) return;
+      var name = m[2].trim();
+      var key = normSection(name);
+      if (!seen[key]) { seen[key] = true; out.push(name); }
+    });
+    return out.slice(0, 30);
+  }
+
+  // Fields, each tagged with the section of the unit it was found under.
+  //
+  // THE REASON THIS MATTERS: this datasheet contains "Tube Material •
+  // Thickness: Copper • 0.4 mm" under the cooling coil. Without the section
+  // prefix, a clause about CASING thickness can match that field on the word
+  // "thickness" and be answered with the coil's tube gauge. The prefix makes
+  // the two impossible to confuse — for the matcher and for the model.
+  //
+  // Deduplication is per section+label rather than per label, because the
+  // same label legitimately recurs: nine sections here each have their own
+  // Pressure Drop, and keeping only the first would silently discard eight.
   function extractSelectionFields(lines) {
     var fields = [];
     var seen = {};
+    var section = '';
     lines.forEach(function (raw) {
       var line = raw.trim().replace(/\s+/g, ' ');
       if (!line || line.length > 160) return;
+
+      var sec = line.match(UNIT_SECTION_RE);
+      if (sec) { section = sec[2].trim(); return; }
+      if (SUB_BLOCK_RE.test(line)) {
+        // "Unit Data" is the whole machine, not a section of it.
+        if (/^unit data$/i.test(line)) section = 'Unit';
+        return;
+      }
+
       for (var i = 0; i < DATASHEET_FIELD_RE.length; i++) {
         var m = line.match(DATASHEET_FIELD_RE[i].re);
         if (!m) continue;
         var label = DATASHEET_FIELD_RE[i].label;
         var value = m[1].trim();
         if (!value || DATASHEET_FIELD_LABELS.some(function (l) { return value.toLowerCase() === l.toLowerCase(); })) break;
-        var key = label.toLowerCase();
-        if (!seen[key]) { seen[key] = true; fields.push({ label: label, value: value }); }
+        var full = section ? section + ' \u2022 ' + label : label;
+        var key = full.toLowerCase();
+        if (!seen[key]) { seen[key] = true; fields.push({ label: full, value: value }); }
         break;
       }
     });
@@ -1238,9 +1300,14 @@
       // AI call runs.
       var patternFields = extractSelectionFields(lines);
       selectionFields = patternFields;
+      // The unit's own section list travels with every AI request: it tells
+      // the model which parts this machine actually has, and it is learned
+      // into the product's section catalogue server-side.
+      unitSections = extractUnitSections(lines);
       selectionText = joined.slice(0, 6000); // fallback for anything neither pass caught
       selectionName = file.name;
-      selSlot.textContent = file.name + ' (' + patternFields.length + ' fields recognized)';
+      selSlot.textContent = file.name + ' (' + patternFields.length + ' fields' +
+        (unitSections.length ? ', ' + unitSections.length + ' unit sections' : '') + ')';
       setAiStatus('Selection datasheet loaded — checked first for matching values (e.g. panel thickness, filter class).', 'ok');
       // The datasheet is what unlocks AI, so the button state is re-evaluated
       // the moment Pass 1 lands — the user doesn't wait for the AI extraction.

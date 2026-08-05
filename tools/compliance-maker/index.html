@@ -411,11 +411,6 @@ starters</textarea>
       </div>
     </section>
 
-    <section class="section-block">
-      <div class="section-block__head"><h2>Also in Compliance Maker</h2></div>
-      <div id="more" class="grid"></div>
-    </section>
-
     <section class="panel" style="margin-top:var(--space-4)" aria-labelledby="tips">
       <div class="panel__head"><h2 id="tips">Tips</h2></div>
       <p class="muted">
@@ -437,23 +432,5 @@ starters</textarea>
   <script src="/assets/js/global.js?v=4"></script>
   <script src="/tools/compliance-maker/xlsx-writer.js?v=1"></script>
   <script src="/tools/compliance-maker/compliancemaker.js?v=1"></script>
-  <script>
-    // The rest of this section, drawn with the site's own cards so the access
-    // chips stay honest. Filtered to drop the card that points back here.
-    document.addEventListener('tn:ready', async function () {
-      try {
-        var d = await TN.api('/api/catalog?path=compliance-maker');
-        // The AI review and training cards would advertise, one screen
-        // lower, two panels this person can already see (or has already
-        // been told they cannot use). Only the library card says something
-        // the page itself doesn't.
-        var hide = { converter: 1, 'ai-review': 1, training: 1 };
-        TN.renderCards('#more', (d.items || []).filter(function (i) { return !hide[i.slug]; }));
-      } catch (e) {
-        var block = TN.el('#more');
-        if (block && block.parentNode) block.parentNode.remove();
-      }
-    });
-  </script>
 </body>
 </html>

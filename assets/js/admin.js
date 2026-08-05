@@ -600,6 +600,21 @@
           '</div>'
         : '') +
 
+      '<div class="section-block"><div class="section-block__head"><h2>Unit sections — ' + esc(d.product) + '</h2>' +
+      (d.unitSections.filter(function (u) { return u.status === 'draft'; }).length
+        ? '<button class="btn btn--ghost btn--sm" data-trust-usecs>Confirm all drafts</button>' : '') +
+      '</div>' +
+      '<p class="muted" style="margin-bottom:var(--space-3)">Read from uploaded selection reports. ' +
+      'Confirmed sections let the AI tell when a clause asks for something the selected unit ' +
+      'does not have — and stop one section\'s values being used to answer another\'s clause.</p>' +
+      (d.unitSections.length
+        ? '<div class="table-wrap"><table class="data"><thead><tr><th>Section</th><th>Notes</th>' +
+          '<th class="num">Seen</th><th>Status</th><th></th></tr></thead><tbody>' +
+          d.unitSections.map(unitSectionRow).join('') + '</tbody></table></div>'
+        : '<div class="empty">Nothing yet. Sections appear here the first time someone runs ' +
+          'AI review with a selection datasheet attached.</div>') +
+      '</div>' +
+
       '<div class="section-block"><div class="section-block__head"><h2>Section profiles</h2>' +
       '<span class="muted">' + d.sections.length + '</span></div>' +
       (d.sections.length
@@ -609,6 +624,21 @@
         : '<div class="empty">Nothing rolled up yet. Profiles are built from downloaded matrices ' +
           'that were answered from the library — press Rebuild sections once there are some.</div>') +
       '</div>';
+  }
+
+  var USEC_STATUS = [['trusted', 'Confirmed — this product can have it'],
+                     ['draft', 'Draft — seen, not confirmed'],
+                     ['blocked', 'Not a real section — ignore it']];
+
+  function unitSectionRow(u) {
+    return '<tr><td>' + esc(u.name) + '</td>' +
+      '<td class="muted">' + (u.notes ? esc(u.notes) : '—') + '</td>' +
+      '<td class="num">' + u.times_seen + '</td>' +
+      '<td><span class="chip' + (u.status === 'trusted' ? ' chip--free' : u.status === 'blocked' ? ' chip--danger' : '') +
+      '">' + esc(u.status) + '</span></td>' +
+      '<td class="row-actions"><button class="btn btn--quiet btn--sm" data-edit-usec="' + esc(u.id) + '">' +
+      icon('edit', 16) + '</button><button class="btn btn--quiet btn--sm" data-del-usec="' + esc(u.id) + '">' +
+      icon('trash', 16) + '</button></td></tr>';
   }
 
   function factForm(f) {
@@ -646,7 +676,8 @@
 
   // one delegated listener for the whole portal
   document.addEventListener('click', async function (ev) {
-    var t = ev.target.closest('[data-add-fact],[data-edit-fact],[data-del-fact],[data-edit-section],' +
+    var t = ev.target.closest('[data-edit-usec],[data-del-usec],[data-trust-usecs],' +
+      '[data-add-fact],[data-edit-fact],[data-del-fact],[data-edit-section],' +
       '[data-rebuild-sections],[data-summarize-sections],' +
       '[data-panel],[data-go],[data-approve],[data-edit-user],[data-grants],' +
       '[data-add-sec],[data-add-sub],[data-edit-sec],[data-del-sec],[data-add-item],[data-edit-item],[data-del-item],' +
@@ -698,6 +729,29 @@
           await post({ op: 'compliance.section.save', id: sec.id, summary: v('summary'), status: v('status') });
           TN.toast('Section saved', 'success'); show('compliance');
         });
+    }
+    if (D.editUsec) {
+      var us = (comp.data.unitSections || []).find(function (x) { return x.id === D.editUsec; });
+      return openModal('Edit unit section',
+        field('Name', '<input type="text" name="name" value="' + esc(us.name) + '">') +
+        field('Notes', '<input type="text" name="notes" value="' + esc(us.notes || '') + '">',
+          'Shown to the AI alongside the name — say what the section does if it is not obvious.') +
+        field('Status', '<select name="status">' + opt(USEC_STATUS, us.status) + '</select>',
+          'Only confirmed sections are used to tell the AI that a unit is MISSING something.'),
+        async function () {
+          await post({ op: 'compliance.unitsection.save', id: us.id, name: v('name'),
+            notes: v('notes'), status: v('status') });
+          TN.toast('Section saved', 'success'); show('compliance');
+        });
+    }
+    if (D.delUsec) {
+      if (!confirm('Delete this section? It will reappear if another datasheet lists it.')) return;
+      await post({ op: 'compliance.unitsection.delete', id: D.delUsec });
+      TN.toast('Section deleted', 'success'); return show('compliance');
+    }
+    if (t.hasAttribute('data-trust-usecs')) {
+      var res = await post({ op: 'compliance.unitsections.trust_all', product: comp.product });
+      TN.toast(res.changed + ' section(s) confirmed', 'success'); return show('compliance');
     }
     if (t.hasAttribute('data-rebuild-sections')) {
       var r = await post({ op: 'compliance.sections.rebuild', product: comp.product, factory: comp.factory });

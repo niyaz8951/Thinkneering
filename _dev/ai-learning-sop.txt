@@ -48,6 +48,34 @@ Most rows never reach the model at all.
   Only rows still blank after all of this go to the model.
 
 --------------------------------------------------------------------------------
+STAGE 0b — WHAT THE DATASHEET TEACHES (unit sections)
+--------------------------------------------------------------------------------
+
+When a selection report is uploaded, its own section list is read off it:
+Mixing Box, Filter, Empty Section, Coil Cooling DX, Fan, and so on.
+
+Two things happen.
+
+  IMMEDIATELY, for this conversion: every datasheet value is tagged with the
+  section it belongs to, and a clause only sees values from the section it is
+  about. This is what stops a casing clause being answered with the cooling
+  coil's tube thickness — both are "thickness", and without the tag they are
+  indistinguishable to a matcher.
+
+  PERMANENTLY, for the product: each section name is added to the product's
+  catalogue as a DRAFT, with a count of how often it has been seen.
+
+An admin reviews the catalogue in /admin/ -> Compliance -> Unit sections, and
+confirms, renames, annotates or blocks each one. "Confirm all drafts" handles
+a whole datasheet's worth in one press, since they come from one document and
+are usually right or wrong together.
+
+CONFIRMED sections are then used to tell the AI when a clause asks for
+something the selected unit does NOT have. DRAFT sections are never used that
+way — asserting an absence on the strength of an unreviewed PDF parse is
+exactly the kind of confident wrongness this system is built to avoid.
+
+--------------------------------------------------------------------------------
 STAGE 1 — WHAT TRAVELS WITH EACH CLAUSE
 --------------------------------------------------------------------------------
 
@@ -73,6 +101,24 @@ The model works down and stops at the first step that resolves the clause.
 Step 3 may only produce Comply or TO VERIFY. Deviation and Not Comply require
 a real source, because guessing either one misrepresents the factory just as
 badly as a false Comply does.
+
+--------------------------------------------------------------------------------
+STAGE 2b — THE GROUNDING CHECK (after the model answers)
+--------------------------------------------------------------------------------
+
+Every answer is inspected before anyone sees it.
+
+If a remark quotes a measurement that appears in the CLAUSE but in none of the
+sources, the model has restated the requirement as the answer — writing
+"Panel thickness is 50mm" because the clause asked for 50 mm, when the
+datasheet actually said 62 mm. That answer is withdrawn and becomes TO VERIFY
+naming the value needing confirmation.
+
+Only measurements with units are checked. Standard and section numbers are
+references, and repeating them is correct.
+
+The number of withdrawn answers is reported after every run. Treat a rising
+count as a signal that the datasheet is not being read well — not as noise.
 
 --------------------------------------------------------------------------------
 STAGE 3 — WHAT COMES BACK, AND HOW IT IS MARKED
@@ -245,6 +291,16 @@ WHO CAN DO WHAT
 --------------------------------------------------------------------------------
 HONEST LIMITS
 --------------------------------------------------------------------------------
+
+  - A section is only recognised if the datasheet numbers it like "4) Coil
+    Cooling DX Supply". A report laid out differently yields no sections, and
+    the tool falls back to treating every value as whole-unit data — safe,
+    but it loses the cross-section protection.
+
+  - Datasheet field matching uses synonym groups maintained in code. A term
+    nobody has grouped yet means the right field silently fails to reach the
+    clause. If a datasheet value is being ignored, this is the first place to
+    look.
 
   - Clause matching is word-overlap, not meaning. Two clauses saying the same
     thing in different words will not match. Embeddings would fix this and are

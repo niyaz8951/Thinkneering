@@ -13,6 +13,7 @@
 import {
   requireUser, json, PRODUCTS, isValidFactory, complianceTier, withErrorHandling,
   loadFacts, pickFacts, factsBlock, loadSectionProfiles, normPath,
+  learnUnitSections, loadUnitSections, unitSectionsBlock,
 } from '../../_compliance.js';
 
 // Model note (2026-08-02): '@cf/meta/llama-3.1-8b-instruct' was deprecated
@@ -38,6 +39,170 @@ const STATUSES = ['Comply', 'Deviation', 'Not Comply', 'By Contractor', 'TO VERI
 // against the clauses actually being answered. An empty knowledge base is a
 // valid state: the prompt then says so and the model works from the
 // selection datasheet and past verified answers alone.
+
+
+/* ==========================================================================
+   DATASHEET GROUNDING
+   --------------------------------------------------------------------------
+   The failure this exists to stop: a clause says "modules shall be 50 mm
+   thick", the datasheet says "Panel • Insulation: 62 mm", and the model
+   answers "Panel thickness is 50mm" — restating the REQUIREMENT as though it
+   were the product's actual value. That is the most dangerous output this
+   tool can produce, because it reads exactly like a verified fact.
+
+   Three things were wrong, and all three are fixed in code rather than by
+   asking the prompt more firmly:
+
+   1. The model had to find the right field itself, among all 17, with no
+      hint that "casing thickness" and "Panel • Insulation" are the same
+      subject. Now the relevant fields are matched here and attached to the
+      clause they belong to.
+   2. The model had to do the arithmetic. Now the comparison is computed and
+      stated as fact, and the model only writes the sentence.
+   3. Nothing checked the answer afterwards. Now a measurement that appears
+      in the clause but in no source is caught and the answer downgraded.
+   ========================================================================== */
+
+// Vocabulary, not product knowledge: these are words for the same subject in
+// specification English. Deliberately NOT in the database — a factory's facts
+// belong there, but "casing" and "panel" being the same thing is a property
+// of the language, not of any factory. Extend freely.
+const TERM_GROUPS = [
+  ['casing', 'casings', 'panel', 'panels', 'skin', 'wall', 'enclosure', 'module', 'modules'],
+  ['thickness', 'thick', 'depth', 'gauge', 'insulation', 'insulated'],
+  ['filter', 'filters', 'filtration'],
+  ['fan', 'fans', 'blower', 'impeller'],
+  ['coil', 'coils'],
+  ['motor', 'motors', 'drive'],
+  ['control', 'controls', 'controller', 'bms'],
+  ['damper', 'dampers'],
+  ['leakage', 'leak', 'tightness'],
+  ['sound', 'noise', 'acoustic'],
+  ['drain', 'tray', 'pan'],
+  ['frame', 'framework', 'profile'],
+];
+
+function words(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9. ]+/g, ' ').split(/\s+/).filter(w => w.length > 2);
+}
+
+// A clause's vocabulary plus every synonym of it, so "casing" reaches a field
+// labelled "Panel".
+function expandTerms(list) {
+  const out = new Set(list);
+  list.forEach(w => TERM_GROUPS.forEach(g => { if (g.includes(w)) g.forEach(x => out.add(x)); }));
+  return out;
+}
+
+// Field labels arrive tagged with the unit section they came from, e.g.
+// "Coil Cooling DX Supply • Tube Material • Thickness". This reads that tag.
+function sectionOf(label) {
+  const parts = String(label || '').split('\u2022');
+  return parts.length > 1 ? parts[0].trim() : '';
+}
+
+// A field belongs to this clause only if the clause is ABOUT that section.
+//
+// This gate is the whole point of tagging fields by section. The unit in
+// front of us has "Tube Material • Thickness: Copper • 0.4 mm" on the cooling
+// coil. A clause about CASING thickness matches that field on the word
+// "thickness" alone, and would be answered with the coil's tube gauge —
+// a plausible-looking number from the wrong part of the machine, which is
+// worse than no answer at all.
+//
+// Whole-unit data (Unit Data, or an untagged field from the AI extraction
+// pass) is always eligible: it describes the machine, not one section of it.
+function sectionApplies(clauseWords, label) {
+  const sec = sectionOf(label);
+  if (!sec || /^unit$/i.test(sec)) return true;
+  const secWords = words(sec).filter(w => w !== 'supply' && w !== 'return' && w !== 'section');
+  if (!secWords.length) return true;
+  return secWords.some(w => clauseWords.has(w));
+}
+
+// The datasheet fields that actually concern THIS clause, best first.
+function fieldsForClause(clauseText, fields, limit = 4) {
+  const want = expandTerms(words(clauseText));
+  return fields
+    .filter(f => sectionApplies(want, f.label))
+    .map(f => {
+      const ft = words(f.label + ' ' + f.value);
+      let hits = 0;
+      for (const w of ft) if (want.has(w)) hits++;
+      return { f, score: ft.length ? hits / Math.sqrt(ft.length) : 0 };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(x => x.f);
+}
+
+// Numbers that carry a unit of measurement. Bare numbers are ignored on
+// purpose: "AHRI 430" and "Section 237313" are references, not measurements,
+// and restating them is perfectly correct.
+const MEASURE_RE = /(\d+(?:\.\d+)?)\s*(mm|cm|m|kg|kw|w|pa|%|micron|deg|°c)\b/gi;
+
+function measurements(text) {
+  const out = [];
+  const re = new RegExp(MEASURE_RE);
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    out.push({ n: parseFloat(m[1]), unit: m[2].toLowerCase(), raw: m[0].trim() });
+  }
+  return out;
+}
+
+// The arithmetic, done here so the model never has to. It states facts and
+// refuses to conclude: whether 62mm against a 50mm requirement is Comply or
+// Deviation is a commercial judgement, and that stays with the model and the
+// engineer reviewing it.
+function numericCheck(clauseText, relevant) {
+  const req = measurements(clauseText);
+  if (!req.length || !relevant.length) return '';
+  const lines = [];
+  for (const r of req) {
+    for (const f of relevant) {
+      const got = measurements(f.value).filter(g => g.unit === r.unit);
+      for (const g of got) {
+        const verdict = g.n === r.n ? 'the same as'
+          : g.n > r.n ? 'GREATER than'
+          : 'LESS than';
+        lines.push(
+          `  - Clause requires ${r.raw}. Datasheet "${f.label}" is ${g.raw}, which is ${verdict} the requirement. ` +
+          `The product's actual value is ${g.raw} — state ${g.raw}, never ${r.raw}.`
+        );
+      }
+    }
+  }
+  if (!lines.length) return '';
+  return `\n  COMPUTED MEASUREMENT CHECK (arithmetic already done for you — do not recalculate):\n` +
+    lines.join('\n');
+}
+
+// Last line of defence. If a remark quotes a measurement that appears in the
+// clause and in none of the sources, the model has restated the requirement
+// as the answer. That answer is withdrawn rather than shown — a blank row
+// costs a few minutes, a fabricated dimension costs a commitment.
+function guardRestatement(suggestion, clauseText, sourceText) {
+  if (!suggestion || !suggestion.remarks) return suggestion;
+  const inRemark = measurements(suggestion.remarks);
+  if (!inRemark.length) return suggestion;
+  const inClause = measurements(clauseText);
+  const inSource = measurements(sourceText);
+  const supported = (m) => inSource.some(s => s.n === m.n && s.unit === m.unit);
+  const fromClause = (m) => inClause.some(c => c.n === m.n && c.unit === m.unit);
+
+  const offending = inRemark.filter(m => !supported(m) && fromClause(m));
+  if (!offending.length) return suggestion;
+
+  return {
+    status: 'TO VERIFY',
+    remarks: 'Requires confirmation of ' + offending.map(m => m.raw).join(', ') +
+             ' against the selected unit — the specification value cannot be quoted as the product value.',
+    verified: false,
+    guarded: true,
+  };
+}
 
 function buildSystemPrompt(product, factory, itemCount, hasDatasheet, reference) {
   return (
@@ -88,6 +253,7 @@ REMARK STYLE (consultant-facing):
 - Definitive, concise, one or two sentences that close the issue.
 - Forbidden words: should, approximately, typically, expected, likely, we believe.
 - Never mention internal catalogues, datasheets, selection reports, or file names — state the value itself, not its source document.
+- NEVER REPEAT A MEASUREMENT FROM THE CLAUSE AS THE PRODUCT'S VALUE. The clause states what is REQUIRED; only a datasheet field or a past verified answer states what the product IS. If the clause asks for 50 mm and the datasheet says 62 mm, the answer says 62 mm. If the clause asks for 50 mm and no source states a thickness at all, you do not know the thickness — that is TO VERIFY, not "50 mm".
 - Follow the wording style of the past verified answers closely.
 
 EXAMPLES OF THE OUTPUT QUALITY EXPECTED (format only — do not reuse this content):
@@ -144,6 +310,16 @@ async function handlePost(context) {
     .slice(0, 40)
     .map(f => ({ label: String(f.label || '').slice(0, 80), value: String(f.value || '').slice(0, 200) }))
     .filter(f => f.label && f.value);
+  // The sections this unit is built from, read off the selection report.
+  // Learned into the product's catalogue as drafts for an admin to confirm —
+  // a datasheet is evidence, not authority.
+  const unitSections = (Array.isArray(body.unitSections) ? body.unitSections : [])
+    .map(n => String(n || '').trim()).filter(Boolean).slice(0, 30);
+  if (unitSections.length) {
+    try { await learnUnitSections(context, product, unitSections); }
+    catch (err) { console.error('[ai-suggest] could not learn unit sections:', err && err.message); }
+  }
+
   const selectionRaw = String(body.selection || '').slice(0, 1500).trim();
   const hasDatasheet = fields.length > 0 || selectionRaw.length >= 40;
 
@@ -167,6 +343,7 @@ async function handlePost(context) {
   const clauseTexts = items.map(it => String(it.spec || '') + ' ' + String(it.path || ''));
   const reference = factsBlock(product, factory, pickFacts(clauseTexts, await loadFacts(context, product, factory)));
   const profiles = await loadSectionProfiles(context, product, factory, items.map(it => it.path || ''));
+  const sectionBlock = unitSectionsBlock(product, unitSections, await loadUnitSections(context, product));
 
   const clauseBlock = items.map((it, i) => {
     const spec = String(it.spec || '').slice(0, MAX_TEXT);
@@ -184,13 +361,25 @@ async function handlePost(context) {
       ? `\n  About this section (learned from ${prof.n_answers} confirmed answer(s)): ${prof.summary}` +
         (prof.typical_status ? `\n  Status most often correct here: ${prof.typical_status}` : '')
       : '';
+    // The datasheet fields that concern THIS clause, attached to it rather
+    // than left in a list of seventeen at the top of the prompt for the
+    // model to search. This is what connects "casing thickness" to a field
+    // labelled "Panel • Insulation".
+    const relevant = fieldsForClause(spec + ' ' + path, fields);
+    const fieldLines = relevant.length
+      ? `\n  DATASHEET FIELDS FOR THIS CLAUSE (authorized source #1 — the product's ACTUAL values):\n` +
+        relevant.map(f => `    - ${f.label}: ${f.value}`).join('\n')
+      : (fields.length ? '\n  No datasheet field matches this clause.' : '');
+
     return `CLAUSE ${i + 1}: "${spec}"` +
       (path ? `\n  Location in specification: ${path}` : '') + profLine +
+      fieldLines + numericCheck(spec, relevant) +
       (ctx ? `\n  Past verified answers (Step 2 source):\n${ctx}`
            : '\n  Past verified answers: none for this clause.');
   }).join('\n\n');
 
-  const userMsg = (datasheetBlock ? datasheetBlock + '\n' : '') + clauseBlock;
+  const userMsg = (datasheetBlock ? datasheetBlock + '\n' : '') +
+                  (sectionBlock ? sectionBlock + '\n' : '') + clauseBlock;
 
   // ---- ask, then ask again if the answer was empty ---------------------
   // An 8B model under a JSON grammar will occasionally satisfy the schema
@@ -244,7 +433,17 @@ async function handlePost(context) {
     passes = 3;
   }
 
-  const suggestions = attempt.suggestions;
+  // Every answer is checked for restated requirements before it is returned,
+  // logged as a suggestion, or shown to anyone.
+  let guarded = 0;
+  const sourceText = fields.map(f => f.label + ' ' + f.value).join(' ') + ' ' + selectionRaw + ' ' +
+    items.map(it => (Array.isArray(it.context) ? it.context : [])
+      .map(c => String(c.compliance || '') + ' ' + String(c.remarks || '')).join(' ')).join(' ');
+  const suggestions = attempt.suggestions.map((sg, i) => {
+    const checked = guardRestatement(sg, String(items[i] && items[i].spec || ''), sourceText);
+    if (checked && checked.guarded) guarded++;
+    return checked;
+  });
 
   // Record what we just proposed. This is the half of the training
   // comparison that cannot be reconstructed later: the exported matrix only
@@ -272,7 +471,7 @@ async function handlePost(context) {
     console.error('[ai-suggest] could not record suggestions:', err && err.message);
   }
 
-  const out = { suggestions, model: MODEL, passes };
+  const out = { suggestions, model: MODEL, passes, guarded };
   if (!usable(suggestions)) {
     // Genuinely nothing after three tries. Log the raw output for the
     // Functions log and hand a snippet back, so this stays diagnosable
