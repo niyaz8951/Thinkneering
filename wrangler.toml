@@ -1,0 +1,14 @@
+name = "thinkneering"
+pages_build_output_dir = "."
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "thinkneering-db"
+database_id = "cac87d3e-c9c0-4d20-978c-58a859df95ea"
+
+# Optional, only needed once you want to upload book images from the admin
+# panel instead of pasting URLs. Ask before wiring this up.
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "thinkneering-media"
