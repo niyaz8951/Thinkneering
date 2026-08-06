@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=4">
+  <title>Create an account — Thinkneering</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+  <main id="main" class="auth-wrap">
+    <div class="panel">
+      <h1 style="font-size:1.5rem">Create an account</h1>
+      <p class="muted" style="margin-top:var(--space-2)">Unlocks AI review, saved projects and everything an admin grants you.</p>
+      <div id="error" hidden style="margin-top:var(--space-3)"></div>
+      <form id="form" style="margin-top:var(--space-4)" novalidate>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+          <p class="hint">At least 8 characters.</p>
+        </div>
+        <button class="btn btn--primary btn--block" style="margin-top:var(--space-4)" type="submit">Create account</button>
+      </form>
+      <p class="hint" style="margin-top:var(--space-4)">Already registered? <a href="/login/">Sign in</a>.</p>
+    </div>
+  </main>
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=4"></script>
+  <script>
+    var next = new URLSearchParams(location.search).get('next') || '/';
+    TN.el('#form').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var box = TN.el('#error'); box.hidden = true;
+      try {
+        var res = await TN.api('/api/auth/signup', { method: 'POST', body: {
+          name: TN.el('#name').value, email: TN.el('#email').value, password: TN.el('#password').value } });
+        if (res.status === 'pending') {
+          box.hidden = false; box.className = 'notice notice--success';
+          box.innerHTML = '<div>' + TN.esc(res.message) + '</div>';
+          TN.el('#form').reset();
+          return;
+        }
+        location.href = next;
+      } catch (err) {
+        box.hidden = false; box.className = 'notice notice--danger';
+        box.innerHTML = '<div>' + TN.esc(err.message) + '</div>';
+      }
+    });
+  </script>
+</body>
+</html>
