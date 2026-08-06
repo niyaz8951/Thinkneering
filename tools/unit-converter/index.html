@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=4">
+  <title>Unit converter — Thinkneering</title>
+  <meta name="description" content="Convert length, mass, temperature, pressure, area, volume and airflow.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Unit converter</h1>
+      <p>Pick a quantity, type a value, read every equivalent at once.</p>
+    </div>
+    <section class="panel">
+      <div class="field-row">
+        <div class="field"><label for="quantity">Quantity</label><select id="quantity"></select></div>
+        <div class="field"><label for="value">Value</label><input id="value" type="number" value="1" step="any"></div>
+        <div class="field"><label for="unit">Unit</label><select id="unit"></select></div>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:var(--space-4)">
+      <h2>Equivalents</h2>
+      <div id="out" style="margin-top:var(--space-3)"></div>
+    </section>
+  </main>
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=4"></script>
+  <script>
+    // Each unit is expressed as a factor to the quantity's base unit.
+    var Q = {
+      Length: { base: 'm', units: { m: 1, mm: 0.001, cm: 0.01, km: 1000, in: 0.0254, ft: 0.3048, yd: 0.9144, mi: 1609.344 } },
+      Mass: { base: 'kg', units: { kg: 1, g: 0.001, t: 1000, lb: 0.45359237, oz: 0.028349523 } },
+      Area: { base: 'm²', units: { 'm²': 1, 'cm²': 0.0001, 'ft²': 0.09290304, 'in²': 0.00064516, acre: 4046.8564 } },
+      Volume: { base: 'L', units: { L: 1, mL: 0.001, 'm³': 1000, gal: 3.785411784, 'ft³': 28.316847 } },
+      Pressure: { base: 'Pa', units: { Pa: 1, kPa: 1000, bar: 100000, psi: 6894.757, mmHg: 133.322, inH2O: 249.0889 } },
+      Airflow: { base: 'L/s', units: { 'L/s': 1, 'm³/h': 0.2777778, cfm: 0.4719474 } },
+      Power: { base: 'W', units: { W: 1, kW: 1000, hp: 745.6999, 'BTU/h': 0.29307107, TR: 3516.8528 } },
+      Temperature: { special: true, units: ['°C', '°F', 'K'] }
+    };
+
+    function toC(v, u) { return u === '°C' ? v : u === '°F' ? (v - 32) * 5 / 9 : v - 273.15; }
+    function fromC(c, u) { return u === '°C' ? c : u === '°F' ? c * 9 / 5 + 32 : c + 273.15; }
+    var fmt = function (n) {
+      if (!isFinite(n)) return '—';
+      var a = Math.abs(n);
+      return (a !== 0 && (a < 0.001 || a >= 1e7)) ? n.toExponential(4) : Number(n.toPrecision(7)).toString();
+    };
+
+    var qSel = TN.el('#quantity'), uSel = TN.el('#unit'), val = TN.el('#value');
+    qSel.innerHTML = Object.keys(Q).map(function (k) { return '<option>' + k + '</option>'; }).join('');
+
+    function fillUnits() {
+      var q = Q[qSel.value];
+      var list = q.special ? q.units : Object.keys(q.units);
+      uSel.innerHTML = list.map(function (u) { return '<option>' + u + '</option>'; }).join('');
+      convert();
+    }
+    function convert() {
+      var q = Q[qSel.value], v = Number(val.value), from = uSel.value, out;
+      if (q.special) {
+        var c = toC(v, from);
+        out = q.units.map(function (u) { return [u, fromC(c, u)]; });
+      } else {
+        var baseVal = v * q.units[from];
+        out = Object.keys(q.units).map(function (u) { return [u, baseVal / q.units[u]]; });
+      }
+      TN.el('#out').innerHTML = '<div class="table-wrap"><table class="data"><tbody>' +
+        out.map(function (r) {
+          return '<tr><th scope="row">' + TN.esc(r[0]) + '</th><td class="num">' + fmt(r[1]) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    qSel.addEventListener('change', fillUnits);
+    uSel.addEventListener('change', convert);
+    val.addEventListener('input', convert);
+    fillUnits();
+  </script>
+</body>
+</html>
