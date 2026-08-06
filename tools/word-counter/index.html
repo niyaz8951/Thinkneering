@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=4">
+  <title>Word counter — Thinkneering</title>
+  <meta name="description" content="Live word, character, sentence and reading-time counts. Free, in your browser.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Word counter</h1>
+      <p>Counts update as you type. Nothing is uploaded.</p>
+    </div>
+    <section class="panel">
+      <div class="field">
+        <label for="text">Your text</label>
+        <textarea id="text" style="min-height:220px" placeholder="Start typing or paste your text."></textarea>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:var(--space-4)">
+      <h2>Counts</h2>
+      <div class="stat-grid" id="stats" style="margin-top:var(--space-3)"></div>
+    </section>
+  </main>
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=4"></script>
+  <script>
+    var box = TN.el('#text');
+    function update() {
+      var t = box.value;
+      var words = (t.trim().match(/\S+/g) || []).length;
+      var stats = [
+        ['Words', words],
+        ['Characters', t.length],
+        ['Characters, no spaces', t.replace(/\s/g, '').length],
+        ['Sentences', (t.match(/[^.!?]+[.!?]+/g) || []).length],
+        ['Paragraphs', (t.split(/\n{2,}/).filter(function (p) { return p.trim(); })).length],
+        ['Reading time', Math.max(1, Math.round(words / 220)) + ' min']
+      ];
+      TN.el('#stats').innerHTML = stats.map(function (s) {
+        return '<div class="stat"><div class="stat__value">' + s[1] + '</div><div class="stat__label">' + s[0] + '</div></div>';
+      }).join('');
+    }
+    box.addEventListener('input', update);
+    update();
+  </script>
+</body>
+</html>
