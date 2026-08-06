@@ -1,8 +1,0 @@
-# Clean URLs for data-driven pages. One HTML file serves every section and book.
-# Destinations are extensionless: Pages strips `.html` and `/index` before
-# matching, so pointing at /s/index.html would normalise back onto /s/* and be
-# rejected as a loop.
-/s        /section   200
-/s/*      /section   200
-/read     /reader    200
-/read/*   /reader    200
