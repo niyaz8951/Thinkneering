@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Process Map — Tender to site delivery | Thinkneering</title>
+<meta name="description" content="Map an HVAC equipment supply process from tender to units delivered on site. Forecasts the delivery date from lead times, flags where orders usually stall, and drafts SOPs and inspection plans.">
+<link rel="stylesheet" href="/assets/css/global.css?v=12">
+<link rel="stylesheet" href="/tools/process-map/process-map.css?v=2">
+</head>
+<body>
+
+<div data-site-header></div>
+
+<main class="pm-page">
+
+  <!-- ── Title + description ───────────────────────────────── -->
+  <header class="pm-intro">
+    <h1>Process Map</h1>
+    <p>Map an equipment supply process from tender enquiry to units handed over on site. Enter lead times and the tool forecasts the delivery date, shows the critical path, and flags the places these orders usually stall — missing compliance matrix, no resubmittal loop, no witness test, no conformity certificate.</p>
+  </header>
+
+  <!-- ── Project details ───────────────────────────────────── -->
+  <section class="pm-panel pm-controls" aria-label="Project details and map controls">
+    <div class="pm-controls-row">
+      <label class="pm-field pm-field-grow">
+        <span class="pm-label">Process name</span>
+        <input id="pm-title" type="text" class="pm-input" placeholder="e.g. AHU supply — Tower B" autocomplete="off">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Project / order ref</span>
+        <input id="p-code" type="text" class="pm-input" placeholder="PRJ-2026-041" autocomplete="off">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Template</span>
+        <select id="pm-template" class="pm-input"></select>
+      </label>
+    </div>
+
+    <div class="pm-controls-row">
+      <label class="pm-field">
+        <span class="pm-label">Consultant</span>
+        <input id="p-consultant" type="text" class="pm-input" autocomplete="off">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Main contractor</span>
+        <input id="p-contractor" type="text" class="pm-input" autocomplete="off">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Product line</span>
+        <select id="p-product" class="pm-input"></select>
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Factory</span>
+        <select id="p-factory" class="pm-input"></select>
+      </label>
+    </div>
+
+    <div class="pm-controls-row">
+      <label class="pm-field">
+        <span class="pm-label">Process starts</span>
+        <input id="p-start" type="date" class="pm-input">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Required on site</span>
+        <input id="p-required" type="date" class="pm-input">
+      </label>
+      <label class="pm-field">
+        <span class="pm-label">Working days per week</span>
+        <select id="p-workweek" class="pm-input">
+          <option value="5">5 (Sun–Thu / Mon–Fri)</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="pm-controls-row pm-controls-secondary">
+      <div class="pm-btn-group pm-wrap">
+        <button type="button" class="pm-btn pm-btn-primary" id="pm-add">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Add card
+        </button>
+        <button type="button" class="pm-btn" id="pm-layout">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M14 6h7M3 12h18M3 18h7M14 18h7"/></svg>
+          Tidy by stage
+        </button>
+        <button type="button" class="pm-btn" id="pm-save">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+          Save
+        </button>
+        <button type="button" class="pm-btn" id="pm-export-open">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Export
+        </button>
+        <button type="button" class="pm-btn" id="pm-new">New</button>
+      </div>
+      <p class="pm-status" id="pm-status" role="status" aria-live="polite">Not saved yet</p>
+    </div>
+  </section>
+
+  <!-- ── Delivery forecast ─────────────────────────────────── -->
+  <section class="pm-forecast is-neutral" id="pm-forecast" aria-label="Delivery forecast">
+    <div class="pm-forecast-cell">
+      <span class="pm-forecast-label">Critical path</span>
+      <strong class="pm-forecast-value" id="pm-forecast-lead">—</strong>
+    </div>
+    <div class="pm-forecast-cell">
+      <span class="pm-forecast-label">Forecast on site</span>
+      <strong class="pm-forecast-value" id="pm-forecast-date">—</strong>
+    </div>
+    <div class="pm-forecast-cell">
+      <span class="pm-forecast-label">Required on site</span>
+      <strong class="pm-forecast-value" id="pm-forecast-required">—</strong>
+    </div>
+    <p class="pm-forecast-slack" id="pm-forecast-slack">Set a start date and a required-on-site date to forecast delivery.</p>
+  </section>
+
+  <!-- ── Workspace ─────────────────────────────────────────── -->
+  <section class="pm-workspace" aria-label="Process workspace">
+
+    <div class="pm-workspace-bar">
+      <div class="pm-seg" role="tablist" aria-label="View">
+        <button type="button" class="pm-seg-btn is-active" role="tab" aria-selected="true" data-view="map">Map</button>
+        <button type="button" class="pm-seg-btn" role="tab" aria-selected="false" data-view="outline">Outline</button>
+        <button type="button" class="pm-seg-btn" role="tab" aria-selected="false" data-view="timeline">Critical path</button>
+      </div>
+      <label class="pm-field pm-field-inline">
+        <span class="pm-label">Find a card</span>
+        <input id="pm-search" type="search" class="pm-input" placeholder="submittal, customs, QA…" autocomplete="off">
+      </label>
+      <label class="pm-toggle">
+        <input type="checkbox" id="pm-lanes" checked>
+        <span>Stage lanes</span>
+      </label>
+    </div>
+
+    <div class="pm-palette" role="toolbar" aria-label="Add a card">
+      <span class="pm-palette-label">Add</span>
+      <div class="pm-palette-list" id="pm-palette"></div>
+    </div>
+
+    <div class="pm-canvas-wrap" id="pm-view-map">
+      <svg id="pm-canvas" class="pm-canvas" role="application"
+           aria-label="Process map. Tab moves between cards, Enter edits, arrow keys nudge, N adds the next step."
+           xmlns="http://www.w3.org/2000/svg">
+        <defs id="pm-defs"></defs>
+        <g id="pm-scene">
+          <g id="pm-lanes-layer"></g>
+          <g id="pm-edges"></g>
+          <g id="pm-nodes"></g>
+          <g id="pm-overlay"></g>
+        </g>
+      </svg>
+
+      <div class="pm-zoom" role="group" aria-label="Zoom">
+        <button type="button" class="pm-icon-btn" id="pm-zoom-in" aria-label="Zoom in">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5v12M5 11h12"/></svg>
+        </button>
+        <button type="button" class="pm-icon-btn" id="pm-zoom-out" aria-label="Zoom out">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h12"/></svg>
+        </button>
+        <button type="button" class="pm-icon-btn" id="pm-zoom-fit" aria-label="Fit to screen">
+          <svg class="pm-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+      </div>
+
+      <svg id="pm-minimap" class="pm-minimap" aria-hidden="true"></svg>
+
+      <p class="pm-empty" id="pm-empty">Empty process. Load a template above, or add your first card.</p>
+    </div>
+
+    <div class="pm-legend" id="pm-legend" aria-label="Stage colours"></div>
+
+    <div class="pm-list-view" id="pm-view-outline" hidden>
+      <div id="pm-outline"></div>
+    </div>
+
+    <div class="pm-list-view" id="pm-view-timeline" hidden>
+      <div id="pm-timeline"></div>
+    </div>
+  </section>
+
+  <!-- ── Results ───────────────────────────────────────────── -->
+  <section class="pm-results" aria-label="Card details, assistant and analysis">
+
+    <div class="pm-panel pm-inspector">
+      <h2 class="pm-panel-title">Card details</h2>
+      <p class="pm-muted" id="pm-inspector-empty">Select a card to edit it.</p>
+
+      <form class="pm-form" id="pm-form" hidden>
+        <div class="pm-field-row">
+          <label class="pm-field">
+            <span class="pm-label">Card type</span>
+            <select class="pm-input" id="f-type"></select>
+          </label>
+          <label class="pm-field">
+            <span class="pm-label">Stage</span>
+            <select class="pm-input" id="f-stage"></select>
+          </label>
+        </div>
+        <label class="pm-field">
+          <span class="pm-label">Title</span>
+          <input class="pm-input" id="f-title" type="text" autocomplete="off">
+        </label>
+        <label class="pm-field">
+          <span class="pm-label">What happens here</span>
+          <textarea class="pm-input" id="f-desc" rows="3"></textarea>
+        </label>
+        <label class="pm-field">
+          <span class="pm-label">Responsible party</span>
+          <select class="pm-input" id="f-party"></select>
+        </label>
+        <div class="pm-field-row">
+          <label class="pm-field">
+            <span class="pm-label">Named owner</span>
+            <input class="pm-input" id="f-owner" type="text" autocomplete="off">
+          </label>
+          <label class="pm-field">
+            <span class="pm-label">Document ref</span>
+            <input class="pm-input" id="f-docref" type="text" placeholder="TS-014 Rev B" autocomplete="off">
+          </label>
+        </div>
+        <div class="pm-field-row">
+          <label class="pm-field">
+            <span class="pm-label">Lead time</span>
+            <input class="pm-input" id="f-lead" type="number" min="0" step="0.5" inputmode="decimal">
+          </label>
+          <label class="pm-field">
+            <span class="pm-label">Measured in</span>
+            <select class="pm-input" id="f-unit"></select>
+          </label>
+        </div>
+        <label class="pm-field">
+          <span class="pm-label">Tags</span>
+          <input class="pm-input" id="f-tags" type="text" placeholder="compliance-matrix, long-lead, customs" autocomplete="off">
+        </label>
+
+        <fieldset class="pm-fieldset">
+          <legend class="pm-label">Standards referenced</legend>
+          <div class="pm-check-grid" id="f-standards"></div>
+        </fieldset>
+
+        <label class="pm-field">
+          <span class="pm-label">Notes</span>
+          <textarea class="pm-input" id="f-notes" rows="2"></textarea>
+        </label>
+
+        <div class="pm-ai-summary" id="pm-ai-summary" hidden>
+          <span class="pm-badge">AI summary</span>
+          <p id="pm-ai-summary-text"></p>
+        </div>
+
+        <div class="pm-btn-group pm-wrap">
+          <button type="button" class="pm-btn pm-btn-primary" id="pm-ai-card">Summarise with AI</button>
+          <button type="button" class="pm-btn" id="pm-connect">Connect to…</button>
+          <button type="button" class="pm-btn pm-btn-danger" id="pm-delete">Delete card</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="pm-panel pm-assistant">
+      <h2 class="pm-panel-title">AI assistant</h2>
+      <div class="pm-btn-group pm-wrap">
+        <button type="button" class="pm-btn" data-ai="explain_process">Explain this process</button>
+        <button type="button" class="pm-btn" data-ai="submittal_readiness">Submittal readiness</button>
+        <button type="button" class="pm-btn" data-ai="delivery_risk">Delivery risk</button>
+        <button type="button" class="pm-btn" data-ai="bottlenecks">Bottleneck analysis</button>
+        <button type="button" class="pm-btn" data-ai="detect_missing">Find missing steps</button>
+        <button type="button" class="pm-btn" data-ai="optimize">Where time is lost</button>
+        <button type="button" class="pm-btn" data-ai="risk_register">Risk register</button>
+        <button type="button" class="pm-btn" data-ai="generate_sop">Generate SOP</button>
+        <button type="button" class="pm-btn" data-ai="generate_itp">Inspection &amp; test plan</button>
+        <button type="button" class="pm-btn" data-ai="delivery_checklist">Site delivery checklist</button>
+        <button type="button" class="pm-btn" data-ai="consultant_response">Draft consultant response</button>
+        <button type="button" class="pm-btn" data-ai="generate_quiz">Training quiz</button>
+      </div>
+      <div class="pm-ai-output" id="pm-ai-output" role="status" aria-live="polite">
+        <p class="pm-muted">Output appears here. Everything the assistant writes is a draft — an application engineer checks it before it goes out.</p>
+      </div>
+    </div>
+
+    <div class="pm-panel pm-analytics">
+      <h2 class="pm-panel-title">Process health</h2>
+      <div class="pm-health">
+        <div class="pm-score" id="pm-score" aria-label="Process health score">
+          <span class="pm-score-value">—</span><span class="pm-score-max">/100</span>
+        </div>
+        <p class="pm-muted">Checked against the supply rule set: approval loops, witness tests, conformity certificates, payment gates, site access and delivery dates. Calculated on this device, no AI.</p>
+      </div>
+
+      <h3 class="pm-subhead">Findings</h3>
+      <ul class="pm-findings" id="pm-findings"></ul>
+
+      <h3 class="pm-subhead">Time by stage</h3>
+      <div id="pm-stage-breakdown"></div>
+
+      <h3 class="pm-subhead">Numbers</h3>
+      <dl class="pm-metrics" id="pm-metrics"></dl>
+    </div>
+  </section>
+
+  <p class="pm-footnote">
+    Double-click a card to edit it. Drag from the right-hand handle onto another card to connect them, or click a
+    connector to change its type. <kbd>Tab</kbd> moves between cards, <kbd>N</kbd> adds the next step,
+    <kbd>Delete</kbd> removes one. Lead times in working days convert to calendar days using the working week above.
+  </p>
+</main>
+
+<dialog class="pm-dialog" id="pm-export">
+  <h2 class="pm-panel-title">Export</h2>
+  <div class="pm-btn-group pm-wrap">
+    <button type="button" class="pm-btn" data-export="md">Markdown report</button>
+    <button type="button" class="pm-btn" data-export="csv">CSV (Excel)</button>
+    <button type="button" class="pm-btn" data-export="svg">SVG</button>
+    <button type="button" class="pm-btn" data-export="png">PNG</button>
+    <button type="button" class="pm-btn" data-export="json">JSON</button>
+  </div>
+  <p class="pm-muted pm-note">The Markdown report and CSV include stage, responsible party, lead time, standards and critical-path flag per card.</p>
+  <button type="button" class="pm-btn pm-btn-primary" id="pm-export-close">Close</button>
+</dialog>
+
+<dialog class="pm-dialog" id="pm-connect-dialog">
+  <h2 class="pm-panel-title">Connect cards</h2>
+  <label class="pm-field">
+    <span class="pm-label">Connect to</span>
+    <select class="pm-input" id="pm-connect-target"></select>
+  </label>
+  <label class="pm-field">
+    <span class="pm-label">Relationship</span>
+    <select class="pm-input" id="pm-connect-kind"></select>
+  </label>
+  <label class="pm-field">
+    <span class="pm-label">Label</span>
+    <input class="pm-input" id="pm-connect-label" type="text" placeholder="Approved / Revise &amp; resubmit / Released" autocomplete="off">
+  </label>
+  <div class="pm-btn-group pm-wrap">
+    <button type="button" class="pm-btn pm-btn-primary" id="pm-connect-confirm">Save</button>
+    <button type="button" class="pm-btn pm-btn-danger" id="pm-connect-delete" hidden>Delete connector</button>
+    <button type="button" class="pm-btn" id="pm-connect-cancel">Cancel</button>
+  </div>
+</dialog>
+
+<div data-site-footer></div>
+
+<script src="/assets/js/global.js?v=12" defer></script>
+<script src="/tools/process-map/domain-hvac.js?v=1" defer></script>
+<script src="/tools/process-map/process-map.js?v=2" defer></script>
+</body>
+</html>
