@@ -33,6 +33,19 @@
   <script>
     (async function () {
       var path = location.pathname.replace(/^\/s\/?/, '').replace(/\/$/, '');
+
+      // Direct route exceptions
+      var directRoutes = {
+        "knowledge": "/tools/knowledge/",
+        "compliance-maker": "/tools/compliance-maker/"
+      };
+
+      if (directRoutes[path]) {
+        location.replace(directRoutes[path]);
+        return;
+      }
+
+
       if (!path) { location.href = '/'; return; }
       try {
         var d = await TN.api('/api/catalog?path=' + encodeURIComponent(path));
