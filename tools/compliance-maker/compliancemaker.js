@@ -1949,7 +1949,7 @@
     // Load the library first if it is not cached yet: without it the answer
     // has no past precedent to follow, which is most of what makes it right.
     loadLibrary(pf.product, pf.factory).catch(function () { return null; }).then(function () {
-    return fetch('/api/compliance/ask', {
+    return fetch('/api/ask', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         product: pf.product, factory: pf.factory, question: q,
