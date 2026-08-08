@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=7">
+  <link rel="stylesheet" href="/assets/css/hvac-calc.css?v=1">
+  <title>HVAC Calculators — Thinkneering</title>
+  <meta name="description" content="Cooling load, psychrometrics, duct sizing, airflow, fan laws and chilled water calculators for HVAC engineers.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow"><a href="/s/hvac">HVAC</a> / Calculators</p>
+      <h1>HVAC Calculators</h1>
+      <p>Engineering calculators for load estimation, air and water side sizing. Every tool shows its formulas and states its limits — the numbers support your review, they don't replace it.</p>
+    </div>
+
+    <section class="section-block">
+      <div class="section-block__head"><h2>Calculators</h2></div>
+      <div class="calc-grid" id="calc-grid"></div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-block__head"><h2>Coming next</h2></div>
+      <div class="calc-grid" id="calc-soon"></div>
+    </section>
+
+    <section class="section-block">
+      <div class="notice">
+        <div>
+          <strong>How to read these results.</strong>
+          Every calculator states the equations it uses and what it does not account for.
+          Values from the built-in libraries — design conditions, U-values, gain densities —
+          are starting points, not project data. Confirm them against the basis of design
+          before anything reaches a submission.
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer data-site-footer></footer>
+
+  <script src="/assets/js/global.js?v=7"></script>
+  <script>
+    (function () {
+      var LIVE = [
+        { slug: 'cooling-load', icon: 'thermometer', title: 'Cooling Load Estimator',
+          desc: 'Room and multi-zone sensible/latent load with a component breakdown, 24-hour profile and block-load diversity.',
+          tags: ['Multi-zone', 'Design day'] },
+        { slug: 'psychrometrics', icon: 'droplet', title: 'Psychrometrics & Coil',
+          desc: 'Full moist-air state from any two properties, plotted on an interactive psychrometric chart, plus cooling coil duty and SHR.',
+          tags: ['Chart', 'Coil'] },
+        { slug: 'duct-sizer', icon: 'wind', title: 'Duct Sizer',
+          desc: 'Equal-friction and velocity sizing, round and rectangular, with Colebrook friction and pressure drop.',
+          tags: ['Darcy-Weisbach'] },
+        { slug: 'airflow', icon: 'repeat', title: 'Airflow & Air Changes',
+          desc: 'Convert between flow units, size airflow from a sensible load, and check air changes per hour.',
+          tags: ['Units', 'ACH'] },
+        { slug: 'chilled-water', icon: 'snowflake', title: 'Chilled Water & Pipe Sizing',
+          desc: 'Flow rate from duty and delta-T, pipe selection against velocity and friction limits, pump head and power.',
+          tags: ['Hydronics'] },
+        { slug: 'fan-laws', icon: 'fan', title: 'Fan Laws',
+          desc: 'Scale flow, pressure and power with speed or diameter, with the system curve plotted.',
+          tags: ['Affinity laws'] }
+      ];
+
+      var SOON = [
+        { icon: 'gauge', title: 'External Static Pressure', desc: 'Build up fan ESP from coil, filter, duct run and terminal losses.' },
+        { icon: 'users', title: 'Outdoor Air Rates', desc: 'Ventilation rates against ASHRAE 62.1, Dubai Green Building and SBC requirements.' },
+        { icon: 'droplet', title: 'Condensation Risk', desc: 'Surface temperature against dew point for ducts, pipes and glazing.' },
+        { icon: 'activity', title: 'Thermal Comfort', desc: 'PMV and PPD from the six comfort parameters.' }
+      ];
+
+      function card(c) {
+        return '<a class="calc-card" href="/tools/hvac/' + c.slug + '/">' +
+          '<span class="calc-card__icon">' + TN.icon(c.icon, 20) + '</span>' +
+          '<span class="calc-card__title">' + TN.esc(c.title) + '</span>' +
+          '<span class="calc-card__desc">' + TN.esc(c.desc) + '</span>' +
+          '<span class="calc-card__foot">' +
+          c.tags.map(function (t) { return '<span class="chip">' + TN.esc(t) + '</span>'; }).join('') +
+          '</span></a>';
+      }
+
+      function soonCard(c) {
+        return '<div class="calc-card calc-card--soon">' +
+          '<span class="calc-card__icon">' + TN.icon(c.icon, 20) + '</span>' +
+          '<span class="calc-card__title">' + TN.esc(c.title) + '</span>' +
+          '<span class="calc-card__desc">' + TN.esc(c.desc) + '</span>' +
+          '<span class="calc-card__foot"><span class="chip">Planned</span></span></div>';
+      }
+
+      document.getElementById('calc-grid').innerHTML = LIVE.map(card).join('');
+      document.getElementById('calc-soon').innerHTML = SOON.map(soonCard).join('');
+    })();
+  </script>
+</body>
+</html>

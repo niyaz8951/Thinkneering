@@ -516,3 +516,35 @@ body.is-reading main { padding-bottom: var(--space-7); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ------------------------------------------- HVAC chart tokens (v7) */
+/* Categorical series colours for engineering charts. Semantic tokens
+   (--color-danger etc.) carry the wrong meaning on a chart series, so
+   these are a separate scale. Dark variants mirror the site's existing
+   explicit [data-theme='dark'] pattern. */
+:root {
+  --chart-1: #2f5fff;
+  --chart-2: #00c2a8;
+  --chart-3: #e0a100;
+  --chart-4: #8b5cf6;
+  --chart-5: #e0432f;
+  --chart-6: #1fa971;
+  --chart-7: #ec4899;
+  --chart-8: #5c6270;
+  --chart-grid: rgba(20, 22, 26, 0.10);
+  --chart-sensible: #2f5fff;
+  --chart-latent: #00c2a8;
+}
+:root[data-theme='dark'], html[data-theme='dark'] {
+  --chart-1: #7d9bff;
+  --chart-2: #3ddbc4;
+  --chart-3: #f0be3d;
+  --chart-4: #a78bfa;
+  --chart-5: #f4705d;
+  --chart-6: #4ec894;
+  --chart-7: #f472b6;
+  --chart-8: #98a0b0;
+  --chart-grid: rgba(238, 240, 244, 0.10);
+  --chart-sensible: #7d9bff;
+  --chart-latent: #3ddbc4;
+}

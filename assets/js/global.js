@@ -1,4 +1,4 @@
-/* Thinkneering — global.js (v2)
+/* Thinkneering — global.js (v3)
    Injects shared chrome, exposes TN.* helpers. Loaded on every page. */
 (function () {
   'use strict';
@@ -35,7 +35,17 @@
     down: '<path d="M6 9l6 6 6-6"/>',
     'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
-    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+    thermometer: '<path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
+    droplet: '<path d="M12 2.7l5 5.3a7 7 0 1 1-10 0z"/>',
+    fan: '<path d="M12 12a3 3 0 1 0 0-.01"/><path d="M12 12c0-4 1-7 3.5-7S19 7 17 9s-5 3-5 3"/><path d="M12 12c4 0 7 1 7 3.5S17 19 15 17s-3-5-3-5"/><path d="M12 12c0 4-1 7-3.5 7S5 17 7 15s5-3 5-3"/><path d="M12 12c-4 0-7-1-7-3.5S7 5 9 7s3 5 3 5"/>',
+    gauge: '<path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4.5-4.5"/><circle cx="12" cy="12" r="1.5"/>',
+    ruler: '<path d="M15.5 2.5l6 6L8.5 21.5l-6-6z"/><path d="M7 12l2 2"/><path d="M10.5 8.5l2 2"/><path d="M14 5l2 2"/>',
+    'pipe': '<path d="M3 8h12a4 4 0 0 1 4 4v8"/><path d="M3 5v6"/><path d="M16 20h6"/>',
+    snowflake: '<path d="M12 2v20M4.2 7l15.6 10M19.8 7L4.2 17"/><path d="M12 6l-2.2-2.2M12 6l2.2-2.2M12 18l-2.2 2.2M12 18l2.2 2.2"/>',
+    home: '<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
+    'arrow-right': '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'
   };
 
   function icon(name, size) {
@@ -158,7 +168,8 @@
     return '<div class="site-footer__inner">' +
       '<div>Thinkneering — tools that shorten office work.</div>' +
       '<nav aria-label="Footer"><a href="/">Home</a><a href="/s/tools">Tools</a>' +
-      '<a href="/s/hvac">HVAC</a><a href="/s/education">Education</a><a href="/account/">Account</a></nav>' +
+      '<a href="/s/hvac">HVAC</a><a href="/tools/hvac/">Calculators</a>' +
+      '<a href="/s/education">Education</a><a href="/account/">Account</a></nav>' +
       '</div>';
   }
 
