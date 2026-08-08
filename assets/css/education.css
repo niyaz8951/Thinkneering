@@ -1,0 +1,114 @@
+/* Thinkneering — education.css
+   The Education section only. Loaded after global.css by /education/ and the
+   reader; every value here resolves to a token from global.css so this file
+   adds no new colours, fonts or spacing steps of its own.
+
+   It exists because the portable reader renders whatever a .docx or .epub
+   happens to contain, which needs a few shapes the rest of the site has no
+   use for: verse, a chapter filter, and a contents drawer for a book with a
+   hundred chapters. */
+
+/* The `hidden` attribute is only a user-agent rule, and a user-agent rule
+   loses to any author rule that sets `display`. So `.grid { display: grid }`
+   or `.field { display: block }` from global.css quietly un-hides an element
+   the markup and the JS both believe is hidden. This puts that back. */
+[hidden] { display: none !important; }
+
+/* ------------------------------------------------------------- library */
+.book-card__sub {
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-top: calc(var(--space-1) * -1);
+}
+.book-card .card__foot { flex-wrap: wrap; gap: var(--space-2); }
+
+/* --------------------------------------------------------------- verse */
+/* A poem arrives as one paragraph per line. At paragraph spacing every line
+   reads as its own thought, which is not what a stanza is. Lines are set
+   tight and the block keeps the paragraph gap around it. */
+.reader__body .verse {
+  margin: var(--space-4) 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+.reader__body .verse p {
+  margin: 0;
+  line-height: 1.5;
+}
+.reader__body .verse p + p { margin-top: var(--space-1); }
+.reader__body > .verse + * { margin-top: var(--space-4); }
+
+/* Attribution and source captions carried over from the file. */
+.reader__body .ebook-caption {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+
+/* Word tables come through without column widths; keep them readable. */
+.reader__body .data th,
+.reader__body .data td { vertical-align: top; }
+
+/* ------------------------------------------------------ contents panel */
+.toc-filter { margin: var(--space-3) 0 var(--space-2); }
+.toc-filter input { width: 100%; }
+.toc-empty { font-size: 0.875rem; padding: var(--space-2) 0; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.toc-scrim { display: none; }
+
+/* A hundred-chapter contents list stacked above the text would bury the book
+   on a phone, so below the reader's own breakpoint it becomes a drawer. */
+@media (max-width: 900px) {
+  .reader__toc {
+    position: fixed;
+    z-index: 60;
+    top: 0;
+    left: 0;
+    width: min(320px, 86vw);
+    height: 100%;
+    max-height: none;
+    overflow-y: auto;
+    padding: var(--space-4) var(--space-3);
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
+    box-shadow: var(--shadow-card);
+    transform: translateX(-100%);
+    transition: transform .18s ease-out;
+  }
+  body.toc-open .reader__toc { transform: translateX(0); }
+
+  /* Tied to the open state, not merely to the attribute. When this said
+     `display: block` unconditionally, the scrim sat over the whole viewport
+     at every width under 900px — invisible enough against a dark theme to
+     go unnoticed, but it swallowed every tap and handed it to toggleToc, so
+     tapping "Full screen" opened Contents instead. */
+  body.toc-open .toc-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: var(--color-overlay);
+  }
+
+  /* The text keeps the full column whether the drawer is open or shut. */
+  .reader,
+  .reader--no-toc { grid-template-columns: 1fr; }
+  .reader--no-toc .reader__toc { display: block; }
+
+  body.toc-open { overflow: hidden; }
+
+  /* is-reading is the fallback for browsers without the Fullscreen API on a
+     document element — iOS Safari among them. It hides the drawer with the
+     rest of the chrome, which would leave the Contents button dead. */
+  body.is-reading.toc-open .reader__toc { display: block; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader__toc { transition: none; }
+}
