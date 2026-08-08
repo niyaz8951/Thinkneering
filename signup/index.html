@@ -31,6 +31,19 @@
           <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
           <p class="hint">At least 8 characters.</p>
         </div>
+
+        <div class="field"> 
+          <label for="confirm-password">Confirm password</label> 
+          <input 
+            id="confirm-password" 
+            name="confirm-password" 
+            type="password" 
+            autocomplete="new-password" 
+            minlength="8" 
+            required> 
+            <p id="password-match" class="hint" hidden></p> 
+          </div>
+
         <button class="btn btn--primary btn--block" style="margin-top:var(--space-4)" type="submit">Create account</button>
       </form>
       <p class="hint" style="margin-top:var(--space-4)">Already registered? <a href="/login/">Sign in</a>.</p>
@@ -44,8 +57,16 @@
       ev.preventDefault();
       var box = TN.el('#error'); box.hidden = true;
       try {
-        var res = await TN.api('/api/auth/signup', { method: 'POST', body: {
-          name: TN.el('#name').value, email: TN.el('#email').value, password: TN.el('#password').value } });
+
+        var res = await TN.api('/api/auth/signup', { method: 'POST', 
+        body: {
+          name: TN.el('#name').value, 
+          email: TN.el('#email').value, 
+          password: TN.el('#password').value,
+          confirmPassword: TN.el('#confirm-password').value}});
+
+
+
         if (res.status === 'pending') {
           box.hidden = false; box.className = 'notice notice--success';
           box.innerHTML = '<div>' + TN.esc(res.message) + '</div>';

@@ -4,10 +4,12 @@ export const onRequestPost = async ({ env, request }) => {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
+  const confirmPassword = String(body.confirmPassword || '');
   const name = String(body.name || '').trim().slice(0, 80);
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad('Enter a valid email address.');
   if (password.length < 8) return bad('Use at least 8 characters for your password.');
+  if (password !== connfirmPassword) return bad('Passwords do not match.');
 
   const mode = await setting(env, 'signup_mode', 'open');
   if (mode === 'closed') return bad('New accounts are paused right now.', 403);
