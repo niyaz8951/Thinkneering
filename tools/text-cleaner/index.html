@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <title>Text Cleaner — Thinkneering</title>
+  <meta name="description" content="Paste text, get it cleaned and copied back to your clipboard in one action. Straightens quotes, breaks speech onto its own line, wraps long paragraphs. Runs entirely in your browser.">
+
+  <style>
+    /* Tool-scoped only. Anything reusable belongs in global.css. */
+
+    /* --- Collapsible panel head ------------------------------------- */
+    .disclosure-head { margin: 0; }
+    .disclosure {
+      display: flex; align-items: center; gap: var(--space-3);
+      width: 100%; padding: 0; border: 0; background: none;
+      font: inherit; color: inherit; text-align: left; cursor: pointer;
+    }
+    .disclosure__label { flex: 1; }
+    .disclosure__meta {
+      font-family: var(--font-mono); font-size: 0.75rem; font-weight: 400;
+      color: var(--color-text-muted); white-space: nowrap;
+    }
+    .disclosure__chevron { flex: none; color: var(--color-text-muted); transition: transform .15s ease; }
+    .disclosure[aria-expanded="false"] .disclosure__chevron { transform: rotate(-90deg); }
+    .disclosure:focus-visible { outline: 2px solid var(--color-primary); outline-offset: var(--space-1); border-radius: var(--radius-sm); }
+    .panel__body { padding-top: var(--space-4); }
+    .panel__body[hidden] { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .disclosure__chevron { transition: none; }
+    }
+
+    /* --- Status line -------------------------------------------------- */
+    .status { font-size: 0.8125rem; color: var(--color-text-muted); min-height: 20px; }
+    .status--error { color: var(--color-danger); }
+    .status--ok { color: var(--color-success); }
+
+    /* --- Text panes ---------------------------------------------------- */
+    .text-pane {
+      min-height: 240px; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.65;
+      white-space: pre; overflow-wrap: normal; overflow-x: auto;
+    }
+    /* The input box is the drop target — no separate dropzone to scroll past. */
+    .text-pane.is-dragover {
+      border-color: var(--color-primary); background: var(--color-primary-tint);
+    }
+
+    #stats { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
+
+    .shortcuts {
+      font-size: 0.8125rem; color: var(--color-text-muted);
+      display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3);
+    }
+    .shortcuts kbd, .page-head kbd {
+      font-family: var(--font-mono); font-size: 0.6875rem;
+      border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+      padding: 1px var(--space-1); background: var(--color-bg);
+    }
+
+    /* --- Step toggles --------------------------------------------------- */
+    .toggle-row {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-size: 0.9375rem; padding: var(--space-1) 0;
+    }
+    .toggle-row input { flex: none; }
+    .toggle-row > span:first-of-type { flex: 1; }
+
+    .settings-group + .settings-group { margin-top: var(--space-4); }
+    .settings-group__title {
+      font-family: var(--font-heading); font-size: 0.875rem; font-weight: 600;
+      margin-bottom: var(--space-1);
+    }
+
+    /* After a run, each step says whether it actually did anything. A step
+       that never fires on your material is one you can safely switch off. */
+    .step-flag {
+      font-family: var(--font-mono); font-size: 0.6875rem;
+      color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em;
+    }
+    .step-flag.is-on { color: var(--color-success); }
+    .step-flag.is-off { color: var(--color-text-muted); opacity: .6; }
+
+    /* Candidate for global.css if other tools need disabled buttons. */
+    .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <h1>Text Cleaner</h1>
+      <p class="page-head__lede">Paste it, and the tidied version is already on your clipboard</p>
+      <p>Press <kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>V</kbd> anywhere on this page. The text is cleaned and
+         copied straight back, ready to paste where it is going — no buttons, no reaching for the mouse.
+         It straightens curly quotes, puts each line of speech on its own line, rewraps long paragraphs at a
+         sentence boundary and spaces out scene breaks. Everything runs in your browser.</p>
+    </div>
+
+    <!-- 1 — Text ---------------------------------------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="true" aria-controls="panel-text">
+            <span class="disclosure__label">1 &mdash; Text</span>
+            <span class="disclosure__meta" id="meta-text"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-text">
+        <div class="field">
+          <label for="input">Your text</label>
+          <textarea id="input" class="text-pane" spellcheck="false"
+                    placeholder="Paste here — or anywhere on the page. Drop a .txt file on this box to load it."></textarea>
+        </div>
+
+        <div class="row" style="margin-top:var(--space-3)">
+          <button type="button" class="btn btn--primary" id="btn-clean">Clean &amp; copy</button>
+          <button type="button" class="btn btn--ghost" id="btn-file">Load .txt</button>
+          <button type="button" class="btn btn--quiet" id="btn-clear">Clear</button>
+        </div>
+        <input type="file" id="file" accept=".txt,text/plain" hidden>
+
+        <p class="shortcuts" style="margin-top:var(--space-3)">
+          <span><kbd>Ctrl</kbd>+<kbd>V</kbd> paste, clean and copy in one go</span>
+          <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> clean again</span>
+          <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> copy result</span>
+          <span><kbd>Esc</kbd> clear</span>
+        </p>
+        <p class="status" id="status" role="status" aria-live="polite" style="margin-top:var(--space-2)"></p>
+      </div>
+    </section>
+
+    <!-- 2 — Result -------------------------------------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="true" aria-controls="panel-result">
+            <span class="disclosure__label">2 &mdash; Result</span>
+            <span class="disclosure__meta" id="meta-result"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-result">
+        <div class="field">
+          <label for="output">Cleaned text</label>
+          <textarea id="output" class="text-pane" spellcheck="false" readonly
+                    placeholder="Paste something and the tidied version lands here — already copied."></textarea>
+          <p class="hint" id="preview-note" hidden>
+            Preview held back to keep things quick on text this long. The full result is on your clipboard
+            and in the download.
+            <button type="button" class="btn btn--quiet" id="btn-preview">Show it anyway</button>
+          </p>
+        </div>
+        <p id="stats" style="margin-top:var(--space-2)"></p>
+
+        <div class="row" style="margin-top:var(--space-3)">
+          <button type="button" class="btn btn--primary" id="btn-copy" disabled>Copy</button>
+          <button type="button" class="btn btn--ghost" id="btn-download" disabled>Download .txt</button>
+        </div>
+
+        <div class="field" style="max-width:280px; margin-top:var(--space-3)">
+          <label for="filename">File name</label>
+          <input type="text" id="filename" value="cleaned">
+          <p class="hint">Saved as <code>name_UPDATED.txt</code>, matching the desktop script.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 — Cleaning steps (closed by default) ---------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="false" aria-controls="panel-settings">
+            <span class="disclosure__label">3 &mdash; Cleaning steps</span>
+            <span class="disclosure__meta" id="meta-settings"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-settings" hidden>
+        <p class="muted" style="margin-bottom:var(--space-3)">
+          The defaults suit most manuscripts, so open this only if something came out wrong.
+          Changes apply straight away and are remembered for your next visit.
+        </p>
+
+        <div class="settings-group">
+          <p class="settings-group__title">How it runs</p>
+          <label class="toggle-row">
+            <input type="checkbox" id="opt-autopaste" checked>
+            <span>Clean automatically when you paste</span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="opt-autocopy" checked>
+            <span>Copy the result to the clipboard on every run</span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="opt-reselect" checked>
+            <span>Select the input afterwards, so the next paste replaces it</span>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group__title">Steps</p>
+          <p class="hint" style="margin-bottom:var(--space-2)">
+            Applied top to bottom, and the order matters — later steps assume the earlier ones have run.
+          </p>
+          <div id="steps"></div>
+
+          <div class="field" style="max-width:260px; margin-top:var(--space-3)">
+            <label for="maxlen">Wrap paragraphs longer than</label>
+            <input type="number" id="maxlen" value="500" min="80" max="5000" step="20">
+            <p class="hint">Characters. The break lands after the last full stop before this point, never mid-sentence.</p>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:var(--space-4)">
+          <button type="button" class="btn btn--quiet" id="btn-reset-steps">Restore defaults</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=5"></script>
+  <script src="/tools/text-cleaner/textcleaner.js?v=3"></script>
+</body>
+</html>
