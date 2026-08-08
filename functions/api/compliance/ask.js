@@ -362,7 +362,9 @@ HARD RULES
 - Installation, rigging, commissioning, ductwork and site work are the
   contractor's scope. We supply equipment only.
 
-Reply with ONE JSON object and nothing else. Every value is a plain string:
+Reply with ONE JSON object and nothing else. Exactly three keys, every value a
+plain string, every colon OUTSIDE the quotes — "answer": "..." and never
+"answer:" "...". No text before or after the object:
 {"status":"...","remarks":"...","answer":"..."}`;
 }
 
@@ -370,13 +372,82 @@ Reply with ONE JSON object and nothing else. Every value is a plain string:
    PARSING AND GUARDS
    ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   TOLERANT PARSE
+   --------------------------------------------------------------------------
+   An 8B model gets the JSON very slightly wrong often enough that strict
+   parsing is the wrong default. The failure that reached the chat looked like
+   this — the colon landed INSIDE the quotes on the last key:
+
+     {"status":"Comply with remarks","remarks":"...", "answer:"We can offer..."}
+                                                       ^^^^^^^^
+
+   JSON.parse rejects the whole object, shape() falls back to "the model wrote
+   prose", and the entire raw string is printed as the answer. The content was
+   correct and well written; only the punctuation was wrong.
+
+   So parsing happens in three stages, each a fallback for the last:
+     1. repair the malformations models actually make, then parse;
+     2. failing that, pull the three fields out by hand — which also rescues
+        a reply truncated mid-sentence by the token limit;
+     3. failing that, treat the whole thing as prose (unchanged).
+   -------------------------------------------------------------------------- */
+
+function repairJson(text) {
+  return String(text)
+    .replace(/```json/gi, '').replace(/```/g, '')
+    // Smart quotes around keys or values.
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    // The colon inside the quotes. Anchored to a { or , so a value that
+    // legitimately ends in a colon ("Note:") is never touched.
+    .replace(/([{,]\s*)"([A-Za-z_][A-Za-z0-9_ ]*)\s*:\s*"/g, '$1"$2":"')
+    // Trailing comma before a close.
+    .replace(/,(\s*[}\]])/g, '$1')
+    .trim();
+}
+
+function strictJson(text) {
+  const a = text.indexOf('{');
+  const b = text.lastIndexOf('}');
+  if (a === -1 || b === -1 || b <= a) return null;
+  try { return JSON.parse(text.slice(a, b + 1)); } catch { return null; }
+}
+
+// Pull one field out of text that is nearly-JSON. Tolerates a missing colon,
+// a misplaced quote, or no quotes around the value at all.
+function looseField(text, name) {
+  const s = String(text || '');
+  // Anchored to a { or , so the word "remarks" sitting inside a status value
+  // ("Comply with remarks") can never be mistaken for the key itself.
+  const key = new RegExp('[{,]\\s*"?' + name + '["\\s:]*', 'i');
+  const m = key.exec(s);
+  if (!m) return '';
+  const i = m.index + m[0].length;
+  // The value runs until a quote that closes it: one followed by a comma and
+  // the next key, or by the closing brace, or by the end of the text.
+  for (let j = i; j < s.length; j++) {
+    if (s[j] !== '"' || s[j - 1] === '\\') continue;
+    const rest = s.slice(j + 1).replace(/^\s+/, '');
+    if (rest === '' || rest[0] === '}' || /^,\s*"/.test(rest)) return s.slice(i, j).trim();
+  }
+  // Truncated mid-value — the model ran out of tokens. Keep what there is.
+  return s.slice(i).replace(/["}\s]+$/, '').trim();
+}
+
 function extractJson(text) {
   if (!text) return null;
-  const cleaned = String(text).replace(/```json/gi, '').replace(/```/g, '').trim();
-  const a = cleaned.indexOf('{');
-  const b = cleaned.lastIndexOf('}');
-  if (a === -1 || b === -1 || b <= a) return null;
-  try { return JSON.parse(cleaned.slice(a, b + 1)); } catch { return null; }
+  const repaired = repairJson(text);
+  const parsed = strictJson(repaired);
+  if (parsed) return parsed;
+
+  const loose = {
+    status: looseField(repaired, 'status'),
+    remarks: looseField(repaired, 'remarks'),
+    answer: looseField(repaired, 'answer'),
+  };
+  // Only a rescue if it actually rescued something worth showing.
+  return (loose.answer || loose.remarks) ? loose : null;
 }
 
 // Accept near-misses on the status wording rather than throwing the answer
