@@ -82,7 +82,7 @@
   var unitSections = [];           // sections the selected unit actually has
   var selectionName = '';
   var pendingFile = null;          // chosen PDF, not yet processed
-  var activeSource = 'pdf';        // 'pdf' | 'text'
+  var activeSource = 'pdf';        // 'pdf' | 'text' | 'ask'
 
   /* ======================================================================
      LIBRARY SECTIONS — one Excel file per (product, factory) pair, fetched
@@ -1034,6 +1034,16 @@
     aiBlock.hidden = !(appTier === 'pro' && !!currentRows);
   }
 
+  // Two independent reasons the Library & answer log panel can be hidden: the
+  // account has no teaching grant, or Ask is open. Ask is a conversation, not
+  // a batch of rows, so a "upload your completed matrix" panel sitting under
+  // it reads as part of the same job when it is a different one entirely. One
+  // function owns the element so the two reasons can never fight over it.
+  function updateTrainVisibility() {
+    if (!trainPanel) return;
+    trainPanel.hidden = !canTrain || activeSource === 'ask';
+  }
+
   // The datasheet is OPTIONAL. It is the strongest source when present —
   // project-specific, overrides everything — but the library and past
   // verified answers can carry a clause on their own, so its absence must
@@ -1752,6 +1762,7 @@
     currentRows = null;
     resultPanel.hidden = true;
     updateAiVisibility();
+    updateTrainVisibility();
     btnDownload.disabled = true;
     setStatus('');
     refreshConvertState();
@@ -1916,6 +1927,32 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  /* The endpoint promises strings, but a model that nests its JSON one level
+     deeper used to arrive here as an object, and String({}) is
+     "[object Object]" — which is exactly what the bubble printed. The server
+     now flattens it; this is the second line of defence, so a malformed reply
+     degrades into readable words instead of a placeholder. */
+  function chatText(v, depth) {
+    depth = depth || 0;
+    if (v == null) return '';
+    if (typeof v === 'string') return v.trim();
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (depth > 2 || typeof v !== 'object') return '';
+    if (Object.prototype.toString.call(v) === '[object Array]') {
+      return v.map(function (x) { return chatText(x, depth + 1); })
+        .filter(Boolean).join(' ').trim();
+    }
+    var keys = ['answer', 'text', 'response', 'reply', 'content', 'value', 'remarks', 'remark'];
+    for (var i = 0; i < keys.length; i++) {
+      if (v[keys[i]] != null) {
+        var t = chatText(v[keys[i]], depth + 1);
+        if (t) return t;
+      }
+    }
+    return Object.keys(v).map(function (k) { return chatText(v[k], depth + 1); })
+      .filter(Boolean).join(' ').trim();
+  }
+
   /* The nearest past answers for a free-text question — the same library and
      the same scoring the converter uses on a clause, so a chat answer is
      grounded in exactly what a converted row would have seen. */
@@ -1960,8 +1997,9 @@
       chatHistory.push({ role: 'user', content: q });
 
       if (d.clarify) {
-        chatAppend('<p class="chat-clarify">' + chatEsc(d.clarify) + '</p>');
-        chatHistory.push({ role: 'assistant', content: d.clarify });
+        var clarify = chatText(d.clarify);
+        chatAppend('<p class="chat-clarify">' + chatEsc(clarify) + '</p>');
+        chatHistory.push({ role: 'assistant', content: clarify });
         setChatStatus('');
         return;
       }
@@ -1970,9 +2008,10 @@
       // spoken reply and already carries what the remark says, so the remark
       // is only shown when it adds wording the answer does not have. The
       // status rides along as a chip because it is what ends up in the matrix.
-      var status = d.status || 'TO VERIFY';
-      var remarks = (d.remarks || '').trim();
-      var prose = (d.answer || '').trim() || remarks;
+      var status = chatText(d.status) || 'TO VERIFY';
+      var remarks = chatText(d.remarks);
+      var prose = chatText(d.answer) || remarks;
+      var note = chatText(d.note);
       var showRemark = remarks && remarks.toLowerCase() !== prose.toLowerCase();
 
       chatAppend(
@@ -1983,7 +2022,7 @@
             chatEsc(status.toLowerCase().replace(/[^a-z]+/g, '-')) + '">' + chatEsc(status) + '</span>' +
           (showRemark ? '<span class="chat-a__remark">' + chatEsc(remarks) + '</span>' : '') +
         '</div></div>' +
-        (d.note ? '<p class="chat-note">' + chatEsc(d.note) + '</p>' : ''));
+        (note ? '<p class="chat-note">' + chatEsc(note) + '</p>' : ''));
 
       chatHistory.push({ role: 'assistant', content: prose });
       setChatStatus('');
@@ -2303,7 +2342,7 @@
     // Ask runs the AI path, so it appears for the same accounts AI review does.
     if (tabAsk) tabAsk.hidden = !aiEnabled;
     canTrain = !!(info && info.canTrain);
-    if (trainPanel) trainPanel.hidden = !canTrain;
+    updateTrainVisibility();
     refreshDownloadButtons();
     updateAiVisibility();
 
