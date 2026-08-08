@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <title>Your account — Thinkneering</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow">Account</p>
+      <h1 id="hello">Your account</h1>
+      <p id="sub"></p>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>Access</h2>
+        <div id="access" class="stack" style="margin-top:var(--space-3)"></div>
+      </div>
+      <div class="panel">
+        <h2>Change password</h2>
+        <form id="pwform" style="margin-top:var(--space-3)">
+          <div class="field"><label for="cur">Current password</label>
+            <input id="cur" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="nw">New password</label>
+            <input id="nw" type="password" autocomplete="new-password" minlength="8" required></div>
+          <button class="btn btn--primary" style="margin-top:var(--space-3)" type="submit">Change password</button>
+        </form>
+      </div>
+    </div>
+  </main>
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=5"></script>
+  <script>
+    document.addEventListener('tn:ready', function (e) {
+      var u = e.detail.user;
+      if (!u) { location.href = '/login/?next=/account/'; return; }
+      TN.el('#hello').textContent = u.name || u.email;
+      TN.el('#sub').className = 'muted';
+      TN.el('#sub').textContent = u.email;
+      TN.el('#access').innerHTML =
+        '<div><span class="chip chip--restricted">' + TN.esc(u.plan) + ' plan</span> ' +
+        '<span class="chip">' + TN.esc(u.role) + '</span></div>' +
+        '<p class="muted">Sections and tools open to you are marked <em>Free</em> or <em>Unlocked</em> as you browse. ' +
+        'If something still shows a lock, ask an admin to grant it.</p>';
+    });
+    TN.el('#pwform').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      try {
+        var r = await TN.api('/api/auth/password', { method: 'POST', body: {
+          current_password: TN.el('#cur').value, new_password: TN.el('#nw').value } });
+        TN.toast(r.message, 'success');
+        setTimeout(function () { location.href = '/login/'; }, 1200);
+      } catch (err) { TN.toast(err.message, 'error'); }
+    });
+  </script>
+</body>
+</html>

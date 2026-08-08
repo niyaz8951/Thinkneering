@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <title>Thinkneering — tools that shorten office work</title>
+  <meta name="description" content="Lightweight browser tools for compliance, HVAC and everyday office work. Most run free; an account unlocks the full versions.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main">
+    <section class="wrap hero" id="hero" aria-live="polite"></section>
+
+    <section class="wrap" id="feature"></section>
+
+    <section class="wrap section-block">
+      <div class="section-block__head">
+        <div>
+          <p class="eyebrow">Index</p>
+          <h2>Everything on the site</h2>
+        </div>
+      </div>
+      <div class="index-list" id="sections" aria-busy="true"></div>
+    </section>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=5"></script>
+  <script>
+  (function () {
+    'use strict';
+    var esc = TN.esc, icon = TN.icon;
+
+    // Find the most recent book position the reader saved, so a returning
+    // reader gets one click back into the text.
+    function lastRead() {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf('tn-pos:') === 0) {
+            var v = JSON.parse(localStorage.getItem(k) || 'null');
+            if (v && v.chapter) return { book: k.slice(7), chapter: v.chapter };
+          }
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    function heroSignedOut() {
+      return '<p class="eyebrow">Two layers, one site</p>' +
+        '<h1>Tools that shorten <em>office work</em>.</h1>' +
+        '<p class="hero__lede">Open a tool and start working. No account, no setup, nothing uploaded ' +
+        'anywhere — the free layer runs entirely in your browser.</p>' +
+        '<div class="hero__actions">' +
+        '<a class="btn btn--primary" href="/s/tools">Browse tools</a>' +
+        '<a class="btn btn--ghost" href="/signup/">Create a free account</a></div>' +
+        '<div class="layer-strip">' +
+        '<div class="layer"><span class="chip chip--free">' + icon('unlock', 12) + ' Free layer</span>' +
+        '<h3>No account</h3><ul>' +
+        '<li>PDF to compliance matrix, up to 10 pages</li><li>All sample office tools</li>' +
+        '<li>HVAC standards reference</li><li>Books marked free to read</li></ul></div>' +
+        '<div class="layer layer--member"><span class="chip chip--restricted">' + icon('lock', 12) + ' Full layer</span>' +
+        '<h3>Signed in</h3><ul>' +
+        '<li>AI clause review and drafting</li><li>Library pre-fill, answer log, 50 pages</li>' +
+        '<li>Calculators and paid subsections</li><li>Whatever an admin unlocks for you</li></ul></div>' +
+        '</div>';
+    }
+
+    function heroSignedIn(user) {
+      var first = (user.name || user.email).split(/[\s@]/)[0];
+      var reading = lastRead();
+      var hour = new Date().getHours();
+      var greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
+      var actions = ['<a class="btn btn--primary" href="/tools/compliance-maker/">Open Compliance Maker</a>'];
+      if (reading) {
+        actions.push('<a class="btn btn--ghost" href="/read/' + esc(reading.book) + '/' + esc(reading.chapter) + '">' +
+          icon('book-open', 18) + ' Continue reading</a>');
+      }
+      if (user.role === 'admin') {
+        actions.push('<a class="btn btn--ghost" href="/admin/">' + icon('settings', 18) + ' Admin</a>');
+      }
+
+      return '<p class="eyebrow">' + esc(user.plan) + ' &middot; ' + esc(user.role) + '</p>' +
+        '<h1>' + esc(greet) + ', <em>' + esc(first) + '</em>.</h1>' +
+        '<p class="hero__lede">Your full layer is open. Everything below is unlocked unless it carries a badge.</p>' +
+        '<div class="hero__actions">' + actions.join('') + '</div>';
+    }
+
+    // The Compliance Maker is the flagship, so it gets a real feature block
+    // rather than an identical card in a grid of four.
+    function featureHTML(signedIn) {
+      var steps = [['01', 'Upload', 'A specification PDF, or paste the text'],
+                   ['02', 'Extract', 'Clauses numbered and split into rows'],
+                   ['03', 'Export', 'A formatted Excel matrix, ready to fill']];
+      return '<div class="feature">' +
+        '<div class="feature__body">' +
+        '<p class="eyebrow">Flagship</p>' +
+        '<h2>Compliance Maker</h2>' +
+        '<p class="muted">Drop in a specification and get back a numbered compliance matrix with the ' +
+        'formatting already done. Conversion is free and runs in your browser — nothing is uploaded.</p>' +
+        '<div class="hero__actions">' +
+        '<a class="btn btn--primary" href="/tools/compliance-maker/">Convert a spec</a>' +
+        (signedIn ? '' : '<a class="btn btn--quiet" href="/s/compliance-maker">What the full version adds</a>') +
+        '</div></div>' +
+        '<ol class="steps">' + steps.map(function (s) {
+          return '<li><span class="steps__n">' + s[0] + '</span>' +
+            '<span class="steps__t">' + esc(s[1]) + '</span>' +
+            '<span class="steps__d">' + esc(s[2]) + '</span></li>';
+        }).join('') + '</ol></div>';
+    }
+
+    function indexHTML(sections) {
+      if (!sections.length) return '<div class="empty">No sections are published yet.</div>';
+      return sections.map(function (s, i) {
+        var n = String(i + 1).padStart(2, '0');
+        return '<a class="index-row' + (s.allowed ? '' : ' index-row--locked') + '" href="/s/' + esc(s.slug) + '">' +
+          '<span class="index-row__n">' + n + '</span>' +
+          '<span class="index-row__main">' +
+          '<span class="index-row__title">' + esc(s.title) + '</span>' +
+          '<span class="index-row__desc">' + esc(s.description || s.tagline || '') + '</span>' +
+          '</span>' +
+          '<span class="index-row__meta">' + TN.accessChip(s) + '</span>' +
+          '<span class="index-row__go" aria-hidden="true">' + icon('repeat', 18) + '</span>' +
+          '</a>';
+      }).join('');
+    }
+
+    document.addEventListener('tn:ready', function (e) {
+      var user = e.detail.user;
+      TN.el('#hero').innerHTML = user ? heroSignedIn(user) : heroSignedOut();
+      TN.el('#feature').innerHTML = featureHTML(!!user);
+      var node = TN.el('#sections');
+      node.removeAttribute('aria-busy');
+      node.innerHTML = indexHTML(e.detail.sections || []);
+    });
+  })();
+  </script>
+</body>
+</html>
