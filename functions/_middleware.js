@@ -1,5 +1,5 @@
 // Attaches the current user to every request, blocks the site during
-// maintenance, and gates the tool pages that are members-only.
+// maintenance, and gates the pages that are members-only.
 import { currentUser, setting, json } from './_lib.js';
 
 // Page paths that require a signed-in account before the HTML is served.
@@ -13,8 +13,14 @@ const SIGNED_IN_PAGES = [
   '/tools/process-map/',
 ];
 
-function needsAccount(pathname) {
-  return SIGNED_IN_PAGES.some((p) => pathname === p.replace(/\/$/, '') || pathname.startsWith(p));
+// Education is stricter than the list above: signed in is not enough, an
+// admin has to approve the account. The pages still render for a signed-in
+// visitor so they can be told they are waiting on approval rather than
+// bounced to a login form they have already used.
+const EDUCATION_PAGES = ['/education/', '/read/'];
+
+function matches(pathname, list) {
+  return list.some((p) => pathname === p.replace(/\/$/, '') || pathname.startsWith(p));
 }
 
 export const onRequest = async (context) => {
@@ -35,12 +41,26 @@ export const onRequest = async (context) => {
     }
   }
 
+  // The book files deploy like any other repo file, which would otherwise
+  // make them public downloads. Nothing may reach /books/* directly; the
+  // only way to a book is /api/education/file/<slug>, which checks approval
+  // first and then reads the asset with env.ASSETS.fetch() — that call does
+  // not re-enter Functions, so it is not caught by this block.
+  if (url.pathname.startsWith('/books/')) {
+    return new Response('Not found', { status: 404 });
+  }
+
   // Send a signed-out visitor to the login form with a return path, rather
   // than rendering a page whose every button will 401.
-  if (!data.user && needsAccount(url.pathname)) {
+  if (!data.user && (matches(url.pathname, SIGNED_IN_PAGES) || matches(url.pathname, EDUCATION_PAGES))) {
     const returnTo = url.pathname + url.search;
     return Response.redirect(url.origin + '/login/?next=' + encodeURIComponent(returnTo), 302);
   }
+
+  // A signed-in but unapproved visitor is deliberately let through to the
+  // page: the library and file APIs enforce approval, so nothing leaks, and
+  // the page can say "waiting on approval" instead of bouncing them back to
+  // a login form they have already used.
 
   return next();
 };

@@ -6,7 +6,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <link rel="stylesheet" href="/assets/css/global.css?v=6">
+  <link rel="stylesheet" href="/assets/css/education.css?v=1">
   <title>Reader — Thinkneering</title>
 </head>
 <body>
@@ -21,7 +22,14 @@
         <p class="eyebrow" id="book-author">Reading</p>
         <h2 id="book-title">&nbsp;</h2>
         <p class="muted" id="book-sub" style="font-size:0.875rem"></p>
+
+        <div class="field toc-filter" id="toc-filter-wrap" hidden>
+          <label class="sr-only" for="toc-filter">Filter chapters</label>
+          <input id="toc-filter" type="search" placeholder="Filter chapters" autocomplete="off">
+        </div>
+
         <nav aria-label="Chapters"><ol id="toc"></ol></nav>
+        <p class="muted toc-empty" id="toc-empty" hidden>No chapter matches that.</p>
       </aside>
 
       <div>
@@ -38,37 +46,51 @@
         </div>
 
         <article class="reader__body" id="body" tabindex="-1">
-          <p class="muted">Opening the book&hellip;</p>
+          <p class="muted" id="opening">Opening the book&hellip;</p>
         </article>
       </div>
     </div>
   </main>
 
+  <div class="toc-scrim" id="toc-scrim" hidden></div>
+
   <footer data-site-footer></footer>
-  <script src="/assets/js/global.js?v=5"></script>
-  <script src="/assets/js/blocks.js?v=5"></script>
+  <script src="/assets/js/global.js?v=6"></script>
+  <script src="/assets/js/zip.js?v=1"></script>
+  <script src="/assets/js/ebook.js?v=1"></script>
   <script>
   (function () {
     'use strict';
+
     var parts = location.pathname.replace(/^\/read\/?/, '').replace(/\/$/, '').split('/');
-    var bookSlug = parts[0], chapterSlug = parts[1] || '';
-    if (!bookSlug) { location.href = '/'; return; }
+    var bookSlug = decodeURIComponent(parts[0] || '');
+    var chapterSlug = decodeURIComponent(parts[1] || '');
+    if (!bookSlug) { location.replace('/education/'); return; }
 
-    var data = null;
+    var book = null;          // the parsed book, held for the whole visit
+    var entry = null;         // its library card
+    var bySlug = {};
 
-    // ------------------------------------------------ reading preferences
+    // --------------------------------------------------- reading options
     var prefs = { size: 100, wide: false, toc: true };
     try { prefs = Object.assign(prefs, JSON.parse(localStorage.getItem('tn-reader') || '{}')); } catch (e) {}
 
     function savePrefs() {
       try { localStorage.setItem('tn-reader', JSON.stringify(prefs)); } catch (e) {}
     }
+    function isNarrow() { return window.matchMedia('(max-width: 900px)').matches; }
+
     function applyPrefs() {
       TN.el('#body').style.fontSize = (prefs.size / 100 * 1.0625).toFixed(3) + 'rem';
       TN.el('#text-size').textContent = prefs.size + '%';
       TN.el('#reader').classList.toggle('reader--wide', prefs.wide);
       TN.el('#reader').classList.toggle('reader--no-toc', !prefs.toc);
       TN.el('#toc-toggle').setAttribute('aria-expanded', String(prefs.toc));
+      // On a phone the contents is a drawer over the text, so the page behind
+      // it must not scroll away underneath.
+      var drawerOpen = prefs.toc && isNarrow();
+      TN.el('#toc-scrim').hidden = !drawerOpen;
+      document.body.classList.toggle('toc-open', drawerOpen);
     }
     function resize(step) {
       prefs.size = Math.min(160, Math.max(80, prefs.size + step));
@@ -82,6 +104,11 @@
       prefs.wide = !prefs.wide; savePrefs(); applyPrefs();
     });
     TN.el('#toc-toggle').addEventListener('click', toggleToc);
+    TN.el('#toc-scrim').addEventListener('click', toggleToc);
+
+    // A phone that lands with contents remembered open would hide the text,
+    // so the drawer starts closed on a narrow screen whatever was saved.
+    if (isNarrow()) prefs.toc = false;
 
     // ------------------------------------------------------- full screen
     var fsBtn = TN.el('#fullscreen');
@@ -94,7 +121,6 @@
           fsBtn.textContent = 'Exit full screen';
         });
       } else {
-        // iOS Safari has no Fullscreen API on this element; hide the chrome instead.
         document.body.classList.toggle('is-reading');
         fsBtn.textContent = document.body.classList.contains('is-reading') ? 'Exit full screen' : 'Full screen';
       }
@@ -107,26 +133,23 @@
     });
 
     // ---------------------------------------------------- reading position
-    // Two copies on purpose. localStorage is instant and works signed out;
-    // the server copy follows the account to another browser or device.
+    // Two copies on purpose. localStorage is instant and survives being
+    // offline; the server copy follows the account to another device.
     // Whichever was written last wins when they disagree.
     var posKey = 'tn-pos:' + bookSlug;
-    var lastPushed = 0;
-    var pushTimer = null;
+    var lastPushed = 0, pushTimer = null;
 
     function localPos() {
       try { return JSON.parse(localStorage.getItem(posKey) || 'null'); } catch (e) { return null; }
     }
-
     function pushProgress() {
       if (!chapterSlug) return;
       fetch('/api/content/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ book: bookSlug, chapter: chapterSlug, y: Math.round(window.scrollY) })
-      }).catch(function () { /* offline or signed out — the local copy stands */ });
+      }).catch(function () { /* offline — the local copy stands */ });
     }
-
     function saveProgress() {
       var doc = document.documentElement;
       var max = doc.scrollHeight - doc.clientHeight;
@@ -141,7 +164,6 @@
       } catch (e) {}
 
       // Scroll fires constantly; the server only needs a coarse position.
-      // Debounce to one write per two seconds of settled reading.
       if (pushTimer) clearTimeout(pushTimer);
       pushTimer = setTimeout(function () {
         if (Date.now() - lastPushed < 2000) return;
@@ -150,16 +172,10 @@
       }, 2000);
     }
     window.addEventListener('scroll', saveProgress, { passive: true });
-    // A tab closed mid-chapter should still record where it got to.
     window.addEventListener('pagehide', function () { if (chapterSlug) pushProgress(); });
 
-    /* Where should "open this book" land? The most recent of the two saved
-       positions, provided that chapter still exists and is readable by this
-       account — a chapter that was unpublished or locked since must not
-       strand the reader on a paywall. */
-    async function resumeChapter(d) {
-      var local = localPos();
-      var remote = null;
+    async function resumeChapter() {
+      var local = localPos(), remote = null;
       try {
         var r = await TN.api('/api/content/progress?book=' + encodeURIComponent(bookSlug));
         if (r && r.chapter) remote = r;
@@ -173,17 +189,101 @@
       } else {
         pick = (remote && remote.chapter) || (local && local.chapter) || null;
       }
-
-      if (!pick) return null;
-      var match = d.chapters.find(function (c) { return c.slug === pick; });
-      return match && match.allowed ? match.slug : null;
+      return pick && bySlug[pick] ? pick : null;
     }
 
+    // ------------------------------------------------------------ contents
+    function renderToc() {
+      TN.el('#book-title').textContent = book.title;
+      TN.el('#book-author').textContent = book.author || 'Reading';
+      TN.el('#book-sub').textContent = book.subtitle || '';
+      document.title = book.title + ' — Thinkneering';
+
+      TN.el('#toc').innerHTML = book.chapters.map(function (c) {
+        return '<li data-title="' + TN.esc(c.title.toLowerCase()) + '">' +
+          '<a href="/read/' + encodeURIComponent(bookSlug) + '/' + encodeURIComponent(c.slug) + '"' +
+          ' data-chapter="' + TN.esc(c.slug) + '"><span>' + TN.esc(c.title) + '</span></a></li>';
+      }).join('');
+
+      // A book with a hundred chapters needs a way to reach one without
+      // scrolling the whole list.
+      if (book.chapters.length > 12) TN.el('#toc-filter-wrap').hidden = false;
+    }
+
+    TN.el('#toc-filter').addEventListener('input', function () {
+      var q = this.value.trim().toLowerCase();
+      var shown = 0;
+      TN.els('#toc li').forEach(function (li) {
+        var hit = !q || li.getAttribute('data-title').indexOf(q) >= 0;
+        li.hidden = !hit;
+        if (hit) shown++;
+      });
+      TN.el('#toc-empty').hidden = shown > 0;
+    });
+
+    function markCurrent() {
+      TN.els('#toc a').forEach(function (a) {
+        if (a.getAttribute('data-chapter') === chapterSlug) a.setAttribute('aria-current', 'true');
+        else a.removeAttribute('aria-current');
+      });
+      var on = TN.el('#toc a[aria-current="true"]');
+      if (on && !isNarrow()) on.scrollIntoView({ block: 'nearest' });
+    }
+
+    function chapterNav() {
+      var i = book.chapters.findIndex(function (c) { return c.slug === chapterSlug; });
+      var prev = book.chapters[i - 1], next = book.chapters[i + 1];
+      var link = function (c, label) {
+        return '<a class="btn btn--ghost" href="/read/' + encodeURIComponent(bookSlug) + '/' +
+          encodeURIComponent(c.slug) + '" data-chapter="' + TN.esc(c.slug) + '">' + label + '</a>';
+      };
+      return '<nav class="reader__nav">' +
+        (prev ? link(prev, '&larr; ' + TN.esc(prev.title)) : '<span></span>') +
+        (next ? link(next, TN.esc(next.title) + ' &rarr;') : '<span></span>') +
+        '</nav>';
+    }
+
+    // ------------------------------------------------------------ display
+    // Chapters are swapped in place rather than by loading a new page: the
+    // book was parsed once and re-parsing a hundred chapters to turn one page
+    // would make every tap cost seconds.
+    function showChapter(slug, restoreY) {
+      var c = bySlug[slug];
+      if (!c) return;
+      chapterSlug = slug;
+
+      TN.el('#body').innerHTML = '<h1>' + TN.esc(c.title) + '</h1>' + c.html + chapterNav();
+      markCurrent();
+      if (isNarrow() && prefs.toc) { prefs.toc = false; applyPrefs(); }
+
+      window.scrollTo(0, restoreY > 0 ? restoreY : 0);
+      saveProgress();
+    }
+
+    function navigate(slug, push) {
+      if (push) history.pushState({ chapter: slug }, '', '/read/' + encodeURIComponent(bookSlug) + '/' + encodeURIComponent(slug));
+      showChapter(slug, 0);
+      TN.el('#body').focus();
+    }
+
+    document.addEventListener('click', function (ev) {
+      var a = ev.target.closest ? ev.target.closest('a[data-chapter]') : null;
+      if (!a || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return;
+      ev.preventDefault();
+      navigate(a.getAttribute('data-chapter'), true);
+    });
+
+    window.addEventListener('popstate', function () {
+      var p = location.pathname.replace(/^\/read\/?/, '').replace(/\/$/, '').split('/');
+      var slug = decodeURIComponent(p[1] || '');
+      if (slug && bySlug[slug]) showChapter(slug, 0);
+    });
+
     function go(dir) {
-      if (!data || !chapterSlug) return;
-      var i = data.chapters.findIndex(function (c) { return c.slug === chapterSlug; });
-      var next = data.chapters[i + dir];
-      if (next) location.href = '/read/' + data.book.slug + '/' + next.slug;
+      if (!book || !chapterSlug) return;
+      var i = book.chapters.findIndex(function (c) { return c.slug === chapterSlug; });
+      var next = book.chapters[i + dir];
+      if (next) navigate(next.slug, true);
     }
 
     document.addEventListener('keydown', function (ev) {
@@ -196,84 +296,77 @@
       else if (ev.key === 't') toggleToc();
     });
 
-    // ---------------------------------------------------------- rendering
-    function renderToc(d, active) {
-      TN.el('#book-title').textContent = d.book.title;
-      TN.el('#book-author').textContent = d.book.author || 'Reading';
-      TN.el('#book-sub').textContent = d.book.subtitle || '';
-      document.title = d.book.title + ' — Thinkneering';
-      TN.el('#toc').innerHTML = d.chapters.map(function (c) {
-        return '<li><a href="/read/' + TN.esc(d.book.slug) + '/' + TN.esc(c.slug) + '"' +
-          (c.slug === active ? ' aria-current="true"' : '') + '><span>' + TN.esc(c.title) +
-          (c.allowed ? '' : ' ' + TN.icon('lock', 12)) + '</span></a></li>';
-      }).join('');
+    function fail(title, message, action) {
+      TN.el('#body').innerHTML = '<div class="paywall">' +
+        '<span class="chip chip--auth">' + TN.icon('lock', 12) + ' Closed</span>' +
+        '<h2 style="margin-top:var(--space-2)">' + TN.esc(title) + '</h2>' +
+        '<p class="muted" style="margin-top:var(--space-2)">' + TN.esc(message) + '</p>' +
+        '<div class="hero__actions" style="justify-content:center">' + (action || '') + '</div></div>';
     }
 
-    function chapterNav(d, slug) {
-      var i = d.chapters.findIndex(function (c) { return c.slug === slug; });
-      var prev = d.chapters[i - 1], next = d.chapters[i + 1];
-      return '<nav class="reader__nav">' +
-        (prev ? '<a class="btn btn--ghost" href="/read/' + d.book.slug + '/' + prev.slug + '">&larr; ' + TN.esc(prev.title) + '</a>' : '<span></span>') +
-        (next ? '<a class="btn btn--ghost" href="/read/' + d.book.slug + '/' + next.slug + '">' + TN.esc(next.title) + ' &rarr;</a>' : '<span></span>') +
-        '</nav>';
-    }
-
+    // --------------------------------------------------------------- load
     (async function () {
+      var status = TN.el('#opening');
       try {
-        var url = '/api/content/book/' + encodeURIComponent(bookSlug) +
-          (chapterSlug ? '/' + encodeURIComponent(chapterSlug) : '');
-        var d = await TN.api(url);
-        data = d;
-        renderToc(d, chapterSlug);
+        var lib = await TN.api('/api/education/library');
+
+        if (!lib.allowed) {
+          fail('Education is closed to this account', lib.message,
+            lib.reason === 'signin'
+              ? '<a class="btn btn--primary" href="/login/?next=' + encodeURIComponent(location.pathname) + '">Sign in</a>'
+              : '<a class="btn btn--ghost" href="/">Back to home</a>');
+          return;
+        }
+
+        entry = (lib.books || []).find(function (b) { return b.slug === bookSlug; });
+        if (!entry) { fail('No such book', 'That book is not in the library.',
+          '<a class="btn btn--ghost" href="/education/">Back to the library</a>'); return; }
+
+        TN.el('#book-title').textContent = entry.title;
+        TN.el('#book-author').textContent = entry.author || 'Reading';
+        status.textContent = 'Downloading ' + entry.title + '\u2026';
+
+        var res = await fetch('/api/education/file/' + encodeURIComponent(bookSlug), { credentials: 'same-origin' });
+        if (!res.ok) {
+          var why = await res.json().catch(function () { return {}; });
+          throw new Error(why.error || 'That book could not be downloaded.');
+        }
+        var buffer = await res.arrayBuffer();
+
+        status.textContent = 'Reading the ' + (entry.format === 'epub' ? 'EPUB' : 'Word document') + '\u2026';
+        book = await TNEbook.read(buffer, entry.format);
+
+        // The library card is the label the site chose; prefer it over the
+        // file's own title so a card and the page it opens agree.
+        if (entry.title) book.title = entry.title;
+        if (entry.subtitle) book.subtitle = entry.subtitle;
+        if (entry.author) book.author = entry.author;
+
+        book.chapters.forEach(function (c) { bySlug[c.slug] = c; });
+        if (!book.chapters.length) { fail('Nothing to read', 'That file had no readable chapters.', ''); return; }
+
+        renderToc();
         applyPrefs();
 
-        // /read/<book> with no chapter is not a landing page — it is
-        // "open this book". Resolve where the reader was and go straight
-        // there, so opening a book is one click from the section, not three.
-        if (!chapterSlug) {
-          var openable = d.chapters.filter(function (c) { return c.allowed; });
-          if (!d.chapters.length) {
-            TN.el('#body').innerHTML = '<h1>' + TN.esc(d.book.title) + '</h1>' +
-              '<div class="empty">This book has no chapters yet.</div>';
-            return;
-          }
-
-          var target = (await resumeChapter(d)) ||
-                       (openable[0] && openable[0].slug) ||
-                       d.chapters[0].slug;
-
-          // replace, not assign: Back should return to the section the
-          // reader came from, not bounce through this resolver again.
-          location.replace('/read/' + d.book.slug + '/' + target);
+        // /read/<book> with no chapter means "open this book", not a landing
+        // page: resolve where reading stopped and go straight there.
+        if (!chapterSlug || !bySlug[chapterSlug]) {
+          var target = (await resumeChapter()) || book.chapters[0].slug;
+          var pos = localPos();
+          var y = pos && pos.chapter === target ? pos.y : 0;
+          // replace, not push: Back should return to the library, not bounce
+          // through this resolver again.
+          history.replaceState({ chapter: target }, '',
+            '/read/' + encodeURIComponent(bookSlug) + '/' + encodeURIComponent(target));
+          showChapter(target, y);
           return;
         }
 
-        if (d.locked) {
-          TN.el('#body').innerHTML = '<h1>' + TN.esc(d.chapter.title) + '</h1>' +
-            '<div class="paywall"><span class="chip chip--auth">' + TN.icon('lock', 12) + ' Locked</span>' +
-            '<h2 style="margin-top:var(--space-2)">' + TN.esc(d.reason) + '</h2>' +
-            '<div class="hero__actions" style="justify-content:center">' +
-            '<a class="btn btn--primary" href="/login/?next=' + encodeURIComponent(location.pathname) + '">Sign in</a>' +
-            '<a class="btn btn--ghost" href="/read/' + d.book.slug + '">Back to contents</a></div></div>';
-          return;
-        }
-
-        TN.el('#body').innerHTML = '<h1>' + TN.esc(d.chapter.title) + '</h1>' +
-          (d.chapter.summary ? '<p class="muted">' + TN.esc(d.chapter.summary) + '</p>' : '') +
-          TNBlocks.render(d.chapter.blocks) + chapterNav(d, chapterSlug);
-
-        // Land where this chapter was left, not at the top of it.
-        var pos = localPos();
-        if (!pos || pos.chapter !== chapterSlug) {
-          try {
-            var r = await TN.api('/api/content/progress?book=' + encodeURIComponent(bookSlug));
-            if (r && r.chapter === chapterSlug) pos = { chapter: r.chapter, y: r.y };
-          } catch (e) {}
-        }
-        if (pos && pos.chapter === chapterSlug && pos.y > 0) window.scrollTo(0, pos.y);
-        saveProgress();
+        var saved = localPos();
+        showChapter(chapterSlug, saved && saved.chapter === chapterSlug ? saved.y : 0);
       } catch (err) {
-        TN.el('#body').innerHTML = '<div class="empty">' + TN.esc(err.message) + '</div>';
+        fail('That book would not open', err.message,
+          '<a class="btn btn--ghost" href="/education/">Back to the library</a>');
       }
     })();
   })();

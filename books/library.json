@@ -1,0 +1,40 @@
+{
+  "_readme": [
+    "The Education library. One entry per book file in this folder.",
+    "",
+    "Adding a book: drop the .docx or .epub into /books/ and add an entry with",
+    "its file name and a slug. Everything else — title, author, chapters,",
+    "headings, tables, images, contents list — is read out of the file itself,",
+    "so nothing here needs a new HTML page, a database row or a rebuild.",
+    "",
+    "title / subtitle / author / description are optional. They are only used",
+    "for the library card, so the card can render without downloading the whole",
+    "book. Leave them out and the card falls back to the file name; the reader",
+    "always shows what the file itself says.",
+    "",
+    "Access is not set per book. The whole Education section is gated as one",
+    "thing: signed in, and approved by an admin."
+  ],
+  "books": [
+    {
+      "slug": "humonks",
+      "file": "Humonks.docx",
+      "title": "HUMONKS",
+      "subtitle": "A Novel — Draft One, Turn One",
+      "author": "Niyaz Rafat",
+      "description": "Evolution is a loop, not a line. Monkeys made Humonks. Humonks made humans. Humans forgot. Includes the Canon Bible as reference sections.",
+      "icon": "feather",
+      "sort": 1
+    },
+    {
+      "slug": "ncert-english",
+      "file": "NCERT_English.epub",
+      "title": "NCERT English",
+      "subtitle": "Classes 9 to 12",
+      "author": "NCERT",
+      "description": "The full NCERT English readers — prose, poetry, drama and supplementary chapters across classes 9, 10, 11 and 12.",
+      "icon": "graduation-cap",
+      "sort": 2
+    }
+  ]
+}

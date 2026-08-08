@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=6">
+  <link rel="stylesheet" href="/assets/css/education.css?v=1">
+  <title>Education — Thinkneering</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow">Education</p>
+      <h1>The library</h1>
+      <p>Books read straight from their own files, in a distraction-free reader.</p>
+    </div>
+
+    <div id="state"><div class="empty">Opening the library&hellip;</div></div>
+    <div id="books" class="grid" hidden></div>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=6"></script>
+  <script>
+    (async function () {
+      var state = TN.el('#state');
+
+      try {
+        var d = await TN.api('/api/education/library');
+
+        if (!d.allowed) {
+          state.className = 'paywall';
+          state.innerHTML = TN.icon('lock', 20) +
+            '<h2 style="margin-top:var(--space-2)">' +
+            (d.reason === 'signin' ? 'Sign in to open Education' : 'Waiting on approval') + '</h2>' +
+            '<p class="muted" style="margin-top:var(--space-2)">' + TN.esc(d.message) + '</p>' +
+            '<div class="hero__actions" style="justify-content:center">' +
+            (d.reason === 'signin'
+              ? '<a class="btn btn--primary" href="/login/?next=%2Feducation%2F">Sign in</a>' +
+                '<a class="btn btn--ghost" href="/signup/?next=%2Feducation%2F">Create account</a>'
+              : '<a class="btn btn--ghost" href="/">Back to home</a>') +
+            '</div>';
+          return;
+        }
+
+        if (!d.books.length) {
+          state.innerHTML = '<div class="empty">No books yet. Drop a .docx or .epub into the ' +
+            'books folder and add it to library.json.</div>';
+          return;
+        }
+
+        state.hidden = true;
+        var list = TN.el('#books');
+        list.hidden = false;
+        list.innerHTML = d.books.map(function (b) {
+          return '<a class="card book-card" href="/read/' + encodeURIComponent(b.slug) + '">' +
+            '<span class="card__icon">' + TN.icon(b.icon, 20) + '</span>' +
+            '<span class="card__title">' + TN.esc(b.title) + '</span>' +
+            (b.subtitle ? '<span class="book-card__sub">' + TN.esc(b.subtitle) + '</span>' : '') +
+            '<span class="card__desc">' + TN.esc(b.description || '') + '</span>' +
+            '<span class="card__foot">' +
+            (b.author ? '<span class="chip">' + TN.esc(b.author) + '</span>' : '') +
+            '<span class="chip chip--restricted">' + TN.esc(b.format.toUpperCase()) + '</span>' +
+            '</span></a>';
+        }).join('');
+      } catch (err) {
+        state.className = 'empty';
+        state.textContent = err.message;
+      }
+    })();
+  </script>
+</body>
+</html>

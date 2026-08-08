@@ -6,7 +6,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <link rel="stylesheet" href="/assets/css/global.css?v=6">
   <title>Section — Thinkneering</title>
 </head>
 <body>
@@ -29,7 +29,7 @@
     </section>
   </main>
   <footer data-site-footer></footer>
-  <script src="/assets/js/global.js?v=5"></script>
+  <script src="/assets/js/global.js?v=6"></script>
   <script>
     (async function () {
       var path = location.pathname.replace(/^\/s\/?/, '').replace(/\/$/, '');
@@ -38,9 +38,13 @@
       // making the reader click it is a hop that earns nothing, so these
       // resolve straight through. `education/humonks` is kept here after the
       // sub-section was removed, so old links and bookmarks still land.
+      // Education is no longer a catalogue of database-backed books: it is a
+      // folder of .docx and .epub files with its own library page. These keep
+      // old links and bookmarks landing somewhere sensible.
       var directRoutes = {
         "knowledge": "/tools/knowledge/",
         "compliance-maker": "/tools/compliance-maker/",
+        "education": "/education/",
         "education/humonks": "/read/humonks",
         "education/ncert": "/read/ncert-english"
       };

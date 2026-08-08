@@ -8,27 +8,27 @@
 // POST /api/content/progress               -> { ok: true }
 //      { book: '<slug>', chapter: '<slug>', y: 1234 }
 //
-// Signed out is not an error here. The reader falls back to localStorage and
-// carries on, so a guest reading the free chapters is never interrupted.
+// Books no longer have rows in D1 — the file in /books/ is the book — so
+// this stores slugs and validates nothing against a chapters table. A slug
+// that no longer exists is harmless: the reader checks the position against
+// the contents list it parsed and falls back to the first chapter.
 
 import { json, bad } from '../../_lib.js';
+import { educationAllowed } from '../../_education.js';
 
-async function bookBySlug(env, slug) {
-  if (!slug) return null;
-  return env.DB.prepare('SELECT id, slug FROM books WHERE slug = ?1').bind(slug).first();
-}
+const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
 export const onRequestGet = async ({ env, request, data }) => {
   const user = data.user;
   if (!user) return json({ chapter: null, anonymous: true });
+  if (!(await educationAllowed(env, user))) return json({ chapter: null });
 
-  const slug = new URL(request.url).searchParams.get('book');
-  const book = await bookBySlug(env, slug);
-  if (!book) return bad('Unknown book.', 404);
+  const book = String(new URL(request.url).searchParams.get('book') || '');
+  if (!SLUG.test(book)) return bad('Unknown book.', 400);
 
   const row = await env.DB.prepare(
-    'SELECT chapter_slug, scroll_y, updated_at FROM reading_progress WHERE user_id = ?1 AND book_id = ?2'
-  ).bind(user.id, book.id).first();
+    'SELECT chapter_slug, scroll_y, updated_at FROM reading_progress WHERE user_id = ?1 AND book_slug = ?2'
+  ).bind(user.id, book).first();
 
   if (!row) return json({ chapter: null });
   return json({ chapter: row.chapter_slug, y: row.scroll_y || 0, updated_at: row.updated_at });
@@ -39,29 +39,23 @@ export const onRequestPost = async ({ env, request, data }) => {
   // Nothing to store for a guest, but this must not read as a failure —
   // the reader fires it on a scroll timer and would otherwise log noise.
   if (!user) return json({ ok: true, stored: false });
+  if (!(await educationAllowed(env, user))) return json({ ok: true, stored: false });
 
   const body = await request.json().catch(() => ({}));
-  const book = await bookBySlug(env, String(body.book || ''));
-  if (!book) return bad('Unknown book.', 404);
+  const book = String(body.book || '');
+  const chapter = String(body.chapter || '').trim().slice(0, 80);
 
-  const chapter = String(body.chapter || '').trim();
+  if (!SLUG.test(book)) return bad('Unknown book.', 400);
   if (!chapter) return bad('Missing chapter.', 400);
-
-  // Confirm the chapter belongs to the book before storing it, so a stale or
-  // hand-edited URL cannot park someone on a position that never resolves.
-  const exists = await env.DB.prepare(
-    'SELECT id FROM chapters WHERE book_id = ?1 AND slug = ?2'
-  ).bind(book.id, chapter).first();
-  if (!exists) return bad('Unknown chapter.', 404);
 
   const y = Math.max(0, Math.min(2000000, Number(body.y) || 0));
 
   await env.DB.prepare(
-    'INSERT INTO reading_progress (user_id, book_id, chapter_slug, scroll_y, updated_at) ' +
+    'INSERT INTO reading_progress (user_id, book_slug, chapter_slug, scroll_y, updated_at) ' +
     "VALUES (?1, ?2, ?3, ?4, datetime('now')) " +
-    'ON CONFLICT(user_id, book_id) DO UPDATE SET ' +
+    'ON CONFLICT(user_id, book_slug) DO UPDATE SET ' +
     'chapter_slug = excluded.chapter_slug, scroll_y = excluded.scroll_y, updated_at = excluded.updated_at'
-  ).bind(user.id, book.id, chapter, y).run();
+  ).bind(user.id, book, chapter, y).run();
 
   return json({ ok: true, stored: true });
 };
