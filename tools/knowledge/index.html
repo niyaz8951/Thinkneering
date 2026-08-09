@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knowledge Repository — Thinkneering</title>
+<meta name="description" content="Capture engineering and business knowledge as a connected graph. Approved knowledge feeds Compliance Maker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/global.css?v=5">
+<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=1">
+</head>
+<body>
+
+<div data-site-header></div>
+
+<main class="kg-page">
+
+  <header class="kg-intro">
+    <h1>Knowledge Repository</h1>
+    <p>Each map is an independent knowledge domain — HVAC equipment, a business process, a product line. Nodes you approve become the reference material Compliance Maker uses to answer specification clauses, so what gets approved here is what gets said to a consultant.</p>
+  </header>
+
+  <section class="kg-panel" aria-label="Create a map">
+    <h2 class="kg-panel-title">Start a new map</h2>
+    <div class="kg-row">
+      <label class="kg-field kg-field-grow">
+        <span class="kg-label">Name</span>
+        <input id="new-title" type="text" class="kg-input" placeholder="e.g. AHU product knowledge" autocomplete="off">
+      </label>
+      <label class="kg-field">
+        <span class="kg-label">Start from</span>
+        <select id="new-seed" class="kg-input">
+          <option value="">Empty map</option>
+          <option value="hvac">HVAC knowledge base (seeded)</option>
+          <option value="business">Business process (seeded)</option>
+        </select>
+      </label>
+      <label class="kg-field">
+        <span class="kg-label">Who can see it</span>
+        <select id="new-visibility" class="kg-input">
+          <option value="restricted">Only people an admin adds</option>
+          <option value="org">Anyone signed in with knowledge access</option>
+        </select>
+      </label>
+      <button type="button" class="kg-btn kg-btn-primary" id="create-map">Create map</button>
+    </div>
+    <p class="kg-muted kg-note" id="create-note">Seeded maps import as drafts. Nothing answers a Compliance Maker query until someone approves it.</p>
+  </section>
+
+  <h2 class="kg-subhead">Your maps</h2>
+  <div class="kg-grid" id="map-grid">
+    <p class="kg-muted">Loading…</p>
+  </div>
+
+  <p class="kg-footnote" id="admin-line" hidden>
+    You have admin access — the <a href="/tools/knowledge/admin.html">knowledge admin console</a> handles user access, the approval queue and the gap list. <a href="/tools/knowledge/dictionary.html">Dictionary review</a> handles words readers looked up while reading.
+  </p>
+</main>
+
+<dialog class="kg-dialog" id="review-dialog">
+  <h2 class="kg-panel-title" id="review-title">AI review</h2>
+  <div class="kg-ai-output" id="review-output"></div>
+  <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
+    <button type="button" class="kg-btn kg-btn-primary" id="review-close">Close</button>
+    <a class="kg-btn" id="review-open" href="#">Open the map</a>
+  </div>
+</dialog>
+
+<div data-site-footer></div>
+
+<script src="/assets/js/global.js?v=5" defer></script>
+<script src="/tools/knowledge/domain-hvac.js?v=1" defer></script>
+<script src="/tools/knowledge/domain-business.js?v=1" defer></script>
+<script src="/tools/knowledge/dashboard.js?v=1" defer></script>
+</body>
+</html>
