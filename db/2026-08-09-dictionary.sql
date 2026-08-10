@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
   related_json  TEXT,   -- JSON { synonyms:[], antonyms:[], concepts:[] }
   memory_hook   TEXT,
 
+  -- Devanagari, Urdu script, and a roman reading of the Urdu.
+  hindi         TEXT,
+  urdu          TEXT,
+  urdu_roman    TEXT,
+
   -- Gated blocks. Generated but NEVER served until a human approves the row.
   connection    TEXT,
   origin        TEXT,
@@ -47,6 +52,7 @@ CREATE TABLE IF NOT EXISTS dictionary_lookups (
   outcome     TEXT NOT NULL DEFAULT 'used',  -- used | corrected | unanswered
   note        TEXT,
   page_path   TEXT,
+  book_slug   TEXT,
   user_email  TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -56,3 +62,6 @@ CREATE INDEX IF NOT EXISTS idx_dictionary_lookups_term
 
 CREATE INDEX IF NOT EXISTS idx_dictionary_lookups_created
   ON dictionary_lookups (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_dictionary_lookups_reader
+  ON dictionary_lookups (user_email, book_slug, created_at);
