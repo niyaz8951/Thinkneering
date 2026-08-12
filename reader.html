@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/global.css?v=6">
   <link rel="stylesheet" href="/assets/css/education.css?v=2">
+  <link rel="stylesheet" href="/assets/css/dictionary.css?v=1">
   <title>Reader — Thinkneering</title>
 </head>
 <body>
@@ -45,7 +46,12 @@
           <button class="btn btn--quiet btn--sm" id="fullscreen" title="Full screen (F)">Full screen</button>
         </div>
 
-        <article class="reader__body" id="body" tabindex="-1">
+        <!-- data-dict-scope is what the AI Dictionary watches. Without it a
+             tap or selection in the text is ignored, because the overlay
+             deliberately does nothing outside a declared scope. The domain
+             is set per book once the file is parsed. -->
+        <article class="reader__body" id="body" tabindex="-1"
+                 data-dict-scope data-dict-domain="general">
           <p class="muted" id="opening">Opening the book&hellip;</p>
         </article>
       </div>
@@ -58,6 +64,7 @@
   <script src="/assets/js/global.js?v=6"></script>
   <script src="/assets/js/zip.js?v=2"></script>
   <script src="/assets/js/ebook.js?v=2"></script>
+  <script src="/assets/js/dictionary.js?v=1" defer></script>
   <script>
   (function () {
     'use strict';
@@ -258,6 +265,13 @@
 
       window.scrollTo(0, restoreY > 0 ? restoreY : 0);
       saveProgress();
+
+      // The dictionary warms its cache per chapter and files lookups under
+      // the book being read. It listens for this and nothing else fires it,
+      // so a chapter rendered without it gets no prefetch and no history.
+      document.dispatchEvent(new CustomEvent('tn:chapter', {
+        detail: { book: bookSlug, chapter: slug, title: c.title }
+      }));
     }
 
     function navigate(slug, push) {
@@ -339,6 +353,11 @@
 
         // The library card is the label the site chose; prefer it over the
         // file's own title so a card and the page it opens agree.
+        // The dictionary answers differently per domain — "casing" in an HVAC
+        // book is not "casing" in a novel. The shelf carries the domain when
+        // one was chosen at upload; otherwise every book stays general.
+        if (entry.domain) TN.el('#body').setAttribute('data-dict-domain', entry.domain);
+
         if (entry.title) book.title = entry.title;
         if (entry.subtitle) book.subtitle = entry.subtitle;
         if (entry.author) book.author = entry.author;

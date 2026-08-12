@@ -106,6 +106,10 @@ export async function listBooks(env) {
         author: decodeMeta(meta.author) || '',
         description: decodeMeta(meta.description) || '',
         chapters: Number(meta.chapters) || 0,
+        // Which dictionary vocabulary this book is read against. "casing" in
+        // an HVAC manual is not "casing" in a novel, so the answer depends on
+        // the book, not on the site.
+        domain: decodeMeta(meta.domain) || 'general',
         format,
         size: obj.size,
         uploaded: obj.uploaded instanceof Date ? obj.uploaded.toISOString() : String(obj.uploaded || '')

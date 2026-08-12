@@ -129,6 +129,7 @@ export const onRequestPost = async ({ env, request, params, data }) => {
       author: encodeMeta(dec(h.get('X-Book-Author'))),
       description: encodeMeta(dec(h.get('X-Book-Description'))),
       chapters: String(Number(h.get('X-Book-Chapters')) || 0),
+      domain: encodeMeta(dec(h.get('X-Book-Domain')) || 'general'),
       uploadedBy: user.email || user.id,
       uploadedAt: new Date().toISOString()
     }
