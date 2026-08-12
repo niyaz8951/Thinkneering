@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <title>Web Text Extractor — Thinkneering</title>
+  <meta name="description" content="Paste a web address and get the readable text back without the navigation, cookie banners, adverts or footers. Edit it, copy it, or save it straight to the Education library.">
+
+  <style>
+    /* Tool-scoped only. Anything reusable belongs in global.css. */
+
+    /* --- Collapsible panel head -------------------------------------
+       Same pattern as the Text Cleaner. Second use, so it is now a
+       candidate for global.css rather than a copy in each tool. */
+    .disclosure-head { margin: 0; }
+    .disclosure {
+      display: flex; align-items: center; gap: var(--space-3);
+      width: 100%; padding: 0; border: 0; background: none;
+      font: inherit; color: inherit; text-align: left; cursor: pointer;
+    }
+    .disclosure__label { flex: 1; }
+    .disclosure__meta {
+      font-family: var(--font-mono); font-size: 0.75rem; font-weight: 400;
+      color: var(--color-text-muted); white-space: nowrap;
+    }
+    .disclosure__chevron { flex: none; color: var(--color-text-muted); transition: transform .15s ease; }
+    .disclosure[aria-expanded="false"] .disclosure__chevron { transform: rotate(-90deg); }
+    .disclosure:focus-visible { outline: 2px solid var(--color-primary); outline-offset: var(--space-1); border-radius: var(--radius-sm); }
+    .panel__body { padding-top: var(--space-4); }
+    .panel__body[hidden] { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .disclosure__chevron { transition: none; }
+    }
+
+    /* --- Status line -------------------------------------------------- */
+    .status { font-size: 0.8125rem; color: var(--color-text-muted); min-height: 20px; }
+    .status--error { color: var(--color-danger); }
+    .status--ok { color: var(--color-success); }
+    .status--busy::after {
+      content: ''; display: inline-block; width: 10px; height: 10px;
+      margin-left: var(--space-2); vertical-align: -1px;
+      border: 2px solid var(--color-border); border-top-color: var(--color-primary);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .status--busy::after { animation: none; }
+    }
+
+    /* --- Text pane ----------------------------------------------------- */
+    .text-pane {
+      min-height: 320px; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.7;
+      white-space: pre-wrap; overflow-wrap: break-word;
+    }
+
+    /* --- Confidence + result summary ------------------------------------ */
+    .summary {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: var(--space-2) var(--space-3);
+      font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted);
+    }
+    .meter {
+      flex: none; width: 120px; height: 6px; border-radius: var(--radius-sm);
+      background: var(--color-surface-sunken); overflow: hidden;
+    }
+    .meter__fill { display: block; height: 100%; background: var(--color-success); }
+    .meter__fill.is-mid { background: var(--color-warning); }
+    .meter__fill.is-low { background: var(--color-danger); }
+
+    /* --- Warnings ------------------------------------------------------- */
+    .warnings { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+    .warnings:empty { display: none; }
+    .warnings .notice { font-size: 0.875rem; }
+
+    /* --- Details -------------------------------------------------------- */
+    .facts { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-2) var(--space-3); margin: 0; }
+    .facts dt { color: var(--color-text-muted); font-size: 0.8125rem; }
+    .facts dd { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+    @media (max-width: 560px) {
+      .facts { grid-template-columns: 1fr; gap: var(--space-1) 0; }
+      .facts dd { margin-bottom: var(--space-2); }
+    }
+
+    .outline { list-style: none; padding: 0; margin: 0; font-size: 0.875rem; }
+    .outline li { padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border); }
+    .outline li:last-child { border-bottom: 0; }
+    .outline .lvl {
+      font-family: var(--font-mono); font-size: 0.6875rem; color: var(--color-text-muted);
+      margin-right: var(--space-2);
+    }
+
+    /* Candidate for global.css if other tools need disabled buttons. */
+    .btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+    /* --- Save to Books ---------------------------------------------------
+       Same in-place reveal the Text Cleaner uses, rather than a dialog. */
+    .save-book {
+      margin-top: var(--space-4);
+      padding: var(--space-4);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-sunken);
+    }
+    .save-book[hidden] { display: none; }
+    .save-book .field { max-width: 420px; }
+    .save-book__actions { margin-top: var(--space-3); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <h1>Web Text Extractor</h1>
+      <p class="page-head__lede">A web address in, the readable text out</p>
+      <p>Give it the address of an article, a documentation page or a standard, and it returns the text
+         that matters — with the navigation, cookie banners, adverts, share bars and footers left behind.
+         Nothing is rewritten or summarised: every line comes from the page itself. Check it, edit it,
+         then copy it or send it to the Education library.</p>
+    </div>
+
+    <!-- 1 — Page ----------------------------------------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="true" aria-controls="panel-source">
+            <span class="disclosure__label">1 &mdash; Page</span>
+            <span class="disclosure__meta" id="meta-source"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-source">
+        <div class="field">
+          <label for="url">Web address</label>
+          <input type="url" id="url" inputmode="url" spellcheck="false" autocomplete="url"
+                 placeholder="https://example.com/the-article">
+          <p class="hint">Public pages only. A site that asks automated tools to stay away in its
+             robots.txt is respected, and nothing behind a sign-in can be read.</p>
+        </div>
+
+        <div class="field" style="margin-top:var(--space-3)">
+          <span class="label" id="method-label">How to read it</span>
+          <div class="segmented" role="group" aria-labelledby="method-label" id="methods">
+            <button type="button" data-method="auto" aria-pressed="true">Automatic</button>
+            <button type="button" data-method="static" aria-pressed="false">Plain HTML</button>
+            <button type="button" data-method="render" aria-pressed="false">Browser render</button>
+          </div>
+          <p class="hint" id="method-hint">Automatic reads the plain HTML and only reaches for a browser
+             if the page comes back empty.</p>
+        </div>
+
+        <div class="row" style="margin-top:var(--space-4)">
+          <button type="button" class="btn btn--primary" id="btn-extract">Extract text</button>
+          <button type="button" class="btn btn--quiet" id="btn-clear">Clear</button>
+        </div>
+
+        <p class="status" id="status" role="status" aria-live="polite" style="margin-top:var(--space-3)"></p>
+      </div>
+    </section>
+
+    <!-- 2 — Extracted text -------------------------------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="true" aria-controls="panel-result">
+            <span class="disclosure__label">2 &mdash; Extracted text</span>
+            <span class="disclosure__meta" id="meta-result"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-result">
+        <p class="summary" id="summary" hidden>
+          <span class="meter" aria-hidden="true"><span class="meter__fill" id="meter-fill" style="width:0"></span></span>
+          <span id="summary-text"></span>
+        </p>
+
+        <div class="warnings" id="warnings"></div>
+
+        <div class="field" style="margin-top:var(--space-3)">
+          <span class="label" id="view-label">Format</span>
+          <div class="segmented" role="group" aria-labelledby="view-label" id="views">
+            <button type="button" data-view="text" aria-pressed="true">Plain text</button>
+            <button type="button" data-view="markdown" aria-pressed="false">Markdown</button>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:var(--space-3)">
+          <label for="output">Extracted text</label>
+          <textarea id="output" class="text-pane" spellcheck="false"
+                    placeholder="Extract a page and the readable text lands here. You can edit it before saving."></textarea>
+          <p class="hint">Edit freely — copying, downloading and saving all use what is in this box.</p>
+        </div>
+
+        <div class="row" style="margin-top:var(--space-3)">
+          <button type="button" class="btn btn--primary" id="btn-copy" disabled>Copy</button>
+          <button type="button" class="btn btn--ghost" id="btn-download" disabled>Download</button>
+          <a class="btn btn--ghost" id="btn-original" href="#" target="_blank" rel="noopener noreferrer" hidden>Open the original</a>
+          <button type="button" class="btn btn--ghost" id="btn-save-book" disabled hidden
+                  aria-expanded="false" aria-controls="save-book">Save to Books</button>
+        </div>
+
+        <!-- Revealed only for an admin, since only an admin can add books. -->
+        <div class="save-book" id="save-book" hidden>
+          <p class="eyebrow">Save to the Education library</p>
+          <div class="field" style="margin-top:var(--space-2)">
+            <label for="book-title">Book title</label>
+            <input type="text" id="book-title" maxlength="120" autocomplete="off"
+                   placeholder="e.g. ASHRAE 62.1 — Ventilation Rates">
+            <p class="hint">The name on the shelf, and the heading the reader opens with.</p>
+          </div>
+          <div class="row save-book__actions">
+            <button type="button" class="btn btn--primary" id="btn-book-save">Save to Books</button>
+            <button type="button" class="btn btn--quiet" id="btn-book-cancel">Cancel</button>
+          </div>
+          <p class="status" id="book-status" role="status" aria-live="polite" style="margin-top:var(--space-2)"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 — What was found (closed by default) -------------------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="disclosure-head">
+          <button type="button" class="disclosure" data-disclosure aria-expanded="false" aria-controls="panel-details">
+            <span class="disclosure__label">3 &mdash; What was found</span>
+            <span class="disclosure__meta" id="meta-details"></span>
+            <svg class="disclosure__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
+        </h2>
+      </div>
+
+      <div class="panel__body" id="panel-details" hidden>
+        <p class="muted" id="details-empty">Nothing extracted yet.</p>
+
+        <div id="details-body" hidden>
+          <dl class="facts" id="facts"></dl>
+
+          <p class="eyebrow" style="margin-top:var(--space-5)">Headings</p>
+          <ul class="outline" id="outline"></ul>
+          <p class="muted" id="outline-empty" hidden>No headings were found on the page.</p>
+
+          <p class="eyebrow" style="margin-top:var(--space-5)">Images kept</p>
+          <ul class="outline" id="images"></ul>
+          <p class="muted" id="images-empty" hidden>No captioned or described images were found.</p>
+
+          <p class="eyebrow" style="margin-top:var(--space-5)">Try a different reading</p>
+          <p class="hint">If a section is missing or navigation crept in, read the page another way and compare.</p>
+          <div class="row" style="margin-top:var(--space-2)">
+            <button type="button" class="btn btn--ghost" data-rerun="static">Re-read as plain HTML</button>
+            <button type="button" class="btn btn--ghost" data-rerun="render">Re-read in a browser</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=5"></script>
+  <script src="/tools/web-text-extractor/extractor.js?v=1"></script>
+</body>
+</html>
