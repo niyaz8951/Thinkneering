@@ -10,8 +10,9 @@
 -- Access changes too: the whole section is now one gate — signed in AND
 -- approved by an admin — instead of a level per book and per chapter.
 --
--- Re-runnable. Nothing here drops a table that other parts of the site
--- still use; see the very bottom for the optional clean-up.
+-- Re-runnable, every statement, however many times you run it. Nothing here
+-- drops a table that other parts of the site still use; see the very bottom
+-- for the optional clean-up.
 --
 --   npx wrangler d1 execute thinkneering-db --remote --file=./db/2026-08-education-portable.sql
 --
@@ -70,17 +71,22 @@ DELETE FROM grants
 
 -- 3 ── Reading position moves from book id to book slug ----------------
 --
--- There is no books.id to point at any more. The column is renamed rather
--- than left holding a slug under a misleading name, and old rows go because
--- their chapter ids came from the deleted chapters table and would strand a
--- reader on a chapter that no longer exists.
+-- There is no books.id to point at any more, so the column holds a slug and
+-- is named for one.
 --
--- Written so it survives a second run: if the table was never created, it is
--- created in its new shape; if it already has book_slug, the rename is
--- skipped by hand (SQLite has no "RENAME COLUMN IF EXISTS", so the ALTER
--- below is the one statement to delete if you re-run this file).
+-- Dropped and recreated rather than altered. Two reasons. The rows were
+-- going anyway: their chapter ids came from the chapters table this file
+-- empties, so every saved position would strand a reader on a chapter that
+-- no longer exists. And a rename has to know what it is renaming — on a
+-- database where this table was never created, or was already corrected,
+-- an ALTER fails and takes the whole migration down with it. A drop and a
+-- create do the same job and cannot care what came before.
+--
+-- Readers lose their place in a book once. That is the entire cost.
 
-CREATE TABLE IF NOT EXISTS reading_progress (
+DROP TABLE IF EXISTS reading_progress;
+
+CREATE TABLE reading_progress (
   user_id      TEXT NOT NULL,
   book_slug    TEXT NOT NULL,
   chapter_slug TEXT NOT NULL,
@@ -89,13 +95,9 @@ CREATE TABLE IF NOT EXISTS reading_progress (
   PRIMARY KEY (user_id, book_slug)
 );
 
--- FIRST RUN ONLY — delete this line if you run this file again.
-ALTER TABLE reading_progress RENAME COLUMN book_id TO book_slug;
-
-DELETE FROM reading_progress;
-
-CREATE INDEX IF NOT EXISTS idx_reading_progress_user
+CREATE INDEX idx_reading_progress_user
   ON reading_progress (user_id, updated_at DESC);
+
 
 -- 4 ── Approve the first reader ----------------------------------------
 --
