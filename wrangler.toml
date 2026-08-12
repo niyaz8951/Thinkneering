@@ -14,8 +14,19 @@ database_id = "cac87d3e-c9c0-4d20-978c-58a859df95ea"
 [ai]
 binding = "AI"
 
-# Optional, only needed once you want to upload book images from the admin
-# panel instead of pasting URLs. Ask before wiring this up.
+# The Education library. This bucket IS the book list: /api/education/library
+# calls .list() on it, so uploading a file makes it appear and deleting one
+# makes it vanish, with no manifest to edit and no deploy in between.
+#
+# Books are deliberately NOT in the repo. A file under /books/ would be a
+# public download for anyone who guessed the name; an object in here can only
+# be reached through the API, which checks admin approval first.
+[[r2_buckets]]
+binding = "BOOKS"
+bucket_name = "thinkneering-books"
+
+# Optional, only needed once you want to upload book cover images from the
+# admin panel instead of pasting URLs. Ask before wiring this up.
 # [[r2_buckets]]
 # binding = "MEDIA"
 # bucket_name = "thinkneering-media"

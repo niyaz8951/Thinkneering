@@ -19,20 +19,6 @@ const SIGNED_IN_PAGES = [
 // bounced to a login form they have already used.
 const EDUCATION_PAGES = ['/education/', '/read/'];
 
-// Paths that are read by one HTML shell rather than a file of their own.
-// The shell reads the rest of the path itself and fetches what it needs.
-const SHELLS = [
-  [/^\/read(\/|$)/, '/reader.html'],
-  [/^\/s(\/|$)/, '/section.html'],
-];
-
-function shellFor(pathname) {
-  for (const [pattern, file] of SHELLS) {
-    if (pattern.test(pathname)) return file;
-  }
-  return null;
-}
-
 function matches(pathname, list) {
   return list.some((p) => pathname === p.replace(/\/$/, '') || pathname.startsWith(p));
 }
@@ -55,11 +41,10 @@ export const onRequest = async (context) => {
     }
   }
 
-  // The book files deploy like any other repo file, which would otherwise
-  // make them public downloads. Nothing may reach /books/* directly; the
-  // only way to a book is /api/education/file/<slug>, which checks approval
-  // first and then reads the asset with env.ASSETS.fetch() — that call does
-  // not re-enter Functions, so it is not caught by this block.
+  // Books live in the R2 bucket, not in the deployed assets, so there is no
+  // public path to block. The only way to a book is /api/education/file/<slug>,
+  // which checks approval before it touches storage. This stays as a guard in
+  // case a stray /books/ file is ever committed by hand.
   if (url.pathname.startsWith('/books/')) {
     return new Response('Not found', { status: 404 });
   }
@@ -75,30 +60,6 @@ export const onRequest = async (context) => {
   // page: the library and file APIs enforce approval, so nothing leaks, and
   // the page can say "waiting on approval" instead of bouncing them back to
   // a login form they have already used.
-
-  // Clean URLs, served here rather than left to _redirects.
-  //
-  // This middleware sits at the root of functions/, so every request to the
-  // site enters Functions — and the rewrite rules in _redirects are only
-  // applied to requests the asset server handles on its own. That leaves
-  // /read/<book> and /s/<section> depending on next() falling through in a
-  // way that is not guaranteed, which is how /read/humonks ended up serving
-  // the home page. Reading the shell explicitly removes the guesswork.
-  //
-  // ASSETS.fetch() does not re-enter Functions, so this cannot loop.
-  const shell = shellFor(url.pathname);
-  if (shell) {
-    const asset = await env.ASSETS.fetch(new Request(url.origin + shell, { method: 'GET' }));
-    if (asset.ok) {
-      return new Response(asset.body, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
-        }
-      });
-    }
-  }
 
   return next();
 };

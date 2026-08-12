@@ -690,20 +690,166 @@
     };
   }
 
+
+  // ================================================================ TEXT
+  // A .txt file has no styles to read, so structure comes from convention:
+  //
+  //   # Chapter title      -> a new chapter
+  //   ## Sub-heading       -> a heading inside one
+  //   blank line           -> paragraph break
+  //   * * * or ---         -> scene break
+  //   - item / 1. item     -> list
+  //
+  // A file with no # lines is not an error. It becomes one chapter, which is
+  // the right answer for a note or a single essay.
+
+  var TXT_INLINE = /(\*\*[^*]+\*\*|`[^`]+`|(?<![*\w])\*[^*\n]+\*(?![*\w]))/;
+
+  function txtInline(text) {
+    return String(text || '').split(TXT_INLINE).map(function (piece) {
+      if (!piece) return '';
+      if (piece.slice(0, 2) === '**' && piece.slice(-2) === '**') {
+        return '<strong>' + esc(piece.slice(2, -2)) + '</strong>';
+      }
+      if (piece[0] === '`' && piece.slice(-1) === '`') {
+        return '<code>' + esc(piece.slice(1, -1)) + '</code>';
+      }
+      if (piece[0] === '*' && piece.slice(-1) === '*') {
+        return '<em>' + esc(piece.slice(1, -1)) + '</em>';
+      }
+      return esc(piece);
+    }).join('');
+  }
+
+  function readText(buffer) {
+    var text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);        // strip BOM
+    var lines = text.replace(/\r\n?/g, '\n').split('\n');
+
+    var meta = { title: '', author: '', subtitle: '' };
+    var chapters = [];
+    var current = null, parts = [], para = [], list = null;
+
+    function flushPara() {
+      if (!para.length) return;
+
+      // Consecutive lines normally join into one paragraph — that is what a
+      // wrapped paragraph is. But a stanza is also consecutive lines, and
+      // joining it destroys the poem. Same test used for the other formats:
+      // several short lines, most not ending a sentence, is verse.
+      var clean = para.map(function (l) { return l.split('\u0000BR').join('').trim(); });
+      var terminal = clean.filter(endsSentence).length;
+      if (clean.length >= 4 && clean.every(isShortLine) && terminal / clean.length <= 0.4) {
+        parts.push('<div class="verse">' + clean.map(function (l) {
+          return '<p>' + txtInline(l) + '</p>';
+        }).join('') + '</div>');
+        para = [];
+        return;
+      }
+
+      var joined = para.join(' ').trim();
+      if (joined) parts.push({ kind: 'para', html: '<p>' + txtInline(joined) + '</p>', text: joined });
+      para = [];
+    }
+    function flushList() {
+      if (!list) return;
+      parts.push('<' + list.tag + '>' + list.items.join('') + '</' + list.tag + '>');
+      list = null;
+    }
+    function flushChapter() {
+      flushPara(); flushList();
+      if (current && parts.length) {
+        chapters.push({ title: current, html: groupVerse(parts) });
+      }
+      parts = [];
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var raw = lines[i];
+      var line = raw.trim();
+
+      if (!line) { flushPara(); flushList(); continue; }
+
+      var h = /^(#{1,4})\s+(.*)$/.exec(line);
+      if (h) {
+        if (h[1].length === 1) { flushChapter(); current = h[2].trim(); continue; }
+        flushPara(); flushList();
+        var level = Math.min(h[1].length, 4);
+        parts.push('<h' + level + '>' + txtInline(h[2]) + '</h' + level + '>');
+        continue;
+      }
+
+      if (DIVIDER.test(line)) { flushPara(); flushList(); parts.push('<hr>'); continue; }
+
+      var li = /^([-*\u2022]|\d+[.)])\s+(.*)$/.exec(line);
+      if (li) {
+        flushPara();
+        var tag = /^\d/.test(li[1]) ? 'ol' : 'ul';
+        if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
+        list.items.push('<li>' + txtInline(li[2]) + '</li>');
+        continue;
+      }
+      flushList();
+
+      // An indented run is a quotation in most plain-text conventions.
+      if (/^(\t| {4,})/.test(raw) && !para.length) {
+        parts.push('<blockquote>' + txtInline(line) + '</blockquote>');
+        continue;
+      }
+
+      // A line ending in two spaces is a hard break, which is how verse and
+      // addresses survive a format that has no other way to say it.
+      para.push(/\s{2,}$/.test(raw) && para.length ? line + '\u0000BR' : line);
+    }
+    flushChapter();
+
+    // Nothing was marked with #, so the whole file is one chapter. Its first
+    // line is the best title available.
+    if (!chapters.length) {
+      flushPara(); flushList();
+      var first = lines.map(function (l) { return l.trim(); }).filter(Boolean)[0] || 'Untitled';
+      if (parts.length) chapters.push({ title: first.slice(0, 80), html: groupVerse(parts) });
+    }
+
+    chapters.forEach(function (c) { c.html = c.html.split('\u0000BR').join('<br>'); });
+    if (!chapters.length) throw new Error('That text file was empty.');
+
+    // A single # at the very top names the book, not the first chapter.
+    if (chapters.length > 1) meta.title = '';
+
+    return {
+      format: 'txt',
+      title: meta.title || '',
+      subtitle: '', author: '', description: '',
+      coverUrl: null,
+      chapters: uniqueSlugs(chapters)
+    };
+  }
+
   // ============================================================== entry
   // Format is decided by what is inside the archive, not by the file name,
   // so a mislabelled upload still opens.
   async function read(buffer, hint) {
     var revoke = [];
-    var zip = await window.TNZip.open(buffer);
     var book;
 
-    var looksEpub = zip.has('META-INF/container.xml') || zip.has('content.opf');
-    var looksDocx = zip.has('word/document.xml');
+    // Format comes from what the bytes are, not from the name. A ZIP always
+    // starts "PK"; anything else is treated as text, so a mislabelled file
+    // still opens instead of failing on its extension.
+    var head = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
+    var isZip = head.length === 2 && head[0] === 0x50 && head[1] === 0x4B;
 
-    if (looksDocx && (!looksEpub || /docx$/i.test(hint || ''))) book = await readDocx(zip, revoke);
-    else if (looksEpub) book = await readEpub(zip, revoke);
-    else throw new Error('That file is neither a Word document nor an EPUB.');
+    if (!isZip) {
+      book = readText(buffer);
+    } else {
+      var zip = await window.TNZip.open(buffer);
+      var looksEpub = zip.has('META-INF/container.xml') || zip.has('content.opf');
+      var looksDocx = zip.has('word/document.xml');
+
+      if (looksDocx && (!looksEpub || /docx$/i.test(hint || ''))) book = await readDocx(zip, revoke);
+      else if (looksEpub) book = await readEpub(zip, revoke);
+      else throw new Error('That file is not a Word document, an EPUB or a text file.');
+    }
 
     book.revoke = function () { revoke.forEach(function (u) { URL.revokeObjectURL(u); }); };
     return book;

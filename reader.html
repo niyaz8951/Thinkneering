@@ -7,8 +7,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/global.css?v=6">
-  <link rel="stylesheet" href="/assets/css/education.css?v=1">
-  <link rel="stylesheet" href="/assets/css/dictionary.css?v=6">
+  <link rel="stylesheet" href="/assets/css/education.css?v=2">
   <title>Reader — Thinkneering</title>
 </head>
 <body>
@@ -19,7 +18,7 @@
 
   <main id="main" class="wrap">
     <div class="reader" id="reader">
-      <aside class="reader__toc" id="toc-panel" data-dict="off">
+      <aside class="reader__toc" id="toc-panel">
         <p class="eyebrow" id="book-author">Reading</p>
         <h2 id="book-title">&nbsp;</h2>
         <p class="muted" id="book-sub" style="font-size:0.875rem"></p>
@@ -31,12 +30,10 @@
 
         <nav aria-label="Chapters"><ol id="toc"></ol></nav>
         <p class="muted toc-empty" id="toc-empty" hidden>No chapter matches that.</p>
-
-        <section class="tn-dict-recent" data-dict-recent hidden></section>
       </aside>
 
       <div>
-        <div class="reader__bar" role="toolbar" aria-label="Reading options" data-dict="off">
+        <div class="reader__bar" role="toolbar" aria-label="Reading options">
           <button class="btn btn--quiet btn--sm" id="toc-toggle" aria-expanded="true"
                   aria-controls="toc-panel" title="Show or hide contents (T)">Contents</button>
           <span class="reader__bar-group">
@@ -48,8 +45,7 @@
           <button class="btn btn--quiet btn--sm" id="fullscreen" title="Full screen (F)">Full screen</button>
         </div>
 
-        <article class="reader__body" id="body" tabindex="-1"
-                 data-dict-scope data-dict-domain="english">
+        <article class="reader__body" id="body" tabindex="-1">
           <p class="muted" id="opening">Opening the book&hellip;</p>
         </article>
       </div>
@@ -60,9 +56,8 @@
 
   <footer data-site-footer></footer>
   <script src="/assets/js/global.js?v=6"></script>
-  <script src="/assets/js/zip.js?v=1"></script>
-  <script src="/assets/js/ebook.js?v=1"></script>
-  <script src="/assets/js/dictionary.js?v=9" defer></script>
+  <script src="/assets/js/zip.js?v=2"></script>
+  <script src="/assets/js/ebook.js?v=2"></script>
   <script>
   (function () {
     'use strict';
@@ -263,13 +258,6 @@
 
       window.scrollTo(0, restoreY > 0 ? restoreY : 0);
       saveProgress();
-
-      // The dictionary listens for this: it warms its cache with the words in
-      // the chapter and refreshes the reader's word list. Nothing else uses
-      // it, and nothing breaks if the dictionary script is absent.
-      document.dispatchEvent(new CustomEvent('tn:chapter', {
-        detail: { book: bookSlug, chapter: slug }
-      }));
     }
 
     function navigate(slug, push) {
@@ -300,9 +288,6 @@
 
     document.addEventListener('keydown', function (ev) {
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.metaKey || ev.ctrlKey) return;
-      // n, p, f and t are bare keys. With a definition open they would turn
-      // the page behind it, so the reader yields until the panel closes.
-      if (document.documentElement.dataset.tnDict === 'open') return;
       if (ev.key === 'ArrowRight' || ev.key === 'n') go(1);
       else if (ev.key === 'ArrowLeft' || ev.key === 'p') go(-1);
       else if (ev.key === 'f') toggleFullscreen();
@@ -348,7 +333,8 @@
         }
         var buffer = await res.arrayBuffer();
 
-        status.textContent = 'Reading the ' + (entry.format === 'epub' ? 'EPUB' : 'Word document') + '\u2026';
+        var kind = entry.format === 'epub' ? 'EPUB' : entry.format === 'txt' ? 'text file' : 'Word document';
+        status.textContent = 'Reading the ' + kind + '\u2026';
         book = await TNEbook.read(buffer, entry.format);
 
         // The library card is the label the site chose; prefer it over the

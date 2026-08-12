@@ -23,6 +23,54 @@
 }
 .book-card .card__foot { flex-wrap: wrap; gap: var(--space-2); }
 
+/* ------------------------------------------------------- add a book */
+.book-add { margin-bottom: var(--space-5); }
+
+.drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  text-align: center;
+  margin-top: var(--space-3);
+  padding: var(--space-5) var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.drop:hover,
+.drop.is-over { border-color: var(--color-primary); background: var(--color-surface); }
+.drop:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.drop__icon { color: var(--color-text-muted); line-height: 0; }
+.drop__label { font-weight: 500; }
+
+.book-preview { margin-top: var(--space-4); }
+.book-preview .field-row { margin-top: var(--space-3); }
+.book-preview__toc { margin-top: var(--space-3); }
+.book-preview__toc summary {
+  cursor: pointer; font-size: 0.875rem; color: var(--color-text-muted);
+}
+.book-preview__toc ol {
+  margin-top: var(--space-2);
+  max-height: 200px;
+  overflow-y: auto;
+  padding-left: var(--space-4);
+  font-size: 0.875rem;
+}
+
+/* The whole card was a link before an admin needed a Remove button inside
+   it; a button nested in an anchor is invalid and unreachable by keyboard.
+   The link now wraps only the text, and the card is the positioning
+   context. */
+.book-card__open {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  text-decoration: none; color: inherit;
+}
+.book-card__open:hover .card__title { color: var(--color-primary); }
+.book-card__remove { margin-left: auto; }
+
 /* --------------------------------------------------------------- verse */
 /* A poem arrives as one paragraph per line. At paragraph spacing every line
    reads as its own thought, which is not what a stanza is. Lines are set

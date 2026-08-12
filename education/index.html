@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/global.css?v=6">
-  <link rel="stylesheet" href="/assets/css/education.css?v=1">
+  <link rel="stylesheet" href="/assets/css/education.css?v=2">
   <title>Education — Thinkneering</title>
 </head>
 <body>
@@ -21,20 +21,48 @@
       <p>Books read straight from their own files, in a distraction-free reader.</p>
     </div>
 
+    <!-- Admin only. Everything inside is hidden until the API says so. -->
+    <section class="panel book-add" id="add-panel" hidden>
+      <h2 style="font-size:1.125rem">Add a book</h2>
+      <p class="hint">A Word document, an EPUB or a plain text file. It is read in
+        this browser first, so you can see what the reader will show before it is saved.</p>
+
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-describedby="drop-hint">
+        <span class="drop__icon" id="drop-icon"></span>
+        <span class="drop__label" id="drop-label">Choose a file, or drop one here</span>
+        <span class="hint" id="drop-hint">.docx, .epub or .txt &middot; up to 40 MB</span>
+      </div>
+      <label class="sr-only" for="file">Book file</label>
+      <input id="file" type="file" accept=".docx,.epub,.txt" hidden>
+
+      <div id="preview" hidden></div>
+      <div id="add-error" hidden></div>
+    </section>
+
     <div id="state"><div class="empty">Opening the library&hellip;</div></div>
     <div id="books" class="grid" hidden></div>
   </main>
 
   <footer data-site-footer></footer>
   <script src="/assets/js/global.js?v=6"></script>
+  <script src="/assets/js/zip.js?v=2"></script>
+  <script src="/assets/js/ebook.js?v=2"></script>
   <script>
-    (async function () {
-      var state = TN.el('#state');
+  (function () {
+    'use strict';
 
+    var canManage = false;
+    var pending = null;          // { file, book } waiting to be saved
+
+    // ------------------------------------------------------------- shelf
+    async function loadShelf() {
+      var state = TN.el('#state');
       try {
         var d = await TN.api('/api/education/library');
 
         if (!d.allowed) {
+          state.hidden = false;
           state.className = 'paywall';
           state.innerHTML = TN.icon('lock', 20) +
             '<h2 style="margin-top:var(--space-2)">' +
@@ -49,31 +77,217 @@
           return;
         }
 
+        canManage = !!d.canManage;
+        TN.el('#add-panel').hidden = !canManage;
+
+        var list = TN.el('#books');
         if (!d.books.length) {
-          state.innerHTML = '<div class="empty">No books yet. Drop a .docx or .epub into the ' +
-            'books folder and add it to library.json.</div>';
+          state.hidden = false;
+          state.className = 'empty';
+          state.textContent = canManage
+            ? 'No books yet. Add one above and it appears here straight away.'
+            : 'No books have been added yet.';
+          list.hidden = true;
           return;
         }
 
         state.hidden = true;
-        var list = TN.el('#books');
         list.hidden = false;
         list.innerHTML = d.books.map(function (b) {
-          return '<a class="card book-card" href="/read/' + encodeURIComponent(b.slug) + '">' +
-            '<span class="card__icon">' + TN.icon(b.icon, 20) + '</span>' +
+          return '<div class="card book-card">' +
+            '<a class="book-card__open" href="/read/' + encodeURIComponent(b.slug) + '">' +
             '<span class="card__title">' + TN.esc(b.title) + '</span>' +
             (b.subtitle ? '<span class="book-card__sub">' + TN.esc(b.subtitle) + '</span>' : '') +
-            '<span class="card__desc">' + TN.esc(b.description || '') + '</span>' +
+            '<span class="card__desc">' + TN.esc(b.description || '') + '</span></a>' +
             '<span class="card__foot">' +
             (b.author ? '<span class="chip">' + TN.esc(b.author) + '</span>' : '') +
             '<span class="chip chip--restricted">' + TN.esc(b.format.toUpperCase()) + '</span>' +
-            '</span></a>';
+            (b.chapters ? '<span class="chip">' + b.chapters + ' chapters</span>' : '') +
+            (canManage
+              ? '<button class="btn btn--sm btn--quiet book-card__remove" data-remove="' +
+                TN.esc(b.slug) + '" data-title="' + TN.esc(b.title) + '">Remove</button>'
+              : '') +
+            '</span></div>';
         }).join('');
       } catch (err) {
+        state.hidden = false;
         state.className = 'empty';
         state.textContent = err.message;
       }
-    })();
+    }
+
+    // ------------------------------------------------------------ remove
+    TN.el('#books').addEventListener('click', async function (ev) {
+      var btn = ev.target.closest('[data-remove]');
+      if (!btn) return;
+      var slug = btn.getAttribute('data-remove');
+      if (!confirm('Remove "' + btn.getAttribute('data-title') + '"? This deletes the file.')) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Removing\u2026';
+      try {
+        var res = await fetch('/api/education/book/' + encodeURIComponent(slug),
+          { method: 'DELETE', credentials: 'same-origin' });
+        if (!res.ok) throw new Error(((await res.json().catch(function () { return {}; })).error) || 'Could not remove that book.');
+        TN.toast('Book removed', 'success');
+        loadShelf();
+      } catch (err) {
+        TN.toast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Remove';
+      }
+    });
+
+    // ------------------------------------------------------------- upload
+    var drop = TN.el('#drop');
+    var fileInput = TN.el('#file');
+
+    function problem(message) {
+      var box = TN.el('#add-error');
+      box.hidden = false;
+      box.className = 'notice notice--danger';
+      box.innerHTML = '<div>' + TN.esc(message) + '</div>';
+    }
+    function clearProblem() { TN.el('#add-error').hidden = true; }
+
+    drop.addEventListener('click', function () { fileInput.click(); });
+    drop.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fileInput.click(); }
+    });
+    ['dragenter', 'dragover'].forEach(function (e) {
+      drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('is-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (e) {
+      drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.remove('is-over'); });
+    });
+    drop.addEventListener('drop', function (ev) {
+      if (ev.dataTransfer.files && ev.dataTransfer.files[0]) inspect(ev.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', function () {
+      if (this.files && this.files[0]) inspect(this.files[0]);
+    });
+
+    // The file is parsed here, before anything is sent. Two reasons: a file
+    // the reader cannot open is rejected while you are still looking at it
+    // rather than after it is stored, and the title, author and chapter
+    // count that the shelf needs come out of the parse — so no one has to
+    // type them and no server-side parser is needed to read them back.
+    async function inspect(file) {
+      clearProblem();
+      TN.el('#preview').hidden = true;
+
+      if (!/\.(docx|epub|txt)$/i.test(file.name)) {
+        return problem('That is not a .docx, .epub or .txt file.');
+      }
+      if (file.size > 40 * 1024 * 1024) {
+        return problem('That file is larger than 40 MB.');
+      }
+
+      TN.el('#drop-label').textContent = 'Reading ' + file.name + '\u2026';
+      try {
+        var buffer = await file.arrayBuffer();
+        var book = await TNEbook.read(buffer, file.name);
+        if (!book.chapters.length) throw new Error('That file had no readable chapters.');
+
+        pending = { file: file, book: book };
+        showPreview(file, book);
+      } catch (err) {
+        pending = null;
+        problem(err.message);
+      } finally {
+        TN.el('#drop-label').textContent = 'Choose a file, or drop one here';
+      }
+    }
+
+    function showPreview(file, book) {
+      var box = TN.el('#preview');
+      var guessTitle = book.title && book.title !== 'Untitled'
+        ? book.title
+        : file.name.replace(/\.(docx|epub|txt)$/i, '');
+
+      box.hidden = false;
+      box.className = 'book-preview';
+      box.innerHTML =
+        '<p class="eyebrow">Found in the file</p>' +
+        '<div class="field"><label for="p-title">Title</label>' +
+        '<input id="p-title" type="text" value="' + TN.esc(guessTitle) + '" maxlength="120"></div>' +
+        '<div class="field-row">' +
+        '<div class="field"><label for="p-author">Author</label>' +
+        '<input id="p-author" type="text" value="' + TN.esc(book.author || '') + '" maxlength="80"></div>' +
+        '<div class="field"><label for="p-subtitle">Subtitle</label>' +
+        '<input id="p-subtitle" type="text" value="' + TN.esc(book.subtitle || '') + '" maxlength="120"></div>' +
+        '</div>' +
+        '<div class="field"><label for="p-desc">Description</label>' +
+        '<input id="p-desc" type="text" value="' + TN.esc(book.description || '') + '" maxlength="240"></div>' +
+        '<p class="hint">' + book.chapters.length + ' chapter' + (book.chapters.length === 1 ? '' : 's') +
+        ' &middot; ' + book.format.toUpperCase() + ' &middot; ' + Math.round(file.size / 1024) + ' KB</p>' +
+        '<details class="book-preview__toc"><summary>Chapters the reader found</summary><ol>' +
+        book.chapters.slice(0, 40).map(function (c) { return '<li>' + TN.esc(c.title) + '</li>'; }).join('') +
+        (book.chapters.length > 40 ? '<li class="muted">and ' + (book.chapters.length - 40) + ' more</li>' : '') +
+        '</ol></details>' +
+        '<div class="hero__actions"><button class="btn btn--primary" id="p-save">Add to the library</button>' +
+        '<button class="btn btn--ghost" id="p-cancel">Cancel</button></div>' +
+        '<div class="progress" id="p-progress" hidden><span></span></div>';
+
+      TN.el('#p-cancel').addEventListener('click', function () {
+        pending = null;
+        box.hidden = true;
+        fileInput.value = '';
+      });
+      TN.el('#p-save').addEventListener('click', save);
+    }
+
+    async function save() {
+      if (!pending) return;
+      clearProblem();
+
+      var title = TN.el('#p-title').value.trim();
+      if (!title) return problem('Give the book a title.');
+
+      var slug = TNEbook.slugify(title);
+      if (!slug) return problem('That title does not make a usable web address. Use some letters or numbers.');
+
+      var btn = TN.el('#p-save');
+      btn.disabled = true;
+      btn.textContent = 'Adding\u2026';
+
+      try {
+        var res = await fetch('/api/education/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            // Titles carry em dashes and curly quotes; headers are Latin-1.
+            // Encoding here and decoding on the server keeps them intact.
+            'X-Book-Filename': pending.file.name.replace(/[^\x20-\x7E]/g, '_'),
+            'X-Book-Slug': slug,
+            'X-Book-Title': encodeURIComponent(title),
+            'X-Book-Author': encodeURIComponent(TN.el('#p-author').value.trim()),
+            'X-Book-Subtitle': encodeURIComponent(TN.el('#p-subtitle').value.trim()),
+            'X-Book-Description': encodeURIComponent(TN.el('#p-desc').value.trim()),
+            'X-Book-Chapters': String(pending.book.chapters.length)
+          },
+          body: await pending.file.arrayBuffer()
+        });
+
+        var out = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(out.error || 'That book could not be added.');
+
+        TN.toast(out.replaced ? 'Book replaced' : 'Book added', 'success');
+        pending = null;
+        TN.el('#preview').hidden = true;
+        fileInput.value = '';
+        loadShelf();
+      } catch (err) {
+        problem(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Add to the library';
+      }
+    }
+
+    TN.el('#drop-icon').innerHTML = TN.icon('plus', 20);
+    loadShelf();
+  })();
   </script>
 </body>
 </html>
