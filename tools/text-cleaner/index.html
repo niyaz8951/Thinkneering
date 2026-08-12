@@ -87,6 +87,20 @@
 
     /* Candidate for global.css if other tools need disabled buttons. */
     .btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+    /* --- Save to Books ---------------------------------------------------
+       Sits inside the Result panel rather than a dialog, matching the way
+       the Education page reveals its upload form in place. */
+    .save-book {
+      margin-top: var(--space-4);
+      padding: var(--space-4);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-sunken);
+    }
+    .save-book[hidden] { display: none; }
+    .save-book .field { max-width: 420px; }
+    .save-book__actions { margin-top: var(--space-3); }
   </style>
 </head>
 <body>
@@ -173,12 +187,30 @@
         <div class="row" style="margin-top:var(--space-3)">
           <button type="button" class="btn btn--primary" id="btn-copy" disabled>Copy</button>
           <button type="button" class="btn btn--ghost" id="btn-download" disabled>Download .txt</button>
+          <button type="button" class="btn btn--ghost" id="btn-save-book" disabled hidden
+                  aria-expanded="false" aria-controls="save-book">Save to Books</button>
         </div>
 
         <div class="field" style="max-width:280px; margin-top:var(--space-3)">
           <label for="filename">File name</label>
           <input type="text" id="filename" value="cleaned">
           <p class="hint">Saved as <code>name_UPDATED.txt</code>, matching the desktop script.</p>
+        </div>
+
+        <!-- Revealed only for an admin, since only an admin can add books. -->
+        <div class="save-book" id="save-book" hidden>
+          <p class="eyebrow">Save to the Education library</p>
+          <div class="field" style="margin-top:var(--space-2)">
+            <label for="book-title">Book title</label>
+            <input type="text" id="book-title" maxlength="120" autocomplete="off"
+                   placeholder="e.g. Chapter One — First Draft">
+            <p class="hint" id="book-slug-hint">The name on the shelf, and the heading the reader opens with.</p>
+          </div>
+          <div class="row save-book__actions">
+            <button type="button" class="btn btn--primary" id="btn-book-save">Save to Books</button>
+            <button type="button" class="btn btn--quiet" id="btn-book-cancel">Cancel</button>
+          </div>
+          <p class="status" id="book-status" role="status" aria-live="polite" style="margin-top:var(--space-2)"></p>
         </div>
       </div>
     </section>
@@ -243,6 +275,6 @@
 
   <footer data-site-footer></footer>
   <script src="/assets/js/global.js?v=5"></script>
-  <script src="/tools/text-cleaner/textcleaner.js?v=3"></script>
+  <script src="/tools/text-cleaner/textcleaner.js?v=4"></script>
 </body>
 </html>

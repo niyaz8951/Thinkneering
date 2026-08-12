@@ -331,6 +331,7 @@
     if ($('btn-copy').disabled === has) {
       $('btn-copy').disabled = !has;
       $('btn-download').disabled = !has;
+      $('btn-save-book').disabled = !has;
     }
   }
 
@@ -481,12 +482,188 @@
     setStatus('Saved ' + name + '_UPDATED.txt.', 'ok');
   }
 
+  /* --- save to Books --------------------------------------------------------
+     The Education library is an R2 bucket behind /api/education/upload, which
+     is the same endpoint the Education page posts to. Nothing new is added
+     here: the cleaned text is turned into the .txt the reader already knows
+     how to open, and sent with the title you type.
+
+     Only an admin can add a book, so the button stays hidden for everyone
+     else rather than offering an action the server will refuse. */
+
+  var ebookPromise = null;    // parser, fetched on first save, not on page load
+  var shelfSlugs = null;      // existing slugs, for the overwrite warning
+
+  function loadEbook() {
+    if (window.TNEbook) return Promise.resolve(window.TNEbook);
+    if (ebookPromise) return ebookPromise;
+    ebookPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = '/assets/js/ebook.js?v=2';
+      s.onload = function () {
+        window.TNEbook ? resolve(window.TNEbook) : reject(new Error('The book reader did not load.'));
+      };
+      s.onerror = function () {
+        ebookPromise = null;
+        reject(new Error('Could not load the book reader. Check your connection.'));
+      };
+      document.head.appendChild(s);
+    });
+    return ebookPromise;
+  }
+
+  function bookStatus(msg, kind, html) {
+    var el = $('book-status');
+    el.className = 'status' + (kind ? ' status--' + kind : '');
+    if (html) el.innerHTML = html;
+    else el.textContent = msg || '';
+  }
+
+  /* A book needs a name before anything else. The file name field is the
+     closest thing already on the page; failing that, the first line of the
+     result is what a person would have typed anyway. */
+  function guessTitle() {
+    var name = ($('filename').value || '').trim();
+    if (name && name.toLowerCase() !== 'cleaned') {
+      return name.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    }
+    var lines = lastOutput.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/^#+\s*/, '').trim();
+      if (line) return line.slice(0, 80);
+    }
+    return '';
+  }
+
+  function toggleSaveBook(open) {
+    var box = $('save-book');
+    var btn = $('btn-save-book');
+    box.hidden = !open;
+    btn.setAttribute('aria-expanded', String(!!open));
+    if (!open) return;
+
+    if (!$('book-title').value.trim()) $('book-title').value = guessTitle();
+    bookStatus('');
+    $('book-title').focus();
+    $('book-title').select();
+
+    // Loaded once, only to warn before replacing a book of the same name.
+    // If it fails the save still works — the server reports a replacement.
+    if (shelfSlugs === null) {
+      shelfSlugs = [];
+      fetch('/api/education/library', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          shelfSlugs = (d && d.books ? d.books : []).map(function (b) { return b.slug; });
+        })
+        .catch(function () { /* warning is a courtesy, not a gate */ });
+    }
+  }
+
+  function openSaveBook() {
+    if (!lastOutput) { setStatus('Clean something first.', 'error'); return; }
+    toggleSaveBook($('save-book').hidden);
+  }
+
+  function saveBook() {
+    if (!lastOutput) { bookStatus('Nothing to save yet.', 'error'); return; }
+
+    var title = $('book-title').value.trim();
+    if (!title) { bookStatus('Give it a name first.', 'error'); $('book-title').focus(); return; }
+
+    var btn = $('btn-book-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving\u2026';
+    bookStatus('Preparing the file\u2026');
+
+    loadEbook().then(function (TNEbook) {
+      var slug = TNEbook.slugify(title);
+      if (!slug) throw new Error('That name makes no usable web address. Use some letters or numbers.');
+
+      // The reader reads a .txt by convention: a "# " line starts a chapter.
+      // Without one the chapter would be titled with the opening sentence, so
+      // the name you typed goes in as the heading unless the text has its own.
+      var body = /^\s*#\s+\S/.test(lastOutput) ? lastOutput : '# ' + title + '\n\n' + lastOutput;
+      var bytes = new TextEncoder().encode(body);
+
+      // Parsed with the reader's own parser before sending, so a file that
+      // would not open is caught here rather than after it is stored.
+      return TNEbook.read(bytes.buffer, slug + '.txt').then(function (book) {
+        if (!book.chapters.length) throw new Error('That text had nothing the reader could open.');
+
+        if (shelfSlugs && shelfSlugs.indexOf(slug) > -1 &&
+            !confirm('A book called "' + title + '" is already on the shelf. Replace it?')) {
+          var stop = new Error('Cancelled.');
+          stop.quiet = true;
+          throw stop;
+        }
+
+        bookStatus('Saving \u201C' + title + '\u201D\u2026');
+        return fetch('/api/education/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            // Headers are Latin-1; a title with an em dash is not. Both
+            // sides encode, the same way the Education page does it.
+            'X-Book-Filename': slug + '.txt',
+            'X-Book-Slug': slug,
+            'X-Book-Title': encodeURIComponent(title),
+            'X-Book-Chapters': String(book.chapters.length)
+          },
+          body: bytes.buffer
+        });
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (out) {
+          if (!res.ok) throw new Error(out.error || 'That could not be saved (' + res.status + ').');
+          return { out: out, slug: slug, title: title };
+        });
+      });
+    }).then(function (done) {
+      if (shelfSlugs && shelfSlugs.indexOf(done.slug) === -1) shelfSlugs.push(done.slug);
+      bookStatus('', 'ok',
+        (done.out.replaced ? 'Replaced' : 'Saved') + ' \u201C' + TN.esc(done.title) + '\u201D. ' +
+        '<a href="/read/' + encodeURIComponent(done.slug) + '">Open it in the reader</a>');
+      if (window.TN && TN.toast) TN.toast(done.out.replaced ? 'Book replaced' : 'Book saved', 'success');
+    }).catch(function (err) {
+      if (err && err.quiet) bookStatus('Left as it was.');
+      else bookStatus(err && err.message ? err.message : 'That could not be saved.', 'error');
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = 'Save to Books';
+    });
+  }
+
+  /* The button exists only for an account that can actually add a book.
+     Same rule the API enforces, so the page never offers a refused action. */
+  function initSaveBook() {
+    function reveal(user) {
+      if (!user || user.role !== 'admin') return;
+      $('btn-save-book').hidden = false;
+    }
+    if (window.TN && TN.session && TN.session.loaded) reveal(TN.session.user);
+    else document.addEventListener('tn:ready', function (ev) { reveal(ev.detail && ev.detail.user); });
+
+    $('btn-save-book').addEventListener('click', openSaveBook);
+    $('btn-book-save').addEventListener('click', saveBook);
+    $('btn-book-cancel').addEventListener('click', function () {
+      toggleSaveBook(false);
+      $('btn-save-book').focus();
+    });
+    $('book-title').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); saveBook(); }
+    });
+  }
+
   function clearAll() {
     $('input').value = '';
     $('output').value = '';
     $('stats').textContent = '';
     lastOutput = ''; lastInput = null; lastSig = ''; lastFlags = {};
     $('preview-note').hidden = true;
+    $('book-title').value = '';
+    bookStatus('');
+    toggleSaveBook(false);
     STEPS.forEach(function (s) { $('flag-' + s.id).textContent = ''; });
     updateInputMeta();
     updateResultMeta();
@@ -515,6 +692,7 @@
     $('btn-clear').addEventListener('click', clearAll);
     $('btn-reset-steps').addEventListener('click', resetSettings);
     $('btn-file').addEventListener('click', function () { $('file').click(); });
+    initSaveBook();
     $('btn-preview').addEventListener('click', function () { previewShown = true; paintPreview(); });
 
     // Paste anywhere on the page, not just in the box.
