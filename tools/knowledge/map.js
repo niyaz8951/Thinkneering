@@ -45,6 +45,14 @@
   var filterText = '', statusFilter = 'all';
   var view = { x: 0, y: 0, k: 1 };
   var dragging = null, panning = null, linking = null;
+
+  /* Multi-touch. Every live pointer is tracked by id so a second finger can
+     be recognised the moment it lands. `pinch` holds the anchor state for the
+     current two-finger gesture; `suppressTap` stops the release of a pinch
+     being read as a tap on whatever was underneath. */
+  var pointers = new Map();
+  var pinch = null;
+  var suppressTap = false;
   var attrRows = [];
 
   /* Focus mode. `focusId` is the spotlit node; everything not adjacent to it
@@ -1145,8 +1153,99 @@
     scene.setAttribute('transform', 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')');
   }
 
+  /* ── Pinch to zoom ─────────────────────────────────────────────────
+     The canvas sets `touch-action: none`, which is what makes one-finger
+     dragging work — but it also switches off the browser's own pinch
+     zoom, so the gesture has to be implemented rather than inherited.
+
+     Two fingers do zoom and pan together, which is what the hand expects:
+     the scene point under the midpoint of the two fingers stays under it,
+     whether they spread apart or slide across.
+     ---------------------------------------------------------------- */
+
+  function twoPointers() {
+    var it = pointers.values();
+    return [it.next().value, it.next().value];
+  }
+
+  function pinchGeometry() {
+    var p = twoPointers();
+    var r = svg.getBoundingClientRect();
+    return {
+      dist: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y),
+      // Midpoint in canvas-local coordinates, matching what zoomAt expects.
+      mx: (p[0].x + p[1].x) / 2 - r.left,
+      my: (p[0].y + p[1].y) / 2 - r.top
+    };
+  }
+
+  function startPinch() {
+    var g = pinchGeometry();
+    if (!g.dist) return;
+
+    // Whatever one finger had started is abandoned: a node half-dragged into
+    // a pinch should stay where it is, not keep following finger one.
+    if (dragging && dragging.moved) setStatus('Moved. Press Save to keep the position.');
+    dragging = null;
+    panning = null;
+    linking = null;
+    gOverlay.innerHTML = '';
+    svg.classList.remove('is-panning');
+
+    pinch = {
+      dist: g.dist,
+      k: view.k,
+      // The scene coordinate sitting under the midpoint when the gesture began.
+      // Holding this still is what makes the zoom feel anchored to the fingers.
+      sx: (g.mx - view.x) / view.k,
+      sy: (g.my - view.y) / view.k
+    };
+    suppressTap = true;
+  }
+
+  function movePinch() {
+    if (!pinch || pointers.size < 2) return;
+    var g = pinchGeometry();
+    if (!g.dist) return;
+
+    var k = Math.max(0.12, Math.min(2.5, pinch.k * (g.dist / pinch.dist)));
+    view.k = k;
+    view.x = g.mx - pinch.sx * k;
+    view.y = g.my - pinch.sy * k;
+    scene.setAttribute('transform', 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')');
+  }
+
+  function endPinch() {
+    pinch = null;
+    // Lifting one finger of a pinch leaves the other one down. Without this,
+    // that leftover finger would immediately start panning from a stale
+    // origin and the map would jump.
+    pointers.forEach(function (p) { p.stale = true; });
+  }
+
+  /* Mobile browsers do occasionally drop a pointerup — a finger leaves during
+     a scroll takeover, or the app is backgrounded mid-gesture. A ghost pointer
+     that never clears would make every later single touch look like a pinch,
+     and the map would stay jammed until reload. Anything that has not been
+     heard from in five seconds is treated as gone. */
+  function evictGhostPointers() {
+    var now = Date.now();
+    pointers.forEach(function (p, id) {
+      if (now - p.at > 5000) pointers.delete(id);
+    });
+    if (pointers.size < 2 && pinch) endPinch();
+  }
+
   function onDown(ev) {
     var t = ev.target;
+    evictGhostPointers();
+    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, at: Date.now() });
+
+    // A fresh single-finger gesture resets anything left over.
+    if (pointers.size === 1) { suppressTap = false; pinch = null; }
+
+    if (pointers.size === 2) { startPinch(); return; }
+    if (pointers.size > 2) return;   // a third finger is noise; ignore it
     var handle = t.closest('[data-handle]');
     if (handle && canEdit()) {
       linking = { fromId: handle.getAttribute('data-handle') };
@@ -1179,6 +1278,12 @@
   }
 
   function onMove(ev) {
+    var tracked = pointers.get(ev.pointerId);
+    if (tracked) { tracked.x = ev.clientX; tracked.y = ev.clientY; tracked.at = Date.now(); }
+
+    if (pinch) { movePinch(); return; }
+    if (tracked && tracked.stale) return;   // leftover finger from a pinch
+
     if (dragging) {
       var n = nodeById(dragging.id);
       if (!n) return;
@@ -1211,6 +1316,22 @@
   }
 
   function onUp(ev) {
+    pointers.delete(ev.pointerId);
+
+    if (pinch) {
+      if (pointers.size < 2) endPinch();
+      return;
+    }
+
+    // The tail of a pinch: fingers lifting one by one must not register as
+    // taps. The flag clears once the last one is off the glass.
+    if (suppressTap) {
+      if (pointers.size === 0) suppressTap = false;
+      dragging = null; panning = null;
+      svg.classList.remove('is-panning');
+      return;
+    }
+
     if (linking) {
       var el = document.elementFromPoint(ev.clientX, ev.clientY);
       var g = el && el.closest ? el.closest('[data-node-id]') : null;
@@ -1301,6 +1422,16 @@
     svg.addEventListener('pointermove', onMove);
     svg.addEventListener('pointerup', onUp);
     svg.addEventListener('pointercancel', onUp);
+
+    // Backstop. If a finger lifts somewhere the SVG never hears about — over
+    // the sheet, off the edge of the screen, during a system gesture — the
+    // pointer still has to come out of the tracker.
+    window.addEventListener('pointerup', function (ev) {
+      if (pointers.has(ev.pointerId)) onUp(ev);
+    });
+    window.addEventListener('pointercancel', function (ev) {
+      if (pointers.has(ev.pointerId)) onUp(ev);
+    });
     svg.addEventListener('wheel', function (ev) {
       ev.preventDefault();
       var r = svg.getBoundingClientRect();

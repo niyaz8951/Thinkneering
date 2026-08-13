@@ -75,6 +75,36 @@ add-palette of small chips.
 - Canvas height is `62dvh` on a phone rather than a fixed pixel count, so it uses the screen it
   is actually on.
 
+### 1b. Touch gestures on the canvas
+
+The canvas sets `touch-action: none`, which is what makes one-finger dragging
+work at all — but it also switches off the browser's own pinch zoom, so the
+gesture has to be implemented rather than inherited. That is why the map could
+be dragged but not zoomed.
+
+- **One finger** — drag a node, or pan the canvas. Unchanged.
+- **Two fingers** — pinch to zoom *and* pan at the same time. The scene point
+  under the midpoint of the two fingers stays under it, whether they spread
+  apart or slide across, so two-finger panning comes free from the same maths.
+- Zoom clamps to the same 0.12–2.5 range as the wheel and the buttons, so
+  touch and mouse cannot end up in different states.
+
+Three details that are easy to get wrong and are handled explicitly:
+
+- **A pinch must not end in a tap.** Fingers lift one at a time, and without a
+  suppression flag the last one to leave would register as a tap on whatever
+  was underneath — spotlighting a random node every time you zoomed.
+- **A node half-dragged into a pinch stays where it is.** The drag is abandoned
+  when the second finger lands rather than continuing to follow finger one.
+- **A dropped `pointerup` cannot jam the map.** Mobile browsers occasionally
+  lose one — a system gesture takes over, or the app is backgrounded
+  mid-pinch. A ghost pointer that never cleared would make every later single
+  touch look like a pinch. Two defences: a `window`-level backstop so releases
+  outside the canvas still deregister, and eviction of any pointer not heard
+  from in five seconds. Worst case one gesture is swallowed and the next works.
+
+Mouse and trackpad are untouched — wheel still zooms.
+
 ### 2 & 3. The dictionary was a blank HVAC map
 
 The cause was one line in `map.js`:
@@ -194,3 +224,7 @@ The tap/drag/double-tap split is the change most likely to feel wrong in the han
 paper. The 4px threshold and 400ms window are my starting guesses, both single constants near the
 top of the pointer handlers in `map.js`. If double-tap feels fussy on your phone, widen the window
 to 500ms before changing anything else.
+
+Pinch sensitivity is a straight ratio of finger distance with no smoothing, which is what most
+map interfaces do and generally feels right. If it reads as twitchy on your device, damping it is
+one line in `movePinch()` — interpolate towards the new `k` instead of assigning it.
