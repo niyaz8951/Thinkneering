@@ -8,21 +8,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/global.css?v=5">
-<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=1">
+<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=2">
 </head>
 <body>
 
 <div data-site-header></div>
 
-<main class="kg-page kg-page-wide">
+<main class="kg-page kg-page-wide" id="kg-main">
 
-  <header class="kg-intro">
+  <header class="kg-intro" id="map-head">
     <p class="kg-card-meta"><a class="kg-linkish" href="/tools/knowledge/">← Knowledge Repository</a></p>
     <h1 id="map-title">Loading…</h1>
     <p id="map-desc"></p>
   </header>
 
-  <section class="kg-panel" aria-label="Map controls">
+  <section class="kg-panel kg-controls" id="map-controls" aria-label="Map controls">
     <div class="kg-row">
       <div class="kg-seg" role="tablist" aria-label="View">
         <button type="button" class="kg-seg-btn is-active" role="tab" aria-selected="true" data-view="map">Graph</button>
@@ -31,7 +31,7 @@
       </div>
       <label class="kg-field">
         <span class="kg-label">Find a node</span>
-        <input id="search" type="search" class="kg-input" placeholder="coil, EN 1886, filter…" autocomplete="off">
+        <input id="search" type="search" class="kg-input" placeholder="root, prefix, judgment…" autocomplete="off">
       </label>
       <label class="kg-field">
         <span class="kg-label">Show</span>
@@ -50,9 +50,11 @@
     </div>
   </section>
 
-  <div class="kg-workbench">
+  <div class="kg-workbench" id="workbench">
 
-    <div>
+    <div class="kg-stage" id="stage">
+
+      <!-- Desktop palette. On phones this hides and the + button takes over. -->
       <div class="kg-palette" role="toolbar" aria-label="Add a node">
         <span class="kg-palette-label">Add</span>
         <div class="kg-palette-list" id="palette"></div>
@@ -60,7 +62,7 @@
 
       <div class="kg-canvas-wrap" id="view-map">
         <svg id="canvas" class="kg-canvas" role="application"
-             aria-label="Knowledge graph. Tab moves between nodes, Enter edits, arrow keys nudge."
+             aria-label="Knowledge graph. Tab moves between nodes, Enter opens a node, arrow keys nudge, Escape clears focus."
              xmlns="http://www.w3.org/2000/svg">
           <defs id="defs"></defs>
           <g id="scene">
@@ -70,15 +72,36 @@
             <g id="overlay"></g>
           </g>
         </svg>
-        <div class="kg-zoom" role="group" aria-label="Zoom">
+
+        <!-- Focus bar. Appears only while one node is spotlit. -->
+        <div class="kg-focusbar" id="focusbar" hidden>
+          <span class="kg-focusbar-dot" id="focus-dot"></span>
+          <span class="kg-focusbar-title" id="focus-title"></span>
+          <button type="button" class="kg-focusbar-btn" id="focus-open">Open</button>
+          <button type="button" class="kg-focusbar-btn" id="focus-exit">Show all</button>
+        </div>
+
+        <div class="kg-canvas-tools" role="group" aria-label="Canvas">
+          <button type="button" class="kg-icon-btn" id="full-toggle" aria-label="Full screen map" aria-pressed="false">
+            <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+          </button>
           <button type="button" class="kg-icon-btn" id="zoom-in" aria-label="Zoom in">
             <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5v12M5 11h12"/></svg>
           </button>
           <button type="button" class="kg-icon-btn" id="zoom-out" aria-label="Zoom out">
             <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h12"/></svg>
           </button>
+          <button type="button" class="kg-icon-btn kg-only-full" id="fit-full" aria-label="Fit to screen">
+            <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </button>
         </div>
-        <p class="kg-empty" id="empty" hidden>No nodes yet. Add one from the palette above.</p>
+
+        <!-- Thumb-reachable add button. The primary way to add on a phone. -->
+        <button type="button" class="kg-fab" id="fab-add" aria-label="Add a node">
+          <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+
+        <p class="kg-empty" id="empty" hidden>No nodes yet. Tap <strong>+</strong> to add the first one.</p>
       </div>
 
       <div class="kg-legend" id="legend"></div>
@@ -98,13 +121,39 @@
       </div>
     </div>
 
-    <aside>
-      <div class="kg-panel" style="margin-bottom:var(--space-4)">
-        <h2 class="kg-panel-title">Node</h2>
-        <p class="kg-muted" id="inspector-empty">Select a node to edit it.</p>
+    <!-- ── Node sheet ────────────────────────────────────────────────
+         One editing surface. Docks as a right rail on a wide screen,
+         covers the screen on a phone. Opened by double-tapping a node.
+         ------------------------------------------------------------- -->
+    <aside class="kg-sheet" id="node-sheet" aria-label="Node">
 
-        <form class="kg-attrs" id="node-form" hidden>
-          <div class="kg-row">
+      <div class="kg-sheet-head">
+        <span class="kg-sheet-dot" id="sheet-dot"></span>
+        <div class="kg-sheet-heading">
+          <p class="kg-sheet-kind" id="sheet-kind"></p>
+          <h2 class="kg-sheet-title" id="sheet-title">Node</h2>
+        </div>
+        <button type="button" class="kg-icon-btn" id="sheet-full" aria-label="Full screen" aria-pressed="false">
+          <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+        </button>
+        <button type="button" class="kg-icon-btn" id="sheet-close" aria-label="Close">
+          <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="kg-seg kg-sheet-tabs" role="tablist" aria-label="Node section">
+        <button type="button" class="kg-seg-btn is-active" role="tab" aria-selected="true" data-tab="details">Details</button>
+        <button type="button" class="kg-seg-btn" role="tab" aria-selected="false" data-tab="notes">Notes</button>
+        <button type="button" class="kg-seg-btn" role="tab" aria-selected="false" data-tab="ai">AI</button>
+      </div>
+
+      <div class="kg-sheet-body">
+
+        <p class="kg-muted" id="inspector-empty">Double-tap a node to open it.</p>
+
+        <!-- Details -->
+        <form class="kg-attrs kg-tabpane" id="node-form" data-pane="details" hidden>
+          <div class="kg-row kg-tight">
             <span class="kg-pill" id="node-status">draft</span>
             <span class="kg-card-meta" id="node-version"></span>
           </div>
@@ -131,7 +180,7 @@
           </label>
 
           <label class="kg-field">
-            <span class="kg-label">Aliases — every other name a spec clause might use, comma separated</span>
+            <span class="kg-label">Aliases — every other name that should find this, comma separated</span>
             <input class="kg-input" id="f-aliases" type="text" placeholder="AHU, air handling unit, air handler">
           </label>
 
@@ -141,7 +190,7 @@
           </label>
 
           <fieldset class="kg-fieldset">
-            <legend class="kg-label">Parameters a specification asks about</legend>
+            <legend class="kg-label">Parameters</legend>
             <div class="kg-attrs" id="f-attributes"></div>
             <button type="button" class="kg-btn kg-btn-sm" id="add-attr" style="margin-top:var(--space-2)">Add parameter</button>
           </fieldset>
@@ -153,7 +202,7 @@
 
           <label class="kg-field">
             <span class="kg-label">Tags</span>
-            <input class="kg-input" id="f-tags" type="text" placeholder="spec-item, long-lead">
+            <input class="kg-input" id="f-tags" type="text" placeholder="latin, high-yield">
           </label>
 
           <div class="kg-btn-group kg-wrap">
@@ -164,56 +213,101 @@
             <button type="button" class="kg-btn kg-btn-danger" id="delete-node">Delete</button>
           </div>
         </form>
-      </div>
 
-      <div class="kg-panel">
-        <h2 class="kg-panel-title">Assistant</h2>
-        <div class="kg-btn-group kg-wrap">
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="draft_summary">Draft summary &amp; aliases</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_attributes">Suggest parameters</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="explain_node">Explain node</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_relations">Missing relationships</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="find_duplicates">Find duplicates</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="review_map">Review whole map</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_lanes">Suggest lanes</button>
-          <button type="button" class="kg-btn kg-btn-sm" data-ai="summarise_nodes">Summarise nodes</button>
+        <!-- Notes -->
+        <div class="kg-tabpane kg-notes" data-pane="notes" hidden>
+          <div class="kg-note-bar">
+            <button type="button" class="kg-btn kg-btn-sm" id="note-read" aria-pressed="false">Reading mode</button>
+            <span class="kg-note-count" id="note-count">0 words</span>
+            <span class="kg-note-saved" id="note-saved"></span>
+          </div>
+
+          <div class="kg-note-toolbar" id="note-toolbar">
+            <button type="button" class="kg-tb" data-cmd="bold" title="Bold" aria-label="Bold"><b>B</b></button>
+            <button type="button" class="kg-tb" data-cmd="italic" title="Italic" aria-label="Italic"><i>I</i></button>
+            <button type="button" class="kg-tb" data-cmd="underline" title="Underline" aria-label="Underline"><u>U</u></button>
+            <span class="kg-tb-sep"></span>
+            <button type="button" class="kg-tb" data-blk="h2" title="Heading">H2</button>
+            <button type="button" class="kg-tb" data-blk="h3" title="Sub-heading">H3</button>
+            <span class="kg-tb-sep"></span>
+            <button type="button" class="kg-tb" data-cmd="insertUnorderedList" title="Bullet list" aria-label="Bullet list">•</button>
+            <button type="button" class="kg-tb" data-cmd="insertOrderedList" title="Numbered list" aria-label="Numbered list">1.</button>
+            <button type="button" class="kg-tb" data-blk="blockquote" title="Quote">&#8220;</button>
+            <button type="button" class="kg-tb" data-blk="pre" title="Code">&lt;/&gt;</button>
+            <span class="kg-tb-sep"></span>
+            <button type="button" class="kg-tb" id="note-hl" title="Highlight" aria-label="Highlight">&#9646;</button>
+            <button type="button" class="kg-tb" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">&#10005;</button>
+          </div>
+
+          <div class="kg-note-wrap">
+            <div class="kg-note-editor" id="note-editor" contenteditable="true" spellcheck="true"
+                 data-placeholder="Your own notes on this node. Nothing here is published downstream — write freely."></div>
+          </div>
+
+          <p class="kg-muted kg-note-hint">
+            Notes are yours. Saving them never changes the node's approval status, so writing here
+            cannot pull an approved fact out of Compliance Maker.
+          </p>
         </div>
-        <div class="kg-row" style="margin-top:var(--space-3)">
-          <label class="kg-field kg-field-grow">
-            <span class="kg-label">Ask this map a question</span>
-            <input class="kg-input" id="question" type="text" placeholder="What does EN 1886 D class cover?">
+
+        <!-- AI -->
+        <div class="kg-tabpane" data-pane="ai" hidden>
+          <label class="kg-switch">
+            <input type="checkbox" id="ai-open">
+            <span class="kg-switch-track" aria-hidden="true"><span class="kg-switch-thumb"></span></span>
+            <span class="kg-switch-label">
+              <strong>Let AI update this node</strong>
+              <span class="kg-muted" id="ai-open-hint">When off, map review leaves this node exactly as it is.</span>
+            </span>
           </label>
-          <button type="button" class="kg-btn" id="ask">Ask</button>
-        </div>
-        <div class="kg-ai-output" id="ai-output">
-          <p class="kg-muted">Suggestions land here as drafts. Nothing the assistant writes becomes approved knowledge until you press Approve.</p>
+
+          <div class="kg-ai-note" id="ai-note-box" hidden>
+            <h3 class="kg-subhead" style="margin-top:0">What AI thinks about this node</h3>
+            <p id="ai-note-text"></p>
+            <p class="kg-card-meta" id="ai-note-when"></p>
+          </div>
+
+          <h3 class="kg-subhead">Ask about this node</h3>
+          <div class="kg-btn-group kg-wrap">
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="draft_summary">Draft summary &amp; aliases</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="explain_node">Explain node</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_attributes">Suggest parameters</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_relations">Missing relationships</button>
+          </div>
+
+          <h3 class="kg-subhead">Whole map</h3>
+          <div class="kg-btn-group kg-wrap">
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="review_map">Review map</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_lanes">Suggest lanes</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="find_duplicates">Find duplicates</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="summarise_nodes">Summarise nodes</button>
+          </div>
+
+          <div class="kg-row" style="margin-top:var(--space-3)">
+            <label class="kg-field kg-field-grow">
+              <span class="kg-label">Ask this map a question</span>
+              <input class="kg-input" id="question" type="text" placeholder="Which words use the root spec-?">
+            </label>
+            <button type="button" class="kg-btn" id="ask">Ask</button>
+          </div>
+
+          <div class="kg-ai-output" id="ai-output">
+            <p class="kg-muted">Suggestions land here as drafts. Nothing the assistant writes becomes approved knowledge until you save and approve it yourself.</p>
+          </div>
         </div>
       </div>
     </aside>
   </div>
 </main>
 
-<dialog class="kg-dialog" id="lanes-dialog">
-  <h2 class="kg-panel-title">Lanes</h2>
-  <p class="kg-muted">The columns this map is organised into. Name them for your subject &mdash;
-     subsystems, departments, stages, parts of speech, whatever groups your nodes.</p>
+<!-- Backdrop behind the sheet on small screens -->
+<div class="kg-scrim" id="scrim" hidden></div>
 
-  <div id="lane-list" style="margin:var(--space-3) 0"></div>
-
-  <div class="kg-row">
-    <label class="kg-field kg-field-grow">
-      <span class="kg-label">New lane</span>
-      <input class="kg-input" id="lane-new" type="text" placeholder="e.g. Nouns, Procurement, Stage 1" autocomplete="off">
-    </label>
-    <button type="button" class="kg-btn" id="lane-add">Add</button>
-  </div>
-
-  <p class="kg-muted kg-note" id="lane-note"></p>
-
-  <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
-    <button type="button" class="kg-btn kg-btn-primary" id="lanes-save">Save lanes</button>
-    <button type="button" class="kg-btn" id="lanes-cancel">Cancel</button>
-  </div>
+<!-- Kind picker, used by the + button -->
+<dialog class="kg-dialog" id="kind-dialog">
+  <h2 class="kg-panel-title">What are you adding?</h2>
+  <div class="kg-kind-grid" id="kind-grid"></div>
+  <button type="button" class="kg-btn" id="kind-cancel">Cancel</button>
 </dialog>
 
 <dialog class="kg-dialog" id="connect-dialog">
@@ -249,11 +343,30 @@
   </div>
 </dialog>
 
+<dialog class="kg-dialog" id="lanes-dialog">
+  <h2 class="kg-panel-title">Lanes</h2>
+  <p class="kg-muted">The columns of this map. Rename, reorder or remove — nodes in a removed lane keep their content and move to No lane.</p>
+  <div id="lane-list" style="margin-top:var(--space-3)"></div>
+  <div class="kg-row" style="margin-top:var(--space-3)">
+    <label class="kg-field kg-field-grow">
+      <span class="kg-label">New lane</span>
+      <input class="kg-input" id="lane-new" type="text" placeholder="Word parts" autocomplete="off">
+    </label>
+    <button type="button" class="kg-btn" id="lane-add">Add</button>
+  </div>
+  <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
+    <button type="button" class="kg-btn kg-btn-primary" id="lanes-save">Save lanes</button>
+    <button type="button" class="kg-btn" id="lanes-cancel">Cancel</button>
+  </div>
+  <p class="kg-muted" id="lane-note" style="margin-top:var(--space-2)"></p>
+</dialog>
+
 <div data-site-footer></div>
 
 <script src="/assets/js/global.js?v=5" defer></script>
 <script src="/tools/knowledge/domain-hvac.js?v=1" defer></script>
 <script src="/tools/knowledge/domain-business.js?v=1" defer></script>
-<script src="/tools/knowledge/map.js?v=1" defer></script>
+<script src="/tools/knowledge/domain-english.js?v=1" defer></script>
+<script src="/tools/knowledge/map.js?v=2" defer></script>
 </body>
 </html>

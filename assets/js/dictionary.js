@@ -693,10 +693,25 @@
       );
     }
 
+    // Hindi and Urdu are now two different words rather than one word in two
+    // scripts, so each is tagged with its own language and Urdu is given the
+    // right direction. Without dir="rtl" a phrase renders in reverse order
+    // and a reader of the script sees nonsense.
     var script = panel.querySelector('#tn-dict-script');
-    var forms = [entry.hindi, entry.urdu].filter(Boolean).join(' · ');
-    if (forms) {
-      script.textContent = forms + (entry.urduRoman ? ' (' + entry.urduRoman + ')' : '');
+    var forms = [];
+
+    if (entry.hindi) {
+      forms.push('<span class="tn-dict-form" lang="hi">' + escape(entry.hindi) + '</span>');
+    }
+    if (entry.urdu) {
+      forms.push('<span class="tn-dict-form" lang="ur" dir="rtl">' + escape(entry.urdu) + '</span>');
+    }
+
+    if (forms.length) {
+      script.innerHTML = forms.join('<span class="tn-dict-sep" aria-hidden="true">·</span>') +
+        (entry.urduRoman
+          ? '<span class="tn-dict-roman">(' + escape(entry.urduRoman) + ')</span>'
+          : '');
       script.hidden = false;
     } else {
       script.textContent = '';
@@ -719,14 +734,24 @@
       }).join('')));
     }
 
+    // Three unlabelled rows of tags read as one list of vaguely related
+    // words, which is how an antonym ends up taken for a synonym. Each group
+    // says what it is.
     if (entry.related) {
       var groups = [];
-      ['synonyms', 'antonyms', 'concepts'].forEach(function (kind) {
-        var items = entry.related[kind];
+      [['synonyms', 'Means the same'],
+       ['antonyms', 'Means the opposite'],
+       ['concepts', 'Related ideas']].forEach(function (pair) {
+        var items = entry.related[pair[0]];
         if (!items || !items.length) return;
-        groups.push('<ul class="tn-dict-tags">' + items.map(function (item) {
-          return '<li>' + escape(item) + '</li>';
-        }).join('') + '</ul>');
+        groups.push(
+          '<div class="tn-dict-group">' +
+            '<p class="tn-dict-sublabel">' + pair[1] + '</p>' +
+            '<ul class="tn-dict-tags">' + items.map(function (item) {
+              return '<li>' + escape(item) + '</li>';
+            }).join('') + '</ul>' +
+          '</div>'
+        );
       });
       if (groups.length) parts.push(section('Related words', groups.join('')));
     }

@@ -47,6 +47,18 @@
   var dragging = null, panning = null, linking = null;
   var attrRows = [];
 
+  /* Focus mode. `focusId` is the spotlit node; everything not adjacent to it
+     fades right back. This is what a single click does now — the map stops
+     being a wall of boxes and becomes one idea and its neighbours. */
+  var focusId = null;
+  var focusRing = null;      // Set of ids kept visible while focused
+
+  /* The node sheet replaces the old right-hand inspector. Same fields, same
+     ids, same save path — it just knows how to cover a phone screen. */
+  var sheetOpen = false, sheetTab = 'details';
+  var noteDirty = false, noteTimer = null, noteReading = false;
+  var lastTap = { id: null, at: 0 };
+
   var svg, scene, gLanes, gEdges, gNodes, gOverlay, defs;
 
   /* ── Helpers ───────────────────────────────────────────────────── */
@@ -138,6 +150,15 @@
     return lines;
   }
 
+  /* A dictionary of words is a word map, not an equipment map. Falling back
+     to HVAC is what put "Flow / medium" in front of a reader looking up
+     "judgment"; english is now a first-class pack. */
+  function packFor(domain) {
+    if (domain === 'business') return window.TN_KG_BUSINESS;
+    if (domain === 'english' || domain === 'general') return window.TN_KG_ENGLISH || window.TN_KG_HVAC;
+    return window.TN_KG_HVAC;
+  }
+
   function canEdit() { return role === 'contributor' || role === 'reviewer' || role === 'owner'; }
   function canApprove() { return role === 'reviewer' || role === 'owner'; }
 
@@ -158,7 +179,7 @@
       nodes = body.nodes;
       edges = body.edges;
 
-      pack = mapInfo.domain === 'business' ? window.TN_KG_BUSINESS : window.TN_KG_HVAC;
+      pack = packFor(mapInfo.domain);
       lanes = Array.isArray(mapInfo.lanes) ? mapInfo.lanes : [];
 
       $('map-title').textContent = mapInfo.title;
@@ -396,6 +417,56 @@
     }).join('');
   }
 
+  /* ── Focus mode ────────────────────────────────────────────────────
+     One click spotlights. The node and anything directly connected to it
+     stay lit; the rest drops to a whisper so the eye has somewhere to go.
+     Neighbours are kept rather than hiding everything else outright,
+     because a node with no visible context is not much use either.
+     ---------------------------------------------------------------- */
+
+  function setFocus(id) {
+    focusId = id;
+    if (!id) { focusRing = null; renderFocusBar(); render(); return; }
+
+    focusRing = new Set([id]);
+    edges.forEach(function (e) {
+      if (e.from === id) focusRing.add(e.to);
+      if (e.to === id) focusRing.add(e.from);
+    });
+
+    renderFocusBar();
+    render();
+    centreOn(id);
+  }
+
+  function clearFocus() { setFocus(null); }
+
+  function renderFocusBar() {
+    var bar = $('focusbar');
+    var node = focusId ? nodeById(focusId) : null;
+    if (!node) { bar.hidden = true; return; }
+    bar.hidden = false;
+    $('focus-dot').style.background = colourOf(node);
+    $('focus-title').textContent = node.title;
+    var ring = focusRing ? focusRing.size - 1 : 0;
+    $('focus-title').title = node.title + ' — ' + ring + ' connected';
+  }
+
+  /* Slides the view so a node sits in the middle, without changing zoom. */
+  function centreOn(id) {
+    var n = nodeById(id);
+    if (!n) return;
+    var r = svg.getBoundingClientRect();
+    if (!r.width) return;
+    view.x = r.width / 2 - n.x * view.k;
+    view.y = r.height / 2 - n.y * view.k;
+    scene.setAttribute('transform', 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')');
+  }
+
+  function inFocus(node) {
+    return !focusRing || focusRing.has(node.id);
+  }
+
   function visible(node) {
     if (statusFilter === 'approved' && node.status !== 'approved') return false;
     if (statusFilter === 'pending' && node.status === 'approved') return false;
@@ -418,7 +489,8 @@
       var colour = colourOf(node);
       var cls = 'kg-node' +
         (node.id === selectedId ? ' is-selected' : '') +
-        (matches(node) ? '' : ' is-dimmed') +
+        (node.id === focusId ? ' is-focused' : '') +
+        (matches(node) && inFocus(node) ? '' : ' is-dimmed') +
         (node.status === 'approved' ? '' : ' is-unapproved');
 
       var lines = wrap(node.title, isDiamond(node) ? 17 : 24, 2);
@@ -455,6 +527,10 @@
         if (node.status !== 'approved') meta.push(node.status);
         if ((node.attributes || []).length) meta.push((node.attributes || []).length + ' params');
         if ((node.aliases || []).length) meta.push((node.aliases || []).length + ' aliases');
+        // A node carrying notes, or closed to AI, should say so on the map —
+        // otherwise you have to open each one to find out.
+        if (node.notes) meta.push('notes');
+        if (Number(node.aiOpen) === 0) meta.push('final');
         if (meta.length) {
           html += '<text class="kg-node-meta" x="' + node.x + '" y="' + (node.y + s.h / 2 - 8) +
             '" text-anchor="middle">' + esc(meta.join('  ·  ')) + '</text>';
@@ -513,8 +589,10 @@
         : ' marker-end="url(#kg-arrow-' + key + ')"';
       if (def.arrow === 'both') marker += ' marker-start="url(#kg-arrow-' + key + ')"';
 
+      // While focused, only edges touching the focused node stay lit.
+      var lit = !focusRing || (edge.from === focusId || edge.to === focusId);
       var style = 'stroke:var(' + tok + ')' + (def.dash ? ';stroke-dasharray:' + def.dash : '') +
-        (edge.status === 'approved' ? '' : ';opacity:.5');
+        ';opacity:' + (lit ? (edge.status === 'approved' ? 1 : 0.5) : 0.07);
 
       var label = edge.label || def.label;
       var w = label.length * 5.6 + 12;
@@ -569,8 +647,9 @@
 
   function renderInspector() {
     var node = nodeById(selectedId);
-    $('inspector-empty').hidden = !!node;
-    $('node-form').hidden = !node;
+    // Pane visibility lives in switchSheetTab so there is one place that
+    // decides it; setting node-form.hidden here as well fought with it.
+    switchSheetTab(sheetTab);
     if (!node) return;
 
     $('node-status').textContent = node.status;
@@ -589,6 +668,43 @@
 
     attrRows = (node.attributes || []).slice();
     renderAttrs();
+
+    /* Sheet header */
+    $('sheet-dot').style.background = colourOf(node);
+    $('sheet-kind').textContent = kindDef(node).label;
+    $('sheet-title').textContent = node.title || 'Untitled';
+
+    /* Notes — only reload the editor when a different node is open, or the
+       user's in-progress typing would be wiped by any incidental re-render. */
+    var editor = $('note-editor');
+    if (editor.getAttribute('data-node') !== node.id) {
+      editor.setAttribute('data-node', node.id);
+      editor.innerHTML = node.notes || '';
+      noteDirty = false;
+      $('note-saved').textContent = '';
+      setReading(false);
+    }
+    updateNoteCount();
+
+    /* AI pane */
+    $('ai-open').checked = Number(node.aiOpen) === 1;
+    updateAiOpenHint();
+
+    var hasNote = !!(node.aiNote || '').trim();
+    $('ai-note-box').hidden = !hasNote;
+    if (hasNote) {
+      $('ai-note-text').textContent = node.aiNote;
+      $('ai-note-when').textContent = node.aiNoteAt
+        ? 'From the map review on ' + node.aiNoteAt.slice(0, 10)
+        : '';
+    }
+  }
+
+  function updateAiOpenHint() {
+    var on = $('ai-open').checked;
+    $('ai-open-hint').textContent = on
+      ? 'Map review may rewrite the lane, add connections and leave an opinion here.'
+      : 'This node is settled. Map review will read it for context but change nothing.';
   }
 
   function renderAttrs() {
@@ -683,6 +799,8 @@
       var body = await readJson(res);
       await reload();
       selectedId = body.id;
+      clearFocus();
+      openSheet('details');
       render();
       $('f-title').focus();
       $('f-title').select();
@@ -856,6 +974,143 @@
     }
   }
 
+  /* ── Node sheet ────────────────────────────────────────────────────
+     Docked rail on a wide screen, full cover on a phone. Same DOM either
+     way — the difference is entirely CSS, so there is one editing
+     surface to keep working rather than two.
+     ---------------------------------------------------------------- */
+
+  function openSheet(tab) {
+    sheetOpen = true;
+    document.body.classList.add('kg-sheet-open');
+    $('node-sheet').classList.add('is-open');
+    $('scrim').hidden = false;
+    if (tab) switchSheetTab(tab);
+    renderInspector();
+  }
+
+  function closeSheet() {
+    if (noteDirty) saveNotes();
+    sheetOpen = false;
+    document.body.classList.remove('kg-sheet-open');
+    $('node-sheet').classList.remove('is-open', 'is-full');
+    $('sheet-full').setAttribute('aria-pressed', 'false');
+    $('scrim').hidden = true;
+  }
+
+  function switchSheetTab(name) {
+    sheetTab = name;
+    var hasNode = !!nodeById(selectedId);
+
+    // One rule: a pane shows when it is the chosen tab AND a node is loaded.
+    document.querySelectorAll('.kg-tabpane').forEach(function (pane) {
+      pane.hidden = !(hasNode && pane.getAttribute('data-pane') === name);
+    });
+    $('inspector-empty').hidden = hasNode;
+
+    document.querySelectorAll('.kg-sheet-tabs .kg-seg-btn').forEach(function (b) {
+      var on = b.getAttribute('data-tab') === name;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  /* ── Notes ─────────────────────────────────────────────────────────
+     Rich text the user reads on their phone. Saved on its own endpoint
+     path (notesOnly) so it never bumps the node version or drops the
+     node out of the retrieval index.
+     ---------------------------------------------------------------- */
+
+  function setReading(on) {
+    noteReading = on;
+    var pane = $('node-sheet');
+    pane.classList.toggle('is-reading', on);
+    $('note-editor').contentEditable = on ? 'false' : 'true';
+    $('note-read').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('note-read').textContent = on ? 'Edit notes' : 'Reading mode';
+  }
+
+  function updateNoteCount() {
+    var text = ($('note-editor').innerText || '').trim();
+    var words = text ? text.split(/\s+/).length : 0;
+    $('note-count').textContent = words + (words === 1 ? ' word' : ' words');
+  }
+
+  function scheduleNoteSave() {
+    noteDirty = true;
+    $('note-saved').textContent = 'unsaved';
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(saveNotes, 1200);
+  }
+
+  async function saveNotes() {
+    var node = nodeById(selectedId);
+    if (!node || !noteDirty) return;
+    if (!canEdit()) { $('note-saved').textContent = 'read only'; noteDirty = false; return; }
+
+    var html = $('note-editor').innerHTML;
+    node.notes = html;
+    noteDirty = false;
+    $('note-saved').textContent = 'saving…';
+
+    try {
+      await readJson(await fetch('/api/knowledge/graph', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'node', mapId: mapId, id: node.id,
+          notesOnly: true, notes: html, aiOpen: $('ai-open').checked ? 1 : 0
+        })
+      }));
+      $('note-saved').textContent = 'saved';
+      renderNodes();
+    } catch (err) {
+      noteDirty = true;
+      $('note-saved').textContent = 'not saved — ' + err.message;
+    }
+  }
+
+  function noteCmd(cmd, value) {
+    if (noteReading) return;
+    $('note-editor').focus();
+    document.execCommand(cmd, false, value || null);
+    scheduleNoteSave();
+  }
+
+  function noteBlock(tag) {
+    if (noteReading) return;
+    $('note-editor').focus();
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var el = document.createElement(tag);
+    if (tag === 'pre') el.textContent = 'code';
+    else if (tag === 'blockquote') el.textContent = 'Quote';
+    else el.innerHTML = '<br>';
+    var range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(el);
+    var after = document.createRange();
+    after.selectNodeContents(el);
+    after.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    scheduleNoteSave();
+  }
+
+  /* ── Full screen ───────────────────────────────────────────────────
+     A CSS class rather than the Fullscreen API. iOS Safari will not put
+     a div into real fullscreen, and this is the case that matters most —
+     a phone is exactly where the canvas is too small.
+     ---------------------------------------------------------------- */
+
+  function toggleMapFull(force) {
+    var on = force === undefined ? !document.body.classList.contains('kg-map-full') : force;
+    document.body.classList.toggle('kg-map-full', on);
+    $('full-toggle').setAttribute('aria-pressed', on ? 'true' : 'false');
+    // The canvas box changes size, so the view has to be re-derived.
+    setTimeout(function () { fit(); renderNodes(); }, 60);
+  }
+
   /* ── Canvas interaction ────────────────────────────────────────── */
 
   function centre() {
@@ -904,15 +1159,19 @@
       if (!n) return;
       selectedId = id;
       var p = toScene(ev.clientX, ev.clientY);
-      if (canEdit()) dragging = { id: id, dx: p.x - n.x, dy: p.y - n.y, moved: false };
+      // `moved` is what separates a tap from a drag. A tap focuses; a drag
+      // repositions and must not also trigger focus on release.
+      dragging = { id: id, dx: p.x - n.x, dy: p.y - n.y, moved: false, canMove: canEdit() };
       svg.setPointerCapture(ev.pointerId);
-      render();
+      renderNodes();
+      renderInspector();
       return;
     }
     var e = t.closest('[data-edge-id]');
     if (e) { if (canEdit()) editEdge(e.getAttribute('data-edge-id')); return; }
 
     selectedId = null;
+    if (focusId) clearFocus();
     panning = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
     svg.classList.add('is-panning');
     svg.setPointerCapture(ev.pointerId);
@@ -924,6 +1183,11 @@
       var n = nodeById(dragging.id);
       if (!n) return;
       var p = toScene(ev.clientX, ev.clientY);
+      var dx = Math.abs((p.x - dragging.dx) - n.x);
+      var dy = Math.abs((p.y - dragging.dy) - n.y);
+      // A few pixels of thumb wobble is still a tap, not a drag.
+      if (!dragging.moved && dx < 4 && dy < 4) return;
+      if (!dragging.canMove) return;
       n.x = Math.round(p.x - dragging.dx);
       n.y = Math.round(p.y - dragging.dy);
       dragging.moved = true;
@@ -954,7 +1218,27 @@
       if (g) openConnect(linking.fromId, g.getAttribute('data-node-id'));
       linking = null;
     }
-    if (dragging && dragging.moved) setStatus('Moved. Press Save to keep the position.');
+    if (dragging) {
+      if (dragging.moved) {
+        setStatus('Moved. Press Save to keep the position.');
+      } else {
+        // A clean tap. Second tap on the same node within 400ms opens it;
+        // one tap spotlights it. Handled here rather than with a dblclick
+        // listener because touch browsers do not fire dblclick reliably.
+        var now = Date.now();
+        var isDouble = lastTap.id === dragging.id && (now - lastTap.at) < 400;
+        lastTap = { id: dragging.id, at: now };
+
+        if (isDouble) {
+          lastTap = { id: null, at: 0 };
+          openSheet('details');
+        } else if (focusId === dragging.id) {
+          clearFocus();          // tapping the focused node again releases it
+        } else {
+          setFocus(dragging.id);
+        }
+      }
+    }
     dragging = null; panning = null;
     svg.classList.remove('is-panning');
     render();
@@ -968,6 +1252,17 @@
       return '<button type="button" class="kg-chip" data-add="' + k + '" title="' + esc(def.hint || '') + '">' +
         '<svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="' +
         (ICONS[def.icon] || ICONS.note) + '"/></svg>' + esc(def.label) + '</button>';
+    }).join('');
+
+    // Same kinds as the palette, laid out as big tap targets for the
+    // + button. The palette row is fine with a mouse and hopeless with a thumb.
+    $('kind-grid').innerHTML = Object.keys(pack.nodeKinds).map(function (k) {
+      var def = pack.nodeKinds[k];
+      return '<button type="button" class="kg-kind-card" data-add="' + k + '">' +
+        '<svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="' +
+        (ICONS[def.icon] || ICONS.note) + '"/></svg>' +
+        '<span class="kg-kind-name">' + esc(def.label) + '</span>' +
+        '<span class="kg-kind-hint">' + esc(def.hint || '') + '</span></button>';
     }).join('');
 
     $('f-kind').innerHTML = Object.keys(pack.nodeKinds).map(function (k) {
@@ -990,11 +1285,14 @@
 
   function switchView(name) {
     ['map', 'outline', 'health'].forEach(function (v) { $('view-' + v).hidden = v !== name; });
-    document.querySelectorAll('.kg-seg-btn').forEach(function (b) {
+    // Scoped to the view switcher: the sheet has its own .kg-seg-btn tabs and
+    // an unscoped query would clear their active state on every view change.
+    document.querySelectorAll('#map-controls .kg-seg-btn').forEach(function (b) {
       var on = b.getAttribute('data-view') === name;
       b.classList.toggle('is-active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+    $('view-map').hidden = name !== 'map';
     if (name === 'map') fit();
   }
 
@@ -1016,7 +1314,9 @@
       var n = nodeById(selectedId);
       if (!n) return;
       var step = ev.shiftKey ? 40 : 10;
-      if (ev.key === 'Enter') { ev.preventDefault(); $('f-title').focus(); }
+      if (ev.key === 'Enter') { ev.preventDefault(); openSheet('details'); $('f-title').focus(); }
+      else if (ev.key === 'n' || ev.key === 'N') { ev.preventDefault(); openSheet('notes'); }
+      else if (ev.key === 'f' || ev.key === 'F') { ev.preventDefault(); setFocus(selectedId); }
       else if (ev.key === 'Escape') { selectedId = null; render(); }
       else if (ev.key.indexOf('Arrow') === 0 && canEdit()) {
         ev.preventDefault();
@@ -1077,6 +1377,70 @@
       await reload();
     });
 
+    /* Focus bar */
+    $('focus-exit').addEventListener('click', clearFocus);
+    $('focus-open').addEventListener('click', function () {
+      if (focusId) { selectedId = focusId; openSheet('details'); }
+    });
+
+    /* Sheet */
+    $('sheet-close').addEventListener('click', closeSheet);
+    $('scrim').addEventListener('click', closeSheet);
+    $('sheet-full').addEventListener('click', function () {
+      var on = !$('node-sheet').classList.contains('is-full');
+      $('node-sheet').classList.toggle('is-full', on);
+      this.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.kg-sheet-tabs .kg-seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () { switchSheetTab(b.getAttribute('data-tab')); });
+    });
+
+    /* Notes */
+    var editor = $('note-editor');
+    editor.addEventListener('input', function () { updateNoteCount(); scheduleNoteSave(); });
+    editor.addEventListener('blur', function () { if (noteDirty) saveNotes(); });
+    $('note-read').addEventListener('click', function () { setReading(!noteReading); });
+    $('note-toolbar').addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-cmd],[data-blk]');
+      if (!b) return;
+      ev.preventDefault();
+      if (b.getAttribute('data-blk')) noteBlock(b.getAttribute('data-blk'));
+      else noteCmd(b.getAttribute('data-cmd'));
+    });
+    $('note-hl').addEventListener('click', function () { noteCmd('hiliteColor', '#ffe89b'); });
+
+    /* Paste as plain text. Pasting a styled block from a web page otherwise
+       drags its whole stylesheet in and the note stops matching the site. */
+    editor.addEventListener('paste', function (ev) {
+      ev.preventDefault();
+      var text = (ev.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    });
+
+    /* AI lock */
+    $('ai-open').addEventListener('change', function () {
+      updateAiOpenHint();
+      noteDirty = true;
+      saveNotes();
+    });
+
+    /* Full screen map */
+    $('full-toggle').addEventListener('click', function () { toggleMapFull(); });
+    $('fit-full').addEventListener('click', fit);
+
+    /* Add button — the primary path on a phone */
+    $('fab-add').addEventListener('click', function () {
+      if (!canEdit()) { setStatus('You have read-only access to this map.'); return; }
+      $('kind-dialog').showModal();
+    });
+    $('kind-cancel').addEventListener('click', function () { $('kind-dialog').close(); });
+    $('kind-grid').addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-add]');
+      if (!b) return;
+      $('kind-dialog').close();
+      addNode(b.getAttribute('data-add'));
+    });
+
     $('tidy').addEventListener('click', function () { layoutByLane(); render(); fit(); });
     $('fit').addEventListener('click', fit);
 
@@ -1128,7 +1492,9 @@
       render();
     });
 
-    document.querySelectorAll('.kg-seg-btn').forEach(function (b) {
+    // Scoped to the controls bar. Unscoped, the sheet's Details/Notes/AI tabs
+    // would also call switchView(null) and hide every view.
+    document.querySelectorAll('#map-controls .kg-seg-btn').forEach(function (b) {
       b.addEventListener('click', function () { switchView(b.getAttribute('data-view')); });
     });
 

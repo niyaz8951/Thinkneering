@@ -107,14 +107,33 @@
 
 /* Devanagari and Urdu sit directly under the word, before anything else. */
 .tn-dict-script {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
   margin: var(--space-1) 0 0;
   font-family: var(--font-body);
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--color-text);
 }
 
+/* Specificity beats the display:flex above, so hiding still hides. */
 .tn-dict-script[hidden] { display: none; }
+
+/* Urdu and Devanagari sit small against Inter at the same pixel size. */
+.tn-dict-form[lang="ur"],
+.tn-dict-form[lang="hi"] {
+  font-size: 19px;
+  line-height: 1.7;
+}
+
+.tn-dict-sep { color: var(--color-border); }
+
+.tn-dict-roman {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
 
 /* Drag handle. Desktop is a side drawer and has no use for it. */
 .tn-dict-grab { display: none; }
@@ -266,17 +285,25 @@
   color: var(--color-primary);
 }
 
+.tn-dict-group + .tn-dict-group {
+  margin-top: var(--space-3);
+}
+
+.tn-dict-sublabel {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .tn-dict-tags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin: 0 0 var(--space-3);
+  margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.tn-dict-tags:last-child {
-  margin-bottom: 0;
 }
 
 .tn-dict-tags li {

@@ -12,14 +12,55 @@
 
 import { newId, nowIso, slugify, jsonField, reindexNode } from './knowledge.js';
 
-const DICTIONARY_LANE = 'Dictionary';
-
 const MAP_TITLES = {
   english: 'Dictionary — English reading',
   hvac: 'Dictionary — HVAC and MEP',
   business: 'Dictionary — Business process',
   general: 'Dictionary — General'
 };
+
+/**
+ * Lanes for a word map, mirroring tools/knowledge/domain-english.js.
+ *
+ * These have to be duplicated here rather than imported: the domain packs are
+ * browser globals loaded by a <script> tag, and a Pages Function cannot see
+ * them. If you add a lane to the pack, add it here too — the ids must match
+ * or seeded nodes land in a lane the editor cannot name.
+ */
+const ENGLISH_LANES = [
+  { id: 'wordparts',   label: 'Word parts',           token: '--kg-lane-7' },
+  { id: 'nouns',       label: 'Nouns',                token: '--kg-lane-1' },
+  { id: 'verbs',       label: 'Verbs',                token: '--kg-lane-2' },
+  { id: 'describing',  label: 'Adjectives & adverbs', token: '--kg-lane-3' },
+  { id: 'phrases',     label: 'Phrases & idioms',     token: '--kg-lane-4' },
+  { id: 'grammar',     label: 'Grammar & usage',      token: '--kg-lane-5' },
+  { id: 'confusables', label: 'Easily confused',      token: '--kg-lane-6' }
+];
+
+const HVAC_DICT_LANES = [
+  { id: 'terms',     label: 'Terms',      token: '--kg-lane-7' },
+  { id: 'equipment', label: 'Equipment',  token: '--kg-lane-1' },
+  { id: 'parameter', label: 'Parameters', token: '--kg-lane-2' },
+  { id: 'standard',  label: 'Standards',  token: '--kg-lane-3' }
+];
+
+/* A dictionary of English words is a word map. Only an HVAC or business
+   dictionary keeps its own vocabulary; everything else reads as English. */
+function isWordMap(domain) {
+  return domain !== 'hvac' && domain !== 'business';
+}
+
+function lanesFor(domain) {
+  return isWordMap(domain) ? ENGLISH_LANES : HVAC_DICT_LANES;
+}
+
+/* Which lane a freshly approved word lands in. Part of speech is not known
+   at approval time, so everything starts in the general word lane and the
+   user (or AI review) moves it. Better than a lane called "Dictionary" that
+   tells you nothing. */
+function defaultLane(domain) {
+  return isWordMap(domain) ? 'nouns' : 'terms';
+}
 
 /** Map ids that tier 1 is allowed to answer from. */
 export async function dictionaryMapIds(env) {
@@ -45,16 +86,26 @@ export async function ensureDictionaryMap(env, domain, uid) {
   const id = newId('map');
   const now = nowIso();
 
+  // The map's domain drives which taxonomy the editor loads. A dictionary of
+  // English words gets 'english' — word, root, prefix, confusable — instead of
+  // the HVAC pack it used to fall back to, which offered a reader Equipment
+  // and Flow / medium for the word "judgment".
+  const mapDomain = isWordMap(domain) ? 'english' : domain;
+
   await env.DB.prepare(
     'INSERT INTO knowledge_maps (id, slug, title, kind, domain, description, owner_id, ' +
-    'visibility, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    'visibility, status, lanes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
   ).bind(
     id, slug,
     MAP_TITLES[domain] || ('Dictionary — ' + domain),
     'system',
-    domain || 'general',
-    'Words readers looked up, kept once reviewed. Each node is one term.',
-    uid, 'org', 'active', now, now
+    mapDomain,
+    isWordMap(domain)
+      ? 'Words readers looked up, kept once reviewed. Roots and affixes sit in Word parts; each word connects to the parts it is built from.'
+      : 'Terms readers looked up, kept once reviewed. Each node is one term.',
+    uid, 'org', 'active',
+    JSON.stringify(lanesFor(domain)),
+    now, now
   ).run();
 
   await env.DB.prepare(
@@ -110,17 +161,20 @@ export async function promoteToGraph(env, entry, uid) {
   }
 
   const nodeId = newId('n');
-  const position = await nextPosition(env, mapId);
+  const lane = defaultLane(entry.domain);
+  const position = await nextPosition(env, mapId, lane);
+  // An English word is a `word` node; an HVAC term stays a `term` node.
+  const kind = isWordMap(entry.domain) ? 'word' : 'term';
 
   await env.DB.prepare(
     'INSERT INTO knowledge_nodes (id, map_id, kind, title, aliases, summary, body, attributes, ' +
     'tags, standards, lane, x, y, status, created_by, created_at, updated_at, approved_by, approved_at) ' +
     'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).bind(
-    nodeId, mapId, 'term', entry.term,
+    nodeId, mapId, kind, entry.term,
     jsonField(aliases), entry.meaning || '', body,
     jsonField([]), jsonField(tags), jsonField([]),
-    DICTIONARY_LANE, position.x, position.y,
+    lane, position.x, position.y,
     'approved', uid, now, now, uid, now
   ).run();
 
@@ -191,10 +245,10 @@ function buildBody(entry) {
 }
 
 /** Stacks new terms down one lane rather than piling them at the origin. */
-async function nextPosition(env, mapId) {
+async function nextPosition(env, mapId, lane) {
   const row = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM knowledge_nodes WHERE map_id = ? AND lane = ?'
-  ).bind(mapId, DICTIONARY_LANE).first();
+  ).bind(mapId, lane).first();
 
   const index = (row && row.n) || 0;
   return { x: 120 + (Math.floor(index / 12) * 320), y: 120 + ((index % 12) * 150) };

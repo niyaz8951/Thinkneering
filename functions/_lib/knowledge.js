@@ -298,6 +298,11 @@ export function rowToNode(r) {
     lane: r.lane || '', x: r.x, y: r.y,
     status: r.status, confidence: r.confidence,
     aiSummary: r.ai_summary || '', aiGaps: asArray(r.ai_gaps),
+    // Reading notes are the user's own material and travel separately from
+    // `body`. aiOpen defaults to 1 for rows written before the column existed.
+    notes: r.notes || '',
+    aiOpen: r.ai_open === null || r.ai_open === undefined ? 1 : Number(r.ai_open),
+    aiNote: r.ai_note || '', aiNoteAt: r.ai_note_at || '',
     version: r.version,
     createdBy: r.created_by, createdAt: r.created_at,
     updatedAt: r.updated_at, approvedBy: r.approved_by, approvedAt: r.approved_at,

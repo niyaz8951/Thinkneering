@@ -398,3 +398,506 @@ textarea.kg-input { line-height: 1.5; resize: vertical; min-height: 72px; }
   flex: none; min-width: 28px; text-align: center;
   font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted);
 }
+
+/* =====================================================================
+   MIND MAP REWORK
+   Focus mode · full-screen canvas · node sheet · notes · thumb targets
+   ===================================================================== */
+
+:root {
+  --kg-sheet-w: 400px;
+  --kg-tap: 44px;          /* the smallest thing a thumb should have to hit */
+}
+
+/* ── Focus mode ─────────────────────────────────────────────────────
+   A dimmed node still occupies space and still catches the eye. The
+   point of focus mode is that it stops doing both, so the dim is deep
+   and pointer events go with it.
+   ------------------------------------------------------------------ */
+
+.kg-node { transition: opacity .18s ease; }
+.kg-node.is-dimmed { opacity: 0.07; pointer-events: none; }
+
+.kg-node.is-focused .kg-node-box {
+  stroke-width: 3.5;
+  filter: drop-shadow(0 2px 10px rgba(20, 22, 26, 0.22));
+}
+
+.kg-edge-path { transition: opacity .18s ease; }
+
+/* Floating bar naming the focused node, with a way back out. Without this
+   a spotlit map on a phone looks like a map that has lost its content. */
+.kg-focusbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: var(--space-3);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: calc(100% - var(--space-5));
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-card);
+}
+
+.kg-focusbar-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+.kg-focusbar-title {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+
+.kg-focusbar-btn {
+  flex: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.kg-focusbar-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+
+/* ── Canvas tools ───────────────────────────────────────────────── */
+
+.kg-canvas-tools {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kg-canvas-tools .kg-icon-btn { width: var(--kg-tap); height: var(--kg-tap); }
+.kg-only-full { display: none; }
+
+/* Add button. Bottom-left so it does not sit under the zoom column, and
+   low enough to reach one-handed. */
+.kg-fab {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 4;
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: #ffffff;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(20, 22, 26, 0.22);
+  cursor: pointer;
+}
+
+.kg-fab:hover { background: var(--color-primary-dark); }
+.kg-fab .kg-ico { width: 26px; height: 26px; stroke-width: 2; }
+
+/* ── Full-screen map ────────────────────────────────────────────────
+   A class rather than the Fullscreen API: iOS Safari refuses to
+   fullscreen a div, and a phone is precisely where the canvas is too
+   small to work in.
+   ------------------------------------------------------------------ */
+
+body.kg-map-full { overflow: hidden; }
+
+body.kg-map-full .kg-canvas-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  height: 100dvh;
+  border-radius: 0;
+  border: 0;
+}
+
+/* Everything that is not the canvas gets out of the way. */
+body.kg-map-full #map-head,
+body.kg-map-full #map-controls,
+body.kg-map-full .kg-palette,
+body.kg-map-full .kg-legend,
+body.kg-map-full [data-site-header],
+body.kg-map-full [data-site-footer] { display: none; }
+
+body.kg-map-full .kg-only-full { display: inline-flex; }
+
+body.kg-map-full .kg-canvas-tools,
+body.kg-map-full .kg-fab {
+  /* Clear of the notch and the home indicator. */
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+}
+
+body.kg-map-full .kg-focusbar { top: calc(var(--space-3) + env(safe-area-inset-top)); }
+
+/* The sheet has to sit above a full-screen canvas or opening a node
+   from focus mode would put the form behind the map. */
+body.kg-map-full .kg-sheet.is-open { z-index: 320; }
+body.kg-map-full .kg-scrim { z-index: 310; }
+
+/* ── Node sheet ─────────────────────────────────────────────────────
+   Docked rail on a wide screen, full cover on a phone — same markup,
+   so there is one editing surface to keep working rather than two.
+   ------------------------------------------------------------------ */
+
+.kg-sheet {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.kg-sheet.is-open { display: flex; }
+
+.kg-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  flex: none;
+}
+
+.kg-sheet-dot { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+.kg-sheet-heading { flex: 1; min-width: 0; }
+
+.kg-sheet-kind {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.kg-sheet-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kg-sheet-head .kg-icon-btn { width: 38px; height: 38px; flex: none; }
+
+.kg-sheet-tabs {
+  margin: var(--space-3) var(--space-3) 0;
+  flex: none;
+  align-self: flex-start;
+}
+
+.kg-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  -webkit-overflow-scrolling: touch;
+}
+
+.kg-tabpane { display: flex; flex-direction: column; gap: var(--space-3); }
+.kg-tabpane[hidden] { display: none; }
+
+.kg-row.kg-tight { gap: var(--space-2); align-items: center; }
+
+.kg-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(20, 22, 26, 0.5);
+}
+
+/* ── Notes ──────────────────────────────────────────────────────── */
+
+.kg-notes { gap: var(--space-2); }
+
+.kg-note-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.kg-note-count,
+.kg-note-saved {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.kg-note-saved { margin-left: auto; }
+
+.kg-note-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  padding: var(--space-1);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.kg-tb {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.kg-tb:hover {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.kg-tb-sep { width: 1px; height: 18px; background: var(--color-border); flex: none; }
+
+.kg-note-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  min-height: 220px;
+  display: flex;
+}
+
+.kg-note-editor {
+  flex: 1;
+  padding: var(--space-3);
+  outline: none;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--color-text);
+  word-break: break-word;
+  overflow-y: auto;
+}
+
+.kg-note-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.kg-note-editor:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+.kg-note-editor h2 { font-family: var(--font-heading); font-size: 19px; margin: var(--space-4) 0 var(--space-2); }
+.kg-note-editor h3 { font-family: var(--font-heading); font-size: 16px; margin: var(--space-3) 0 var(--space-2); }
+.kg-note-editor p { margin: 0 0 var(--space-3); }
+.kg-note-editor ul, .kg-note-editor ol { margin: 0 0 var(--space-3); padding-left: var(--space-4); }
+.kg-note-editor li { margin-bottom: var(--space-1); }
+
+.kg-note-editor blockquote {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.kg-note-editor pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.kg-note-editor a { color: var(--color-primary); }
+.kg-note-hint { font-size: 12px; }
+
+/* Reading mode: the chrome goes, the measure narrows, the type grows.
+   This is the state to be in on a phone on a train. */
+.kg-sheet.is-reading .kg-note-toolbar { display: none; }
+
+.kg-sheet.is-reading .kg-note-wrap {
+  border: 0;
+  background: transparent;
+}
+
+.kg-sheet.is-reading .kg-note-editor {
+  padding: var(--space-3) 0;
+  font-size: 17px;
+  line-height: 1.85;
+  max-width: 68ch;
+  margin: 0 auto;
+}
+
+.kg-sheet.is-reading .kg-note-hint { display: none; }
+
+/* ── AI pane ────────────────────────────────────────────────────── */
+
+.kg-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.kg-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.kg-switch-track {
+  flex: none;
+  width: 44px;
+  height: 26px;
+  margin-top: 2px;
+  background: var(--color-border);
+  border-radius: 999px;
+  position: relative;
+  transition: background .15s ease;
+}
+
+.kg-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: var(--color-surface);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(20, 22, 26, 0.25);
+  transition: transform .15s ease;
+}
+
+.kg-switch input:checked + .kg-switch-track { background: var(--color-success); }
+.kg-switch input:checked + .kg-switch-track .kg-switch-thumb { transform: translateX(18px); }
+.kg-switch input:focus-visible + .kg-switch-track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+.kg-switch-label { display: flex; flex-direction: column; gap: var(--space-1); }
+.kg-switch-label strong { font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--color-text); }
+.kg-switch-label .kg-muted { font-size: 13px; }
+
+.kg-ai-note {
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+}
+
+.kg-ai-note p { margin: 0 0 var(--space-2); font-size: 14px; line-height: 1.65; color: var(--color-text); }
+.kg-ai-note p:last-child { margin-bottom: 0; }
+
+/* ── Kind picker ────────────────────────────────────────────────── */
+
+.kg-kind-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.kg-kind-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+  text-align: left;
+  padding: var(--space-3);
+  min-height: 88px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.kg-kind-card:hover { border-color: var(--color-primary); }
+.kg-kind-card .kg-ico { color: var(--color-primary); }
+
+.kg-kind-name { font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--color-text); }
+.kg-kind-hint { font-size: 12px; line-height: 1.45; color: var(--color-text-muted); }
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+
+/* Wide: sheet docks beside the map and the grid makes room for it. */
+@media (min-width: 1040px) {
+  .kg-workbench { grid-template-columns: minmax(0, 1fr) 0; align-items: start; }
+  body.kg-sheet-open .kg-workbench { grid-template-columns: minmax(0, 1fr) var(--kg-sheet-w); }
+  .kg-sheet { position: sticky; top: var(--space-4); max-height: calc(100dvh - var(--space-6)); }
+  .kg-scrim { display: none; }
+  .kg-sheet.is-full {
+    position: fixed;
+    inset: var(--space-5);
+    max-height: none;
+    z-index: 400;
+  }
+}
+
+/* Narrow: the sheet covers the screen. A 380px rail on a 390px phone is
+   what made this unusable before. */
+@media (max-width: 1039px) {
+  .kg-sheet.is-open {
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    border-radius: 0;
+    border: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .kg-sheet-full-hidden { display: none; }
+  #sheet-full { display: none; }   /* already full width; nothing to expand into */
+}
+
+@media (max-width: 700px) {
+  /* The palette row is fine with a mouse and hopeless with a thumb —
+     the + button replaces it below this width. */
+  .kg-palette { display: none; }
+
+  :root { --kg-canvas-h: 62dvh; }
+
+  .kg-controls .kg-row { gap: var(--space-2); }
+  .kg-controls .kg-field { flex: 1 1 140px; }
+  .kg-legend { font-size: 11px; gap: var(--space-2); }
+
+  .kg-focusbar-title { max-width: 45vw; }
+  .kg-kind-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  :root { --kg-canvas-h: 58dvh; }
+  .kg-sheet-body { padding: var(--space-3) var(--space-3) var(--space-6); }
+}

@@ -100,6 +100,28 @@ async function saveNode(env, user, body) {
   const now = nowIso();
   const uid = userId(user);
 
+  // Notes and the AI lock are metadata about the node, not the knowledge the
+  // node publishes. Saving them must NOT bump the version, un-approve the
+  // node, or drop it out of the retrieval index — otherwise jotting a line
+  // on your phone would silently pull a fact out of Compliance Maker.
+  if (body.notesOnly) {
+    if (!body.id) return { error: 'Notes need an existing node' };
+    const owns = await env.DB.prepare(
+      'SELECT id FROM knowledge_nodes WHERE id = ? AND map_id = ?'
+    ).bind(body.id, body.mapId).first();
+    if (!owns) return { error: 'Node not found', status: 404 };
+
+    await env.DB.prepare(
+      'UPDATE knowledge_nodes SET notes = ?, ai_open = ?, updated_by = ?, updated_at = ? WHERE id = ?'
+    ).bind(
+      String(body.notes || '').slice(0, 200000),
+      body.aiOpen ? 1 : 0,
+      uid, now, body.id
+    ).run();
+
+    return { id: body.id, status: 'notes-saved' };
+  }
+
   if (!body.title || !String(body.title).trim()) return { error: 'A node needs a title' };
   if (!body.kind) return { error: 'A node needs a kind' };
 
@@ -132,11 +154,13 @@ async function saveNode(env, user, body) {
 
     await env.DB.prepare(
       'UPDATE knowledge_nodes SET kind=?, title=?, aliases=?, summary=?, body=?, attributes=?, ' +
-      'tags=?, standards=?, lane=?, x=?, y=?, status=?, version=version+1, updated_by=?, updated_at=? ' +
-      'WHERE id = ?'
+      'tags=?, standards=?, lane=?, x=?, y=?, notes=?, ai_open=?, status=?, version=version+1, ' +
+      'updated_by=?, updated_at=? WHERE id = ?'
     ).bind(
       fields.kind, fields.title, fields.aliases, fields.summary, fields.body,
       fields.attributes, fields.tags, fields.standards, fields.lane, fields.x, fields.y,
+      body.notes === undefined ? existing.notes : String(body.notes || '').slice(0, 200000),
+      body.aiOpen === undefined ? (existing.ai_open === null ? 1 : existing.ai_open) : (body.aiOpen ? 1 : 0),
       nextStatus, uid, now, body.id
     ).run();
 

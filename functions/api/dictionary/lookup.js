@@ -10,6 +10,9 @@
  * Tier 3 results are written back as pending and rendered as unverified.
  * `connection` and `origin` are stored but never returned until approved.
  *
+ * Tier 3 is two AI calls, not one: the entry, and then the Urdu word on its
+ * own. See generateUrdu() for why they cannot share a call.
+ *
  * Requires a signed-in account. _middleware.js does not gate /api/*, so
  * without this check an anonymous visitor could spend Workers AI quota at
  * will. Loosen it only if the overlay goes onto a public tool page.
@@ -235,7 +238,7 @@ async function handleLookup(context) {
 
 /* ------------------------------------------------------------------ */
 
-async function generate(env, term, sentence, domain) {
+export async function generate(env, term, sentence, domain) {
   const domainLine = {
     general: 'General everyday English.',
     english: 'School English literature and comprehension reading.',
@@ -249,13 +252,17 @@ async function generate(env, term, sentence, domain) {
     '',
     'Rules:',
     '- meaning: one or two plain sentences in everyday language. Always fill this.',
-    '- hindi and urdu are required and must never be empty. Give the ordinary',
-    '  word a Hindi speaker and an Urdu speaker would use for this sense, in',
-    '  Devanagari and in Urdu script. If the English word is itself the word',
-    '  in common use, write it transliterated into that script.',
-    '- urduRoman is required and must never be empty. Write the urdu form in',
-    '  roman letters the way it sounds, capitalised: Aaeen, Ta\'meer, Nizaam.',
-    '  It must match the urdu field exactly — same word, different script.',
+    '- hindi is required and must never be empty. Give the ordinary word a',
+    '  Hindi speaker would use for this sense, in Devanagari, and write only',
+    '  Devanagari in that field. Where formal Hindi uses the Sanskrit-derived',
+    '  word, that is the one to give. If English is genuinely what is spoken,',
+    '  write the English word in Devanagari.',
+    '- synonyms and antonyms are required. Give up to three of each: words',
+    '  with the same sense the word carries here, and words with the opposite',
+    '  sense. Return an empty array when the word honestly has none — a proper',
+    '  noun, a piece of equipment, a term with only one name. Never pad a list',
+    '  with words that are merely related; those belong in concepts.',
+    '- concepts: up to three ideas a reader meets alongside this word.',
     '- origin is required and must never be empty. Name the language it came',
     '  from and the root word, and say what that root meant. If you are not',
     '  certain of the root, name only the language it reached English from',
@@ -324,20 +331,22 @@ async function generate(env, term, sentence, domain) {
                   required: ['field', 'sense']
                 }
               },
-              synonyms: { type: 'array', maxItems: 4, items: { type: 'string' } },
-              antonyms: { type: 'array', maxItems: 4, items: { type: 'string' } },
-              concepts: { type: 'array', maxItems: 4, items: { type: 'string' } },
+              synonyms: { type: 'array', maxItems: 3, items: { type: 'string' } },
+              antonyms: { type: 'array', maxItems: 3, items: { type: 'string' } },
+              concepts: { type: 'array', maxItems: 3, items: { type: 'string' } },
               memoryHook: { type: 'string' },
               origin: { type: 'string' },
               connection: { type: 'string' },
-              hindi: { type: 'string' },
-              urdu: { type: 'string' },
-              urduRoman: { type: 'string' }
+              hindi: { type: 'string' }
+              // No urdu here. See generateUrdu().
             },
             // Listing a field here is the only reliable way to get it filled.
             // Asking in the prompt alone leaves the model free to emit "" for
             // anything optional, which is what it did for every entry so far.
-            required: ['meaning', 'hindi', 'urdu', 'urduRoman', 'origin', 'connection']
+            // synonyms and antonyms are listed for that reason; an empty array
+            // still satisfies the requirement, so a word with no opposite is
+            // not forced to invent one.
+            required: ['meaning', 'hindi', 'synonyms', 'antonyms', 'origin', 'connection']
           }
         }
       });
@@ -348,10 +357,130 @@ async function generate(env, term, sentence, domain) {
     }
 
     const parsed = readResponse(res);
-    if (parsed && parsed.meaning) return parsed;
+    if (parsed && parsed.meaning) {
+      const urdu = await generateUrdu(env, term, parsed.meaning, domain);
+      if (urdu) {
+        parsed.urdu = urdu.urdu;
+        parsed.urduRoman = urdu.urduRoman;
+      }
+      return parsed;
+    }
   }
 
   return null;
+}
+
+/**
+ * Second pass — Urdu only.
+ *
+ * Urdu used to be generated in the same JSON object as Hindi, a few tokens
+ * after it, and what came back was the Hindi word respelled in Urdu letters:
+ * سمویدھان for "constitution" where an Urdu speaker says آئین. Nothing in the
+ * prompt fixed it, because the cause was not the prompt. A model completing
+ * one object attends to what it has just written, and the Devanagari word was
+ * sitting right there.
+ *
+ * So Urdu is generated on its own, from the English word and the meaning,
+ * with the Hindi form never shown to it. There is nothing to transliterate
+ * from. This costs one extra AI call, and only on a word nobody has looked up
+ * before — every later reader is served the stored row.
+ *
+ * A failure here returns null and leaves the entry without Urdu rather than
+ * with a wrong Urdu. The overlay already drops a missing form, and the review
+ * console has a field for filling it in by hand.
+ */
+async function generateUrdu(env, term, meaning, domain) {
+  const system = [
+    'You give the Urdu word for an English word. Answer in the given JSON',
+    'shape only.',
+    '',
+    'Rules:',
+    '- urdu: the word an Urdu speaker actually uses for this sense, in Urdu',
+    '  script. Urdu draws its formal vocabulary from Persian and Arabic, so',
+    '  the answer is often not the Hindi word: constitution is آئین, not',
+    '  سنودھان; system is نظام; construction is تعمیر.',
+    '- Spelling an English or a Sanskrit word in Urdu letters is not a',
+    '  translation. Do it only where Urdu has genuinely borrowed the word and',
+    '  speakers use it as it stands: کمپیوٹر, برانڈ, چلر.',
+    '- Words shared by everyday Hindustani are correct exactly as they are.',
+    '  پانی is the real Urdu word for water, not a transliteration of Hindi.',
+    '- Write the word only. No English, no Devanagari, no explanation, no',
+    '  vowel marks unless the word is normally written with them.',
+    '- urduRoman: that same word in roman letters as it sounds, capitalised —',
+    '  Aaeen, Nizaam, Tameer. The same word as urdu, in a different script,',
+    '  never a different word.',
+    '- One word, or a short phrase where the language has no single word.'
+  ].join('\n');
+
+  const user = [
+    `English word or phrase: "${term}"`,
+    `It is being used to mean: ${meaning}`,
+    domain === 'hvac' || domain === 'business'
+      ? 'This is technical vocabulary. If Urdu speakers in the trade use the ' +
+        'English term, give it in Urdu script; otherwise give the Urdu word.'
+      : 'Give the word an Urdu newspaper or a schoolbook would print.'
+  ].join('\n');
+
+  for (const temperature of [0.1, 0.4]) {
+    let res;
+    try {
+      res = await env.AI.run(MODEL, {
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ],
+        max_tokens: 160,
+        temperature,
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            type: 'object',
+            properties: {
+              urdu: { type: 'string' },
+              urduRoman: { type: 'string' }
+            },
+            required: ['urdu', 'urduRoman']
+          }
+        }
+      });
+    } catch (err) {
+      // Usually the daily allocation. The main pass already succeeded, so the
+      // entry is still worth keeping — it just goes in without Urdu.
+      console.log('dictionary: urdu pass failed —', err.message);
+      return null;
+    }
+
+    const parsed = readUrduResponse(res);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function readUrduResponse(res) {
+  if (!res) return null;
+
+  let parsed = null;
+  const payload = res.response;
+
+  if (payload && typeof payload === 'object') {
+    parsed = payload;
+  } else {
+    const text = String(typeof payload === 'string' ? payload : (res.result || ''))
+      .replace(/```json/gi, '').replace(/```/g, '').trim();
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end === -1) return null;
+    try {
+      parsed = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+
+  const urdu = cleanUrdu(parsed.urdu);
+  if (!urdu) return null;
+  return { urdu, urduRoman: cleanRoman(parsed.urduRoman) };
 }
 
 /**
@@ -394,10 +523,47 @@ function shapeGenerated(parsed) {
     memoryHook: cleanString(parsed.memoryHook),
     connection: cleanString(parsed.connection),
     origin: cleanString(parsed.origin),
-    hindi: cleanString(parsed.hindi),
-    urdu: cleanString(parsed.urdu),
-    urduRoman: cleanString(parsed.urduRoman)
+    hindi: cleanHindi(parsed.hindi),
+    // Filled by generateUrdu(), not by this pass.
+    urdu: null,
+    urduRoman: null
   };
+}
+
+/* Script guards -----------------------------------------------------
+ *
+ * A field is only worth keeping if it is written in the script it claims.
+ * Devanagari in the Urdu slot is the failure this whole change is about, and
+ * roman letters in it are the model answering in English. Both are dropped
+ * rather than shown, because a reader who cannot read one of these scripts
+ * has no way to tell a wrong answer from a right one.
+ */
+const DEVANAGARI = /[\u0900-\u097F]/;
+const ARABIC = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+const LATIN = /[A-Za-z]/;
+
+export function cleanHindi(value) {
+  const text = cleanScriptString(value);
+  if (!text || ARABIC.test(text) || !DEVANAGARI.test(text)) return null;
+  return text;
+}
+
+export function cleanUrdu(value) {
+  const text = cleanScriptString(value);
+  if (!text || DEVANAGARI.test(text) || !ARABIC.test(text)) return null;
+  return text;
+}
+
+export function cleanRoman(value) {
+  const text = cleanScriptString(value);
+  if (!text || DEVANAGARI.test(text) || ARABIC.test(text) || !LATIN.test(text)) return null;
+  return text;
+}
+
+/** A script form is a word, not a sentence. 60 characters is generous. */
+function cleanScriptString(value) {
+  const text = cleanString(value);
+  return text ? text.slice(0, 60) : null;
 }
 
 function cleanString(value) {

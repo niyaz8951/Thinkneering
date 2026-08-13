@@ -121,6 +121,7 @@
 
     var pack = seedKey === 'hvac' ? window.TN_KG_HVAC
              : seedKey === 'business' ? window.TN_KG_BUSINESS
+             : seedKey === 'english' ? window.TN_KG_ENGLISH
              : null;
 
     btn.disabled = true;
@@ -198,25 +199,118 @@
 
   /* ── AI review ─────────────────────────────────────────────────── */
 
+  /* Review runs as a dry run first. The model proposes lane moves, new
+     connections and a per-node opinion; the user sees the counts and decides.
+     Nothing is written until Apply, and even then locked nodes are untouched. */
+  var pendingReview = null;
+
   async function runReview(mapId) {
     var m = maps.filter(function (x) { return x.id === mapId; })[0];
+    pendingReview = null;
     $('review-title').textContent = 'AI review — ' + (m ? m.title : 'map');
     $('review-open').href = '/tools/knowledge/map.html?map=' + encodeURIComponent(mapId);
     $('review-output').innerHTML = '<p class="kg-muted">Reading the map…</p>';
+    $('review-apply').hidden = true;
     $('review-dialog').showModal();
 
     try {
-      var res = await fetch('/api/knowledge/ai', {
+      var body = await readJson(await fetch('/api/knowledge/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'review_map', mapId: mapId })
-      });
-      var body = await readJson(res);
-      $('review-output').innerHTML = renderResult(body.result);
+        body: JSON.stringify({ action: 'review_and_align', mapId: mapId, apply: false })
+      }));
+
+      pendingReview = { mapId: mapId };
+      $('review-output').innerHTML = renderAlignment(body.result, body.applied);
+      $('review-apply').hidden = !hasChanges(body.applied);
       load();
     } catch (err) {
       $('review-output').innerHTML = '<p class="kg-muted">Review failed: ' + esc(err.message) + '</p>';
     }
+  }
+
+  function hasChanges(a) {
+    if (!a) return false;
+    return (a.movedNodes + a.addedEdges + a.notedNodes) > 0;
+  }
+
+  async function applyReview() {
+    if (!pendingReview) return;
+    var btn = $('review-apply');
+    btn.disabled = true;
+    btn.textContent = 'Applying…';
+
+    try {
+      var body = await readJson(await fetch('/api/knowledge/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'review_and_align', mapId: pendingReview.mapId, apply: true })
+      }));
+      var a = body.applied || {};
+      $('review-output').innerHTML =
+        '<p><strong>Applied.</strong> ' + a.movedNodes + ' nodes moved lane, ' +
+        a.addedEdges + ' connections added as drafts, ' + a.notedNodes + ' nodes given an AI note' +
+        (a.skippedLocked ? ', ' + a.skippedLocked + ' suggestions skipped on nodes closed to AI' : '') +
+        '.</p><p class="kg-ai-caveat">Open the map to see them. New connections are drafts until ' +
+        'someone approves them.</p>';
+      btn.hidden = true;
+      load();
+    } catch (err) {
+      $('review-output').innerHTML += '<p class="kg-muted">Could not apply: ' + esc(err.message) + '</p>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Apply these changes';
+    }
+  }
+
+  function renderAlignment(result, applied) {
+    if (!result) return '<p class="kg-muted">Nothing usable came back.</p>';
+    var html = '';
+    if (result.summary) html += '<p>' + esc(result.summary) + '</p>';
+
+    var a = applied || {};
+    html += '<h3>What this would change</h3><ul>' +
+      '<li><strong>' + (a.movedNodes || 0) + '</strong> nodes moved into a better lane</li>' +
+      '<li><strong>' + (a.addedEdges || 0) + '</strong> missing connections added, as drafts</li>' +
+      '<li><strong>' + (a.notedNodes || 0) + '</strong> nodes given an AI note in their Notes tab</li>' +
+      (a.skippedLocked
+        ? '<li><strong>' + a.skippedLocked + '</strong> suggestions skipped — those nodes are closed to AI</li>'
+        : '') +
+      '</ul>';
+
+    if (result.lanes && result.lanes.length) {
+      html += '<h3>Proposed lanes</h3><ol>' + result.lanes.map(function (l) {
+        return '<li><strong>' + esc(l.label) + '</strong>' +
+          (l.reason ? ' — ' + esc(l.reason) : '') + '</li>';
+      }).join('') + '</ol>' +
+      '<p class="kg-muted">Lane changes are not applied automatically — open the map and use ' +
+      'Lanes if you want these.</p>';
+    }
+
+    if (result.moves && result.moves.length) {
+      html += '<h3>Nodes in the wrong lane</h3><ul>' + result.moves.slice(0, 20).map(function (m) {
+        return '<li>' + esc(m.node) + ' → <strong>' + esc(m.lane) + '</strong>' +
+          (m.why ? ' — ' + esc(m.why) : '') + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    if (result.connections && result.connections.length) {
+      html += '<h3>Missing connections</h3><ul>' + result.connections.slice(0, 20).map(function (c) {
+        return '<li>' + esc(c.from) + ' <em>' + esc(c.relation) + '</em> ' + esc(c.to) +
+          (c.why ? ' — ' + esc(c.why) : '') + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    (result.sections || []).forEach(function (sec) {
+      if (sec.heading) html += '<h3>' + esc(sec.heading) + '</h3>';
+      if (sec.text) html += '<p>' + esc(sec.text) + '</p>';
+      if (sec.items && sec.items.length) {
+        html += '<ul>' + sec.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+      }
+    });
+
+    return html + '<p class="kg-ai-caveat">Nothing has been written yet. Nodes with ' +
+      '\u201cLet AI update this node\u201d switched off are read for context and left alone.</p>';
   }
 
   function renderResult(result) {
@@ -249,6 +343,7 @@
       if (del) deleteMap(del.getAttribute('data-delete'));
     });
     $('review-close').addEventListener('click', function () { $('review-dialog').close(); });
+    $('review-apply').addEventListener('click', applyReview);
     load();
   }
 

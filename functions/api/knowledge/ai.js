@@ -31,6 +31,14 @@ const DOMAIN_HVAC = [
   'ASHRAE 62.1 and 90.1) and the regional approval regimes.'
 ].join(' ');
 
+const DOMAIN_ENGLISH = [
+  'You are a lexicographer building a word map for an adult reader who is deepening their',
+  'English. You think in terms of roots and affixes, parts of speech, sense distinctions,',
+  'register, collocation, and the pairs people reliably confuse. You explain where a word came',
+  'from and what else shares its root, because that is what makes vocabulary stick. You never',
+  'invent an etymology you are not sure of.'
+].join(' ');
+
 const DOMAIN_BUSINESS = [
   'You are a knowledge engineer mapping business processes for a manufacturing and sales',
   'organisation: departments, hand-offs, decisions, approvals, documents and exception paths.'
@@ -125,6 +133,31 @@ const ACTIONS = {
       'yours to rewrite. List skipped approved nodes under a heading "Already approved, untouched".'
   },
 
+  /* Run from the dashboard. This is the one that proposes real structural
+     changes rather than prose, so its shape is machine-applicable and the
+     handler filters it against each node's ai_open flag before anything is
+     written. */
+  review_and_align: {
+    shape: '{"summary":"string",' +
+           '"lanes":[{"label":"string","reason":"string","nodes":["string"]}],' +
+           '"moves":[{"node":"string","lane":"string","why":"string"}],' +
+           '"connections":[{"from":"string","relation":"string","to":"string","why":"string"}],' +
+           '"nodeNotes":[{"node":"string","note":"string"}],' +
+           '"sections":[{"heading":"string","items":["string"]}]}',
+    instruction:
+      'Review the whole map and propose how to tidy it. Produce four things. ' +
+      '(1) lanes: the columns this map should have, in reading order, each with a one-line ' +
+      'reason. Keep an existing lane label unchanged where it still works. ' +
+      '(2) moves: nodes that sit in the wrong lane, giving the exact node title and the exact ' +
+      'lane label it belongs in. ' +
+      '(3) connections: relationships that are clearly missing, using ONLY node titles that ' +
+      'appear in the map and ONLY relation names from the list given. ' +
+      '(4) nodeNotes: for each node you were shown, two or three sentences on what you ' +
+      'understand it to mean, what is missing from it, and anything worth adding. Write this ' +
+      'for the reader of that node, not as a report. ' +
+      'Use exact node titles everywhere \u2014 anything that does not match a real title is discarded.'
+  },
+
   answer_question: {
     shape: '{"summary":"string","sections":[{"heading":"string","items":["string"]}]}',
     instruction:
@@ -178,6 +211,15 @@ async function _onRequestPost(context) {
   if (body.action === 'review_map') {
     context.waitUntil(saveReview(env, map, user, result));
   }
+
+  // review_and_align is the only action that writes structural change back.
+  // Everything it proposes is filtered against each node's ai_open flag first,
+  // and per-node opinions land in ai_note — never in the node's own fields.
+  if (body.action === 'review_and_align') {
+    const applied = await applyAlignment(env, map, user, nodes, result, body.apply === true);
+    context.waitUntil(saveReview(env, map, user, result));
+    return json({ ok: true, result, applied });
+  }
   if (body.action === 'draft_summary' && body.nodeId && result.summary) {
     context.waitUntil(saveNodeSuggestion(env, body.nodeId, result));
   }
@@ -191,7 +233,9 @@ async function _onRequestPost(context) {
 /* ── Prompt ────────────────────────────────────────────────────────────── */
 
 function buildPrompt(spec, map, nodes, edges, focus, question) {
-  const domain = map.domain === 'business' ? DOMAIN_BUSINESS : DOMAIN_HVAC;
+  const domain = map.domain === 'business' ? DOMAIN_BUSINESS
+               : map.domain === 'english' ? DOMAIN_ENGLISH
+               : DOMAIN_HVAC;
 
   let ctx = 'KNOWLEDGE MAP: ' + map.title + ' (' + map.kind + ', domain ' + map.domain + ')\n';
   if (map.description) ctx += map.description + '\n';
@@ -366,6 +410,27 @@ function sanitise(obj) {
         : [],
     })).filter(l => l.label);
   }
+  if (Array.isArray(obj.moves)) {
+    out.moves = obj.moves.slice(0, 100).map(m => ({
+      node: String((m && m.node) || '').slice(0, 300),
+      lane: String((m && m.lane) || '').slice(0, 60),
+      why: String((m && m.why) || '').slice(0, 300)
+    })).filter(m => m.node && m.lane);
+  }
+  if (Array.isArray(obj.connections)) {
+    out.connections = obj.connections.slice(0, 80).map(c => ({
+      from: String((c && c.from) || '').slice(0, 300),
+      relation: String((c && c.relation) || '').slice(0, 40),
+      to: String((c && c.to) || '').slice(0, 300),
+      why: String((c && c.why) || '').slice(0, 300)
+    })).filter(c => c.from && c.to && c.relation);
+  }
+  if (Array.isArray(obj.nodeNotes)) {
+    out.nodeNotes = obj.nodeNotes.slice(0, 200).map(n => ({
+      node: String((n && n.node) || '').slice(0, 300),
+      note: String((n && n.note) || '').slice(0, 2000)
+    })).filter(n => n.node && n.note);
+  }
   if (Array.isArray(obj.gaps)) {
     out.gaps = obj.gaps.filter(g => typeof g === 'string').slice(0, 20).map(g => g.slice(0, 400));
   }
@@ -383,6 +448,113 @@ function sanitise(obj) {
     }).filter(s => s.heading || s.text || (s.items && s.items.length));
   }
   return Object.keys(out).length ? out : null;
+}
+
+/* ── Applying an alignment ─────────────────────────────────────────────────
+   The trust boundary, enforced here rather than in the prompt.
+
+   A node with ai_open = 0 is a node a human has declared finished. The model
+   is still shown it \u2014 it needs the context to reason about the rest of the
+   map \u2014 but nothing it says about that node is written anywhere. Locked
+   nodes are not moved, do not receive an ai_note, and are not given new
+   connections.
+
+   `apply` false is a dry run: the counts come back so the user can see what
+   would happen before agreeing to it.
+   ------------------------------------------------------------------------ */
+
+async function applyAlignment(env, map, user, nodes, result, apply) {
+  const now = nowIso();
+  const summary = { movedNodes: 0, addedEdges: 0, notedNodes: 0, skippedLocked: 0, applied: !!apply };
+
+  // Title -> node, case-insensitive, so the model does not have to match case.
+  const byTitle = new Map();
+  nodes.forEach(n => byTitle.set(String(n.title).trim().toLowerCase(), n));
+  const find = (title) => byTitle.get(String(title || '').trim().toLowerCase()) || null;
+
+  const open = (n) => n && Number(n.aiOpen) === 1;
+
+  const laneLabels = asArray(map.lanes).reduce((acc, l) => {
+    if (l && l.label) acc[String(l.label).trim().toLowerCase()] = l.id;
+    return acc;
+  }, {});
+
+  /* Lane moves */
+  const moves = [];
+  (result.moves || []).forEach(m => {
+    const node = find(m.node);
+    if (!node) return;
+    if (!open(node)) { summary.skippedLocked++; return; }
+    const laneId = laneLabels[String(m.lane).trim().toLowerCase()];
+    if (!laneId || laneId === node.lane) return;
+    moves.push({ id: node.id, lane: laneId });
+  });
+  summary.movedNodes = moves.length;
+
+  /* New connections \u2014 both ends must be unlocked, and the edge must not exist */
+  const existing = await env.DB.prepare(
+    'SELECT from_id, to_id, relation FROM knowledge_edges WHERE map_id = ?'
+  ).bind(map.id).all();
+  const seen = new Set(((existing && existing.results) || []).map(
+    e => e.from_id + '|' + e.relation + '|' + e.to_id
+  ));
+
+  const newEdges = [];
+  (result.connections || []).forEach(c => {
+    const from = find(c.from), to = find(c.to);
+    if (!from || !to || from.id === to.id) return;
+    if (!open(from) || !open(to)) { summary.skippedLocked++; return; }
+    const key = from.id + '|' + c.relation + '|' + to.id;
+    if (seen.has(key)) return;
+    seen.add(key);
+    newEdges.push({ from: from.id, to: to.id, relation: c.relation, label: '' });
+  });
+  summary.addedEdges = newEdges.length;
+
+  /* Per-node opinions */
+  const notes = [];
+  (result.nodeNotes || []).forEach(n => {
+    const node = find(n.node);
+    if (!node) return;
+    if (!open(node)) { summary.skippedLocked++; return; }
+    notes.push({ id: node.id, note: n.note });
+  });
+  summary.notedNodes = notes.length;
+
+  if (!apply) return summary;
+
+  const uid = userId(user);
+  const batch = [];
+
+  if (moves.length) {
+    const stmt = env.DB.prepare(
+      'UPDATE knowledge_nodes SET lane = ?, updated_by = ?, updated_at = ? WHERE id = ?'
+    );
+    moves.forEach(m => batch.push(stmt.bind(m.lane, uid, now, m.id)));
+  }
+
+  if (notes.length) {
+    const stmt = env.DB.prepare(
+      'UPDATE knowledge_nodes SET ai_note = ?, ai_note_at = ? WHERE id = ?'
+    );
+    notes.forEach(n => batch.push(stmt.bind(n.note, now, n.id)));
+  }
+
+  if (newEdges.length) {
+    const stmt = env.DB.prepare(
+      'INSERT INTO knowledge_edges (id, map_id, from_id, to_id, relation, medium, label, status, ' +
+      'created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    );
+    // Proposed edges arrive as draft. An AI suggestion is not approved
+    // knowledge, and the graph must not start publishing a relationship
+    // nobody has looked at.
+    newEdges.forEach(e => batch.push(stmt.bind(
+      newId('e'), map.id, e.from, e.to, e.relation, null, e.label, 'draft', uid, now
+    )));
+  }
+
+  if (batch.length) await env.DB.batch(batch);
+  return summary;
 }
 
 /* ── Persistence ───────────────────────────────────────────────────────── */

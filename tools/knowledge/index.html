@@ -33,6 +33,7 @@
         <span class="kg-label">Start from</span>
         <select id="new-seed" class="kg-input">
           <option value="">Empty map</option>
+          <option value="english">English word map (seeded)</option>
           <option value="hvac">HVAC knowledge base (seeded)</option>
           <option value="business">Business process (seeded)</option>
         </select>
@@ -63,8 +64,9 @@
   <h2 class="kg-panel-title" id="review-title">AI review</h2>
   <div class="kg-ai-output" id="review-output"></div>
   <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
-    <button type="button" class="kg-btn kg-btn-primary" id="review-close">Close</button>
+    <button type="button" class="kg-btn kg-btn-primary" id="review-apply" hidden>Apply these changes</button>
     <a class="kg-btn" id="review-open" href="#">Open the map</a>
+    <button type="button" class="kg-btn" id="review-close">Close</button>
   </div>
 </dialog>
 
