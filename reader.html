@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/global.css?v=6">
   <link rel="stylesheet" href="/assets/css/education.css?v=2">
-  <link rel="stylesheet" href="/assets/css/dictionary.css?v=2">
+  <link rel="stylesheet" href="/assets/css/dictionary.css?v=1">
   <title>Reader — Thinkneering</title>
 </head>
 <body>
@@ -37,13 +37,39 @@
         <div class="reader__bar" role="toolbar" aria-label="Reading options">
           <button class="btn btn--quiet btn--sm" id="toc-toggle" aria-expanded="true"
                   aria-controls="toc-panel" title="Show or hide contents (T)">Contents</button>
-          <span class="reader__bar-group">
-            <button class="btn btn--quiet btn--sm" id="text-smaller" aria-label="Smaller text">A&minus;</button>
-            <span class="chip" id="text-size">100%</span>
-            <button class="btn btn--quiet btn--sm" id="text-bigger" aria-label="Larger text">A+</button>
-          </span>
-          <button class="btn btn--quiet btn--sm" id="width-toggle" title="Narrow or wide column">Width</button>
+          <button class="btn btn--quiet btn--sm" id="readset-toggle"
+                  aria-expanded="false" aria-controls="readset"
+                  title="Reading settings (A)">Aa</button>
           <button class="btn btn--quiet btn--sm" id="fullscreen" title="Full screen (F)">Full screen</button>
+
+          <!-- Every reading choice in one panel rather than five buttons in
+               the bar. The bar is read while reading; these are set once. -->
+          <div class="readset" id="readset" role="dialog" aria-label="Reading settings" hidden>
+            <div class="readset__row">
+              <span class="readset__label" id="lbl-theme">Theme</span>
+              <div class="readset__opts" role="group" aria-labelledby="lbl-theme" id="opt-theme"></div>
+            </div>
+            <div class="readset__row">
+              <span class="readset__label" id="lbl-font">Typeface</span>
+              <div class="readset__opts" role="group" aria-labelledby="lbl-font" id="opt-font"></div>
+            </div>
+            <div class="readset__row">
+              <span class="readset__label" id="lbl-size">Text size</span>
+              <div class="readset__opts" role="group" aria-labelledby="lbl-size">
+                <button class="readset__opt" id="text-smaller" aria-label="Smaller text">A&minus;</button>
+                <button class="readset__opt" id="text-size" disabled>100%</button>
+                <button class="readset__opt" id="text-bigger" aria-label="Larger text">A+</button>
+              </div>
+            </div>
+            <div class="readset__row">
+              <span class="readset__label" id="lbl-lead">Line spacing</span>
+              <div class="readset__opts" role="group" aria-labelledby="lbl-lead" id="opt-lead"></div>
+            </div>
+            <div class="readset__row">
+              <span class="readset__label" id="lbl-width">Column</span>
+              <div class="readset__opts" role="group" aria-labelledby="lbl-width" id="opt-width"></div>
+            </div>
+          </div>
         </div>
 
         <!-- data-dict-scope is what the AI Dictionary watches. Without it a
@@ -64,7 +90,7 @@
   <script src="/assets/js/global.js?v=6"></script>
   <script src="/assets/js/zip.js?v=2"></script>
   <script src="/assets/js/ebook.js?v=2"></script>
-  <script src="/assets/js/dictionary.js?v=2" defer></script>
+  <script src="/assets/js/dictionary.js?v=1" defer></script>
   <script>
   (function () {
     'use strict';
@@ -79,7 +105,34 @@
     var bySlug = {};
 
     // --------------------------------------------------- reading options
-    var prefs = { size: 100, wide: false, toc: true };
+    //
+    // Choices are remembered across books and devices-per-browser. Theme and
+    // typeface go on the root element rather than on the reader, so the page
+    // behind the text changes too — a cream column framed in white is worse
+    // than either on its own.
+
+    var THEMES = [
+      { id: '',      label: 'Site',  bg: 'var(--color-bg)',   fg: 'var(--color-text)' },
+      { id: 'paper', label: 'Paper', bg: '#f3ead6',           fg: '#3b3225' },
+      { id: 'night', label: 'Night', bg: '#0b0b0d',           fg: '#c9c6c0' },
+      { id: 'slate', label: 'Slate', bg: '#10151c',           fg: '#dbe4ec' }
+    ];
+    var FONTS = [
+      { id: 'sans',  label: 'Sans' },
+      { id: 'serif', label: 'Serif' },
+      { id: 'mono',  label: 'Mono' }
+    ];
+    var LEADS = [
+      { id: 1.5,  label: 'Tight' },
+      { id: 1.75, label: 'Normal' },
+      { id: 2.05, label: 'Loose' }
+    ];
+    var WIDTHS = [
+      { id: 'narrow', label: 'Narrow' },
+      { id: 'wide',   label: 'Wide' }
+    ];
+
+    var prefs = { size: 100, wide: false, toc: true, theme: '', font: 'sans', lead: 1.75 };
     try { prefs = Object.assign(prefs, JSON.parse(localStorage.getItem('tn-reader') || '{}')); } catch (e) {}
 
     function savePrefs() {
@@ -88,34 +141,115 @@
     function isNarrow() { return window.matchMedia('(max-width: 900px)').matches; }
 
     function applyPrefs() {
+      var root = document.documentElement;
+
+      if (prefs.theme) root.setAttribute('data-read-theme', prefs.theme);
+      else root.removeAttribute('data-read-theme');
+      root.setAttribute('data-read-font', prefs.font);
+      root.style.setProperty('--read-leading', String(prefs.lead));
+
       TN.el('#body').style.fontSize = (prefs.size / 100 * 1.0625).toFixed(3) + 'rem';
       TN.el('#text-size').textContent = prefs.size + '%';
       TN.el('#reader').classList.toggle('reader--wide', prefs.wide);
       TN.el('#reader').classList.toggle('reader--no-toc', !prefs.toc);
       TN.el('#toc-toggle').setAttribute('aria-expanded', String(prefs.toc));
+
       // On a phone the contents is a drawer over the text, so the page behind
       // it must not scroll away underneath.
       var drawerOpen = prefs.toc && isNarrow();
       TN.el('#toc-scrim').hidden = !drawerOpen;
       document.body.classList.toggle('toc-open', drawerOpen);
+
+      markSettings();
     }
+
     function resize(step) {
-      prefs.size = Math.min(160, Math.max(80, prefs.size + step));
+      prefs.size = Math.min(200, Math.max(70, prefs.size + step));
       savePrefs(); applyPrefs();
     }
     function toggleToc() { prefs.toc = !prefs.toc; savePrefs(); applyPrefs(); }
 
-    TN.el('#text-bigger').addEventListener('click', function () { resize(10); });
-    TN.el('#text-smaller').addEventListener('click', function () { resize(-10); });
-    TN.el('#width-toggle').addEventListener('click', function () {
-      prefs.wide = !prefs.wide; savePrefs(); applyPrefs();
+    // ------------------------------------------------- settings panel
+    function buildSettings() {
+      TN.el('#opt-theme').innerHTML = THEMES.map(function (t) {
+        return '<button class="readset__opt" data-set="theme" data-val="' + t.id + '">' +
+          '<span class="readset__swatch" style="background:' + t.bg + ';color:' + t.fg +
+          ';box-shadow:inset 0 0 0 6px ' + t.bg + ', inset 0 -6px 0 -2px ' + t.fg + '"></span>' +
+          t.label + '</button>';
+      }).join('');
+
+      TN.el('#opt-font').innerHTML = FONTS.map(function (f) {
+        return '<button class="readset__opt readset__opt--' + f.id +
+          '" data-set="font" data-val="' + f.id + '">' + f.label + '</button>';
+      }).join('');
+
+      TN.el('#opt-lead').innerHTML = LEADS.map(function (l) {
+        return '<button class="readset__opt" data-set="lead" data-val="' + l.id + '">' + l.label + '</button>';
+      }).join('');
+
+      TN.el('#opt-width').innerHTML = WIDTHS.map(function (w) {
+        return '<button class="readset__opt" data-set="width" data-val="' + w.id + '">' + w.label + '</button>';
+      }).join('');
+    }
+
+    // aria-pressed carries the state, so the styling and what a screen reader
+    // announces come from the same source rather than drifting apart.
+    function markSettings() {
+      TN.els('#readset [data-set]').forEach(function (b) {
+        var kind = b.getAttribute('data-set');
+        var val = b.getAttribute('data-val');
+        var on = kind === 'theme' ? val === prefs.theme
+               : kind === 'font'  ? val === prefs.font
+               : kind === 'lead'  ? Number(val) === Number(prefs.lead)
+               : (val === 'wide') === !!prefs.wide;
+        b.setAttribute('aria-pressed', String(on));
+      });
+    }
+
+    var setPanel = TN.el('#readset');
+    var setBtn = TN.el('#readset-toggle');
+
+    function openSettings(open) {
+      setPanel.hidden = !open;
+      setBtn.setAttribute('aria-expanded', String(open));
+      if (open) {
+        var first = setPanel.querySelector('[aria-pressed="true"]') || setPanel.querySelector('button');
+        if (first) first.focus();
+      }
+    }
+
+    setBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      openSettings(setPanel.hidden);
     });
+
+    setPanel.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var b = ev.target.closest('[data-set]');
+      if (!b) return;
+      var kind = b.getAttribute('data-set');
+      var val = b.getAttribute('data-val');
+      if (kind === 'theme') prefs.theme = val;
+      else if (kind === 'font') prefs.font = val;
+      else if (kind === 'lead') prefs.lead = Number(val);
+      else prefs.wide = val === 'wide';
+      savePrefs(); applyPrefs();
+    });
+
+    // Clicking into the text should put the panel away, but a click on the
+    // panel itself must not — hence the stopPropagation above.
+    document.addEventListener('click', function () { if (!setPanel.hidden) openSettings(false); });
+
     TN.el('#toc-toggle').addEventListener('click', toggleToc);
     TN.el('#toc-scrim').addEventListener('click', toggleToc);
 
     // A phone that lands with contents remembered open would hide the text,
     // so the drawer starts closed on a narrow screen whatever was saved.
     if (isNarrow()) prefs.toc = false;
+
+    buildSettings();
+    TN.el('#text-bigger').addEventListener('click', function () { resize(10); });
+    TN.el('#text-smaller').addEventListener('click', function () { resize(-10); });
 
     // ------------------------------------------------------- full screen
     var fsBtn = TN.el('#fullscreen');
@@ -302,12 +436,14 @@
 
     document.addEventListener('keydown', function (ev) {
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.metaKey || ev.ctrlKey) return;
+      if (ev.key === 'Escape' && !setPanel.hidden) { openSettings(false); setBtn.focus(); return; }
       if (ev.key === 'ArrowRight' || ev.key === 'n') go(1);
       else if (ev.key === 'ArrowLeft' || ev.key === 'p') go(-1);
       else if (ev.key === 'f') toggleFullscreen();
       else if (ev.key === '+' || ev.key === '=') resize(10);
       else if (ev.key === '-') resize(-10);
       else if (ev.key === 't') toggleToc();
+      else if (ev.key === 'a') { openSettings(setPanel.hidden); }
     });
 
     function fail(title, message, action) {

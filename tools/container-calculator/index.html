@@ -1,204 +1,167 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Container &amp; Trailer Calculator — Thinkneering</title>
-<meta name="description" content="Work out how many containers or trailers a shipment needs. Upload a packing list or type it in, get a load plan, drawings and a PDF report.">
-<link rel="stylesheet" href="/assets/css/global.css">
-<link rel="stylesheet" href="./styles.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=5">
+  <link rel="stylesheet" href="./styles.css?v=1">
+  <title>Container &amp; trailer calculator — Thinkneering</title>
+  <meta name="description" content="Work out how many containers or trailers a shipment needs. Upload a packing list or type it in, get a load plan, stowage drawings and a PDF report.">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
 
-<!-- =========================================================
-     SHARED HEADER — replace this block with the site header
-     include used by every other tool page.
-     ========================================================= -->
-<header class="site-header">
-  <div class="container header-inner">
-    <a class="brand" href="/">Thinkneering</a>
-    <nav class="site-nav" aria-label="Main">
-      <a href="/tools/">Tools</a>
-      <a href="/about/">About</a>
-    </nav>
-  </div>
-</header>
-<!-- ===================== /SHARED HEADER ===================== -->
+  <main id="main" class="wrap">
 
-<main class="container" id="main">
-
-  <!-- 1 · Title -->
-  <section class="page-head">
-    <p class="eyebrow">Logistics</p>
-    <h1>Container &amp; trailer calculator</h1>
-    <p class="lead">
-      Enter your packed dimensions, pick a vehicle, and get the number of containers or
-      trailers you actually need — with a load plan, stowage drawings and a PDF report.
-    </p>
-  </section>
-
-  <!-- 2 · Controls -->
-  <section class="panel" aria-labelledby="setup-title">
-    <h2 id="setup-title">Project and vehicle</h2>
-
-    <div class="field-grid">
-      <div class="field">
-        <label for="project">Project name</label>
-        <input id="project" type="text" placeholder="e.g. KJ158 — RSG 13 LB" autocomplete="off">
-        <p class="hint">Used as the PDF file name.</p>
-      </div>
-
-      <div class="field">
-        <label for="vehicle">Vehicle</label>
-        <select id="vehicle"></select>
-        <p class="hint" id="vehicle-hint"></p>
-      </div>
-
-      <div class="field">
-        <label for="cost">Cost per vehicle <span class="optional">optional</span></label>
-        <input id="cost" type="number" min="0" step="1" inputmode="decimal" placeholder="0">
-        <p class="hint">Any currency. Drives the total freight estimate.</p>
-      </div>
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Container &amp; trailer calculator</h1>
+      <p>Enter your packed dimensions, pick a vehicle, and get the number of containers or trailers you actually need — with a load plan, stowage drawings and a PDF report. Nothing is uploaded.</p>
     </div>
 
-    <div class="field-grid custom-dims" id="custom-dims" hidden>
-      <div class="field">
-        <label for="c-length">Internal length (m)</label>
-        <input id="c-length" type="number" min="0.1" step="0.001" inputmode="decimal" value="12">
-      </div>
-      <div class="field">
-        <label for="c-width">Internal width (m)</label>
-        <input id="c-width" type="number" min="0.1" step="0.001" inputmode="decimal" value="2.4">
-      </div>
-      <div class="field">
-        <label for="c-height">Internal height (m)</label>
-        <input id="c-height" type="number" min="0.1" step="0.001" inputmode="decimal" value="3.3">
-      </div>
-      <div class="field">
-        <label for="c-payload">Max payload (kg)</label>
-        <input id="c-payload" type="number" min="1" step="1" inputmode="numeric" value="24000">
-      </div>
-    </div>
+    <!-- 1 · Project and vehicle -->
+    <section class="panel" aria-labelledby="setup-title">
+      <div class="panel__head"><h2 id="setup-title">Project and vehicle</h2></div>
 
-    <fieldset class="loading-rules">
-      <legend>Loading rules</legend>
-      <div class="rule-grid">
-        <label class="check">
+      <div class="cc-fields">
+        <div class="field">
+          <label for="project">Project name</label>
+          <input id="project" type="text" placeholder="e.g. KJ158 — RSG 13 LB" autocomplete="off">
+          <p class="hint">Used as the PDF file name.</p>
+        </div>
+        <div class="field">
+          <label for="vehicle">Vehicle</label>
+          <select id="vehicle"></select>
+          <p class="hint" id="vehicle-hint"></p>
+        </div>
+        <div class="field">
+          <label for="cost">Cost per vehicle <span class="muted">optional</span></label>
+          <input id="cost" type="number" min="0" step="1" inputmode="decimal" placeholder="0">
+          <p class="hint">Any currency. Drives the freight estimate.</p>
+        </div>
+      </div>
+
+      <div class="cc-fields" id="custom-dims" hidden>
+        <div class="field">
+          <label for="c-length">Internal length (m)</label>
+          <input id="c-length" type="number" min="0.1" step="0.001" inputmode="decimal" value="12">
+        </div>
+        <div class="field">
+          <label for="c-width">Internal width (m)</label>
+          <input id="c-width" type="number" min="0.1" step="0.001" inputmode="decimal" value="2.4">
+        </div>
+        <div class="field">
+          <label for="c-height">Internal height (m)</label>
+          <input id="c-height" type="number" min="0.1" step="0.001" inputmode="decimal" value="3.3">
+        </div>
+        <div class="field">
+          <label for="c-payload">Max payload (kg)</label>
+          <input id="c-payload" type="number" min="1" step="1" inputmode="numeric" value="24000">
+        </div>
+      </div>
+
+      <fieldset class="cc-rules">
+        <legend>Loading rules</legend>
+        <label class="cc-check">
           <input type="checkbox" id="opt-stack" checked>
           <span>Allow stacking<em>Items may sit on top of others</em></span>
         </label>
-        <label class="check">
+        <label class="cc-check">
           <input type="checkbox" id="opt-tilt">
           <span>Allow turning on side<em>Lets the packer rotate items in all axes</em></span>
         </label>
-        <div class="field inline">
+        <div class="field">
           <label for="opt-gap">Clearance per item (mm)</label>
           <input id="opt-gap" type="number" min="0" max="500" step="5" inputmode="numeric" value="0">
         </div>
+      </fieldset>
+    </section>
+
+    <!-- 2 · Cargo -->
+    <section class="panel cc-panel" aria-labelledby="cargo-title">
+      <div class="panel__head">
+        <h2 id="cargo-title">Cargo list</h2>
+        <p class="cc-count" id="cargo-count" aria-live="polite">No items yet</p>
       </div>
-    </fieldset>
-  </section>
 
-  <!-- 3 · Cargo -->
-  <section class="panel" aria-labelledby="cargo-title">
-    <div class="panel-head">
-      <h2 id="cargo-title">Cargo list</h2>
-      <p class="count" id="cargo-count" aria-live="polite">No items yet</p>
-    </div>
-
-    <div class="toolbar" role="group" aria-label="Cargo list actions">
-      <button type="button" class="btn btn-primary" id="add-row">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add row
-      </button>
-      <button type="button" class="btn" id="upload-btn">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-        Upload filled sheet
-      </button>
-      <button type="button" class="btn" id="template-btn">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-        Download input sheet
-      </button>
-      <button type="button" class="btn" id="sample-btn">Load example</button>
-      <button type="button" class="btn btn-quiet" id="clear-btn">Clear all</button>
-      <input type="file" id="file-input" accept=".xlsx,.csv,.tsv,.txt" hidden>
-    </div>
-
-    <div class="unit-row">
-      <span id="unit-label">Dimensions entered in</span>
-      <div class="segmented" role="radiogroup" aria-labelledby="unit-label">
-        <label><input type="radio" name="unit" value="m" checked><span>metres</span></label>
-        <label><input type="radio" name="unit" value="mm"><span>millimetres</span></label>
+      <div class="toolbar" role="group" aria-label="Cargo list actions">
+        <button type="button" class="btn btn--primary" id="add-row">Add row</button>
+        <button type="button" class="btn btn--ghost" id="upload-btn">Upload filled sheet</button>
+        <button type="button" class="btn btn--ghost" id="template-btn">Download input sheet</button>
+        <button type="button" class="btn btn--ghost" id="sample-btn">Load example</button>
+        <button type="button" class="btn btn--quiet" id="clear-btn">Clear all</button>
+        <input type="file" id="file-input" accept=".xlsx,.csv,.tsv,.txt" hidden>
       </div>
-    </div>
 
-    <div class="table-wrap">
-      <table class="cargo-table" id="cargo-table">
-        <caption class="sr-only">Cargo items — packed dimensions and gross weight</caption>
-        <thead>
-          <tr>
-            <th scope="col" class="col-tag">Tag</th>
-            <th scope="col" class="num" id="th-l">Length</th>
-            <th scope="col" class="num" id="th-w">Width</th>
-            <th scope="col" class="num" id="th-h">Height</th>
-            <th scope="col" class="num">Gross wt (kg)</th>
-            <th scope="col" class="num">Qty</th>
-            <th scope="col">Stackable</th>
-            <th scope="col"><span class="sr-only">Remove</span></th>
-          </tr>
-        </thead>
-        <tbody id="cargo-body"></tbody>
-      </table>
-    </div>
-
-    <p class="empty-state" id="empty-state">
-      Add a row, load the example, or upload a sheet with columns
-      <strong>Tag, Length, Width, Height, Gross Weight</strong>.
-    </p>
-
-    <p class="notice" id="import-notice" hidden role="status"></p>
-  </section>
-
-  <!-- 4 · Results -->
-  <section class="panel" aria-labelledby="results-title" id="results-panel">
-    <div class="panel-head">
-      <h2 id="results-title">Loading plan</h2>
-      <div class="panel-actions">
-        <button type="button" class="btn" id="xlsx-btn" disabled>Download packing list</button>
-        <button type="button" class="btn btn-primary" id="pdf-btn" disabled>Download PDF report</button>
+      <div class="cc-units">
+        <span id="unit-label" class="muted">Dimensions entered in</span>
+        <div class="segmented" role="group" aria-labelledby="unit-label">
+          <button type="button" data-unit="m" aria-pressed="true">metres</button>
+          <button type="button" data-unit="mm" aria-pressed="false">millimetres</button>
+        </div>
       </div>
-    </div>
 
-    <div id="results" aria-live="polite">
-      <p class="empty-state">Results appear here as soon as there is cargo to load.</p>
-    </div>
-  </section>
+      <div class="table-wrap" id="cargo-table-wrap">
+        <table class="data cc-cargo">
+          <caption class="sr-only">Cargo items — packed dimensions and gross weight</caption>
+          <thead>
+            <tr>
+              <th scope="col">Tag</th>
+              <th scope="col" class="num" id="th-l">Length</th>
+              <th scope="col" class="num" id="th-w">Width</th>
+              <th scope="col" class="num" id="th-h">Height</th>
+              <th scope="col" class="num">Gross wt (kg)</th>
+              <th scope="col" class="num">Qty</th>
+              <th scope="col">Stackable</th>
+              <th scope="col"><span class="sr-only">Remove</span></th>
+            </tr>
+          </thead>
+          <tbody id="cargo-body"></tbody>
+        </table>
+      </div>
 
-  <!-- 5 · Notes -->
-  <section class="panel notes" aria-labelledby="notes-title">
-    <h2 id="notes-title">How the numbers are worked out</h2>
-    <ul class="note-list">
-      <li>Enter <strong>packed</strong> sizes — crate, skid and protection included, not the bare equipment.</li>
-      <li>Vehicle figures are <strong>internal usable</strong> dimensions. Door openings are smaller than the box; check the tallest item against the door height before you book.</li>
-      <li>The packer places large items first and fills from the nose backwards. It is a fast heuristic, not a proof of the theoretical minimum — treat the answer as a solid working estimate to confirm with your forwarder.</li>
-      <li>Centre of gravity is reported as a percentage of the vehicle length from the nose. Aim for 45–55%; outside that band, axle loads and lashing need a second look.</li>
-      <li>Nothing leaves your browser. Files you upload are read locally and never sent anywhere.</li>
-    </ul>
-  </section>
+      <p class="empty" id="empty-state">
+        Add a row, load the example, or upload a sheet with columns
+        <strong>Tag, Length, Width, Height, Gross Weight</strong>.
+      </p>
 
-</main>
+      <div class="notice cc-notice" id="import-notice" hidden role="status"></div>
+    </section>
 
-<!-- =========================================================
-     SHARED FOOTER — replace with the site footer include.
-     ========================================================= -->
-<footer class="site-footer">
-  <div class="container">
-    <p>© <span id="year"></span> Thinkneering</p>
-  </div>
-</footer>
-<!-- ===================== /SHARED FOOTER ===================== -->
+    <!-- 3 · Results -->
+    <section class="panel cc-panel" aria-labelledby="results-title">
+      <div class="panel__head">
+        <h2 id="results-title">Loading plan</h2>
+        <div class="cc-actions">
+          <button type="button" class="btn btn--ghost" id="xlsx-btn" disabled>Download packing list</button>
+          <button type="button" class="btn btn--primary" id="pdf-btn" disabled>Download PDF report</button>
+        </div>
+      </div>
+      <div id="results" aria-live="polite">
+        <p class="empty">Results appear here as soon as there is cargo to load.</p>
+      </div>
+    </section>
 
-<script src="/assets/js/global.js" defer></script>
-<script type="module" src="./js/app.js"></script>
+    <!-- 4 · Notes -->
+    <section class="panel cc-panel" aria-labelledby="notes-title">
+      <div class="panel__head"><h2 id="notes-title">How the numbers are worked out</h2></div>
+      <ul class="cc-notes">
+        <li>Enter <strong>packed</strong> sizes — crate, skid and protection included, not the bare equipment.</li>
+        <li>Vehicle figures are <strong>internal usable</strong> dimensions. Door openings are smaller than the box, so check the tallest item against the door height before you book.</li>
+        <li>The packer places large items first and fills from the nose backwards. It is a fast heuristic, not a proof of the theoretical minimum — treat the answer as a solid working estimate to confirm with your forwarder.</li>
+        <li>Centre of gravity is reported as a percentage of the vehicle length from the nose. Aim for 45–55%; outside that band, axle loads and lashing need a second look.</li>
+        <li>Everything runs in your browser. Files you upload are read locally and never sent anywhere.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=5"></script>
+  <script type="module" src="./js/app.js?v=1"></script>
 </body>
 </html>

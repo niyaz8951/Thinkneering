@@ -141,7 +141,9 @@ function syncSetupPanel() {
   setValue('#c-height', state.custom.height);
   setValue('#c-payload', state.custom.payload);
   $('#custom-dims').hidden = state.vehicleId !== 'custom';
-  document.querySelector(`input[name="unit"][value="${state.unit}"]`).checked = true;
+  for (const button of document.querySelectorAll('.segmented [data-unit]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.unit === state.unit));
+  }
 
   const v = activeVehicle();
   $('#vehicle-hint').textContent =
@@ -164,7 +166,7 @@ function renderCargo() {
     const tr = el('tr');
 
     const tagCell = el('td', 'col-tag');
-    const swatch = el('span', 'swatch');
+    const swatch = el('span', 'cc-swatch');
     swatch.style.background = `var(--color-${tokenFor(i)})`;
     const tagInput = el('input');
     tagInput.type = 'text';
@@ -223,9 +225,9 @@ function renderCargo() {
     tr.appendChild(sTd);
 
     const rTd = el('td');
-    const remove = el('button', 'btn btn-icon');
+    const remove = el('button', 'btn btn--quiet btn--sm');
     remove.type = 'button';
-    remove.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
+    remove.innerHTML = window.TN ? window.TN.icon('trash', 18) : '&times;';
     remove.setAttribute('aria-label', `Remove row ${i + 1}${item.tag ? `, ${item.tag}` : ''}`);
     remove.addEventListener('click', () => {
       state.items.splice(i, 1);
@@ -247,7 +249,7 @@ function updateCounts() {
     ? `${state.items.length} row${state.items.length === 1 ? '' : 's'} · ${pieces} piece${pieces === 1 ? '' : 's'}`
     : 'No items yet';
   $('#empty-state').hidden = state.items.length > 0;
-  $('.table-wrap').hidden = state.items.length === 0;
+  $('#cargo-table-wrap').hidden = state.items.length === 0;
 }
 
 /* ------------------------------------------------------------------ *
@@ -273,7 +275,7 @@ function run() {
   if (!items.length) {
     plan = null;
     fleet = [];
-    $('#results').innerHTML = '<p class="empty-state">Results appear here as soon as there is cargo to load.</p>';
+    $('#results').innerHTML = '<p class="empty">Results appear here as soon as there is cargo to load.</p>';
     $('#pdf-btn').disabled = true;
     $('#xlsx-btn').disabled = true;
     return;
@@ -300,15 +302,15 @@ function numberPieces(p) {
  * ------------------------------------------------------------------ */
 
 function meterRow(label, ratio, value, tone) {
-  const row = el('div', 'meter-row');
+  const row = el('div', 'cc-meter');
   row.appendChild(el('span', null, label));
-  const bar = el('div', 'bar');
+  const bar = el('div', 'cc-bar');
   const fill = el('span');
-  fill.className = tone || '';
+  if (tone) fill.className = `is-${tone}`;
   fill.style.width = `${Math.min(100, ratio * 100).toFixed(1)}%`;
   bar.appendChild(fill);
   row.appendChild(bar);
-  row.appendChild(el('span', 'val', value));
+  row.appendChild(el('span', 'cc-val', value));
   return row;
 }
 
@@ -325,7 +327,7 @@ function renderResults() {
   const s = plan.summary;
 
   /* KPIs */
-  const kpis = el('div', 'kpi-grid');
+  const kpis = el('div', 'stat-grid');
   const cards = [
     [String(s.vehicles), `${v.name}${s.vehicles === 1 ? '' : 's'} required`, true],
     [`${fmt(s.totalCbm)} m³`, 'Total cargo volume'],
@@ -336,16 +338,16 @@ function renderResults() {
     cards[3] = [`${(state.cost * s.vehicles).toLocaleString()}`, 'Estimated freight cost'];
   }
   for (const [value, label, accent] of cards) {
-    const card = el('div', 'kpi');
-    const val = el('span', accent ? 'value accent' : 'value', value);
-    card.append(val, el('span', 'label', label));
+    const card = el('div', 'stat');
+    const val = el('div', accent ? 'stat__value cc-headline' : 'stat__value', value);
+    card.append(val, el('div', 'stat__label', label));
     kpis.appendChild(card);
   }
   box.appendChild(kpis);
 
   /* Exceptions first — they change the answer */
   if (plan.rejected.length) {
-    const alert = el('div', 'alert bad');
+    const alert = el('div', 'notice notice--danger');
     const body = el('div');
     body.appendChild(el('h3', null, `${plan.rejected.length} piece${plan.rejected.length === 1 ? '' : 's'} cannot ship on this vehicle`));
     const list = el('ul');
@@ -364,7 +366,7 @@ function renderResults() {
   /* Balance warnings */
   const unbalanced = plan.loads.filter((l) => cgTone(l.cgPercent).tone !== 'good');
   if (unbalanced.length) {
-    const alert = el('div', 'alert warn');
+    const alert = el('div', 'notice notice--warning');
     const body = el('div');
     body.appendChild(el('h3', null, `Centre of gravity to review on ${unbalanced.length} vehicle${unbalanced.length === 1 ? '' : 's'}`));
     body.appendChild(el('p', null,
@@ -376,37 +378,39 @@ function renderResults() {
   /* Fleet comparison */
   const best = fleet[0];
   if (best) {
-    const section = el('section', 'result-section');
+    const section = el('section', 'cc-section');
     section.appendChild(el('h3', null, 'Would another vehicle do better?'));
-    const table = el('table', 'data-table');
+    const table = el('table', 'data');
     table.innerHTML =
       '<thead><tr><th>Vehicle</th><th class="num">Required</th><th class="num">Space used</th><th class="num">Payload used</th><th class="num">Cannot ship</th></tr></thead>';
     const tbody = el('tbody');
     for (const row of fleet.slice(0, 6)) {
       const tr = el('tr');
-      if (row.id === v.id) tr.className = 'is-best';
+      if (row.id === v.id) tr.className = 'cc-current';
       tr.innerHTML =
         `<td>${row.name}</td><td class="num">${row.vehicles}</td><td class="num">${pct(row.volumeUse)}</td>` +
         `<td class="num">${pct(row.weightUse)}</td><td class="num">${row.rejectedPieces || '—'}</td>`;
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    section.appendChild(table);
+    const scroll = el('div', 'table-wrap');
+    scroll.appendChild(table);
+    section.appendChild(scroll);
     if (best.id !== v.id && best.vehicles < s.vehicles) {
-      section.appendChild(el('p', 'empty-state',
+      section.appendChild(el('p', 'muted',
         `Switching to ${best.name} would bring this down to ${best.vehicles} vehicle${best.vehicles === 1 ? '' : 's'}.`));
     }
     box.appendChild(section);
   }
 
   /* Per-vehicle cards */
-  const section = el('section', 'result-section');
+  const section = el('section', 'cc-section');
   section.appendChild(el('h3', null, 'Stowage plan'));
   plan.loads.forEach((load) => section.appendChild(loadCard(load, v)));
   box.appendChild(section);
 
   /* Colour legend */
-  const legend = el('div', 'legend');
+  const legend = el('div', 'cc-legend');
   state.items.forEach((item, i) => {
     const entry = el('span');
     const dot = el('i');
@@ -418,11 +422,11 @@ function renderResults() {
 }
 
 function loadCard(load, v) {
-  const card = el('article', 'load-card');
+  const card = el('article', 'cc-load');
 
   const head = el('header');
   head.appendChild(el('h4', null, `Vehicle ${load.index} — ${v.name}`));
-  const stats = el('div', 'load-stats');
+  const stats = el('div', 'cc-load-stats');
   stats.append(
     el('span', null, `${load.pieces} pieces`),
     el('span', null, `${fmt(load.cbm)} m³`),
@@ -432,20 +436,20 @@ function loadCard(load, v) {
   head.appendChild(stats);
   card.appendChild(head);
 
-  const views = el('div', 'views');
+  const views = el('div', 'cc-views');
   const stacked = load.placements.some((p) => p.z > 1e-6);
 
   const isoFig = el('figure');
   isoFig.appendChild(el('figcaption', null, '3D view'));
   isoFig.innerHTML += sceneToSvg(isoScene(load, v), `Isometric stowage view of vehicle ${load.index}`);
-  const isoWrap = el('div', stacked ? 'view' : 'view full');
+  const isoWrap = el('div', stacked ? 'cc-view' : 'cc-view cc-view--full');
   isoWrap.appendChild(isoFig);
   views.appendChild(isoWrap);
 
   const planFig = el('figure');
   planFig.appendChild(el('figcaption', null, 'Plan view'));
   planFig.innerHTML += sceneToSvg(planScene(load, v), `Plan view of vehicle ${load.index}`);
-  const planWrap = el('div', 'view');
+  const planWrap = el('div', 'cc-view');
   planWrap.appendChild(planFig);
   views.appendChild(planWrap);
 
@@ -453,13 +457,13 @@ function loadCard(load, v) {
     const elevFig = el('figure');
     elevFig.appendChild(el('figcaption', null, 'Side elevation'));
     elevFig.innerHTML += sceneToSvg(elevationScene(load, v), `Side elevation of vehicle ${load.index}`);
-    const elevWrap = el('div', 'view full');
+    const elevWrap = el('div', 'cc-view cc-view--full');
     elevWrap.appendChild(elevFig);
     views.appendChild(elevWrap);
   }
   card.appendChild(views);
 
-  const meters = el('div', 'meter');
+  const meters = el('div', 'cc-meters');
   meters.appendChild(meterRow('Space used', load.volumeUse, pct(load.volumeUse),
     load.volumeUse > 0.75 ? 'good' : load.volumeUse < 0.4 ? 'warn' : ''));
   meters.appendChild(meterRow('Payload used', load.weightUse, `${Math.round(load.weight).toLocaleString()} kg`,
@@ -468,9 +472,9 @@ function loadCard(load, v) {
   meters.appendChild(meterRow('Centre of gravity', load.cgPercent / 100, `${load.cgPercent}% · ${cg.label}`, cg.tone));
   card.appendChild(meters);
 
-  const details = el('details', 'pieces');
+  const details = el('details', 'cc-pieces');
   details.appendChild(el('summary', null, `Piece list for vehicle ${load.index}`));
-  const table = el('table', 'data-table');
+  const table = el('table', 'data');
   table.innerHTML =
     '<thead><tr><th class="num">#</th><th>Tag</th><th class="num">L×W×H (m)</th><th class="num">Weight</th>' +
     '<th class="num">Position x, y, z</th><th>Notes</th></tr></thead>';
@@ -490,7 +494,9 @@ function loadCard(load, v) {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  details.appendChild(table);
+  const scroll = el('div', 'table-wrap');
+  scroll.appendChild(table);
+  details.appendChild(scroll);
   card.appendChild(details);
 
   return card;
@@ -778,8 +784,6 @@ function init() {
   syncSetupPanel();
   renderCargo();
 
-  $('#year').textContent = new Date().getFullYear();
-
   $('#project').addEventListener('input', (e) => { state.project = e.target.value; save(); });
 
   $('#vehicle').addEventListener('change', (e) => {
@@ -803,8 +807,13 @@ function init() {
     scheduleRun();
   });
 
-  for (const radio of document.querySelectorAll('input[name="unit"]')) {
-    radio.addEventListener('change', (e) => { state.unit = e.target.value; renderCargo(); save(); });
+  for (const button of document.querySelectorAll('.segmented [data-unit]')) {
+    button.addEventListener('click', () => {
+      state.unit = button.dataset.unit;
+      syncSetupPanel();
+      renderCargo();
+      save();
+    });
   }
 
   $('#add-row').addEventListener('click', () => {

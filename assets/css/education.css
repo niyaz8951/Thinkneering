@@ -202,3 +202,181 @@
 @media (prefers-reduced-motion: reduce) {
   .reader__toc { transition: none; }
 }
+
+/* ===================================================================
+   READING SURFACE
+   Themes, fonts and measure for the reader. Everything here is scoped
+   to pages that load this stylesheet, so the rest of the site keeps
+   its own look.
+   =================================================================== */
+
+/* --- the mobile overflow bug ---------------------------------------
+   .reader is a grid. A grid item defaults to min-width: auto, which
+   means the track will not shrink below its widest unbreakable child.
+   One long URL, one table, one <pre> and the column grows past the
+   viewport, the page scrolls sideways, and words sit off the edge.
+   Zooming out shrank the content until it fit again, which is exactly
+   the symptom: the layout was never the viewport's width to begin with.
+
+   min-width: 0 lets the track shrink; the wrapping rules below then
+   deal with the content that made it overflow. */
+.reader > * { min-width: 0; }
+
+.reader__body {
+  overflow-wrap: break-word;   /* a long word breaks instead of pushing out */
+  word-break: normal;          /* but only as a last resort, never mid-word */
+}
+.reader__body a { overflow-wrap: anywhere; }   /* bare URLs are the usual culprit */
+.reader__body img { height: auto; }
+.reader__body table { width: 100%; }
+
+/* --- reading themes -------------------------------------------------
+   Applied to the root so the page behind the text changes too. A cream
+   column framed in white is worse than either on its own.
+
+   These override the site tokens rather than introducing parallel ones,
+   so every existing component — chips, buttons, the contents drawer —
+   follows along without knowing the theme exists. */
+
+:root[data-read-theme='paper'] {
+  color-scheme: light;
+  --color-bg: #f3ead6;
+  --color-surface: #faf4e6;
+  --color-surface-sunken: #ebe0c8;
+  --color-text: #3b3225;
+  --color-text-muted: #6f6350;
+  --color-border: #ddd0b4;
+  --color-primary: #8a5a2b;
+  --color-primary-dark: #6d4620;
+  --color-primary-tint: rgba(138, 90, 43, 0.10);
+  --color-overlay: rgba(59, 50, 37, 0.45);
+  --shadow-card: 0 2px 8px rgba(90, 74, 46, 0.10);
+  --shadow-lifted: 0 10px 28px rgba(90, 74, 46, 0.16);
+}
+
+/* Dimmer than the site's dark theme and slightly warm. Pure white on
+   pure black glows at night; pulling both ends in is what stops it. */
+:root[data-read-theme='night'] {
+  color-scheme: dark;
+  --color-bg: #0b0b0d;
+  --color-surface: #141417;
+  --color-surface-sunken: #1b1b1f;
+  --color-text: #c9c6c0;
+  --color-text-muted: #85827c;
+  --color-border: #26262b;
+  --color-primary: #d0a86a;
+  --color-primary-dark: #b98f52;
+  --color-primary-tint: rgba(208, 168, 106, 0.14);
+  --color-overlay: rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lifted: 0 10px 28px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-read-theme='slate'] {
+  color-scheme: dark;
+  --color-bg: #10151c;
+  --color-surface: #172029;
+  --color-surface-sunken: #1d2731;
+  --color-text: #dbe4ec;
+  --color-text-muted: #8fa0b0;
+  --color-border: #26323e;
+  --color-primary: #6fb3d2;
+  --color-primary-dark: #4f97b8;
+  --color-primary-tint: rgba(111, 179, 210, 0.14);
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lifted: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+/* --- reading faces --------------------------------------------------
+   No new web font is downloaded. Sans and mono are the site's existing
+   tokens; the serif is a system stack, which costs nothing, renders
+   instantly and is what most desktop readers use for long-form prose.
+   If you would rather have a specific serif such as Literata, say so —
+   that is a new font token and a new network request, so I have not
+   added one on my own. */
+:root {
+  --font-read-sans:  var(--font-body);
+  --font-read-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino,
+                     'Book Antiqua', Georgia, 'Times New Roman', serif;
+  --font-read-mono:  var(--font-mono);
+}
+
+.reader__body { font-family: var(--font-read-sans); }
+[data-read-font='serif'] .reader__body { font-family: var(--font-read-serif); }
+[data-read-font='mono']  .reader__body { font-family: var(--font-read-mono); font-size: 0.95em; }
+
+/* A serif at the same pixel size reads smaller, and its headings want a
+   little more room to breathe. */
+[data-read-font='serif'] .reader__body h1,
+[data-read-font='serif'] .reader__body h2,
+[data-read-font='serif'] .reader__body h3 { font-family: var(--font-read-serif); letter-spacing: -0.01em; }
+
+/* --- measure and rhythm --------------------------------------------- */
+.reader__body { line-height: var(--read-leading, 1.75); }
+.reader__body > * + * { margin-top: calc(var(--read-leading, 1.75) * 0.62em); }
+
+[data-read-align='justify'] .reader__body p {
+  text-align: justify;
+  hyphens: auto;               /* justification without hyphens leaves rivers */
+  -webkit-hyphens: auto;
+}
+
+/* --- the Aa panel ---------------------------------------------------
+   One button instead of five in the toolbar, which is what every mature
+   reader settles on. Anchored to the bar on a wide screen and docked to
+   the bottom on a phone, where a floating panel would sit under a thumb. */
+.reader__bar { position: relative; }
+
+.readset {
+  position: absolute; z-index: 40; top: calc(100% + var(--space-2)); right: 0;
+  width: min(320px, calc(100vw - var(--space-4) * 2));
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lifted);
+}
+.readset[hidden] { display: none; }
+.readset__row + .readset__row { margin-top: var(--space-4); }
+.readset__label {
+  display: block; margin-bottom: var(--space-2);
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--color-text-muted);
+}
+.readset__opts { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+
+.readset__opt {
+  flex: 1 1 0; min-width: 60px;
+  padding: var(--space-2); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text); font-family: var(--font-body); font-size: 0.8125rem;
+  cursor: pointer; transition: border-color .15s, background .15s, color .15s;
+}
+.readset__opt:hover { border-color: var(--color-primary); }
+.readset__opt[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-tint);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.readset__opt:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+/* The swatch shows the theme itself, so the choice is visible rather than
+   a word to be interpreted. */
+.readset__swatch {
+  display: block; height: 22px; border-radius: var(--radius-sm);
+  margin-bottom: var(--space-1); border: 1px solid rgba(128, 128, 128, 0.3);
+}
+.readset__opt--serif { font-family: var(--font-read-serif); }
+.readset__opt--mono  { font-family: var(--font-read-mono); font-size: 0.75rem; }
+
+@media (max-width: 900px) {
+  .readset {
+    position: fixed; inset: auto 0 0 0; top: auto; width: 100%;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    border-left: 0; border-right: 0; border-bottom: 0;
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  }
+  .readset__opt { padding: var(--space-3) var(--space-2); }  /* thumb-sized */
+}
