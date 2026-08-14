@@ -345,6 +345,15 @@ function renderResults() {
   }
   box.appendChild(kpis);
 
+  if (s.strategy) {
+    const note = el('p', 'muted cc-strategy');
+    note.style.fontSize = '0.8125rem';
+    note.textContent = s.strategiesTried > 1
+      ? `Best of ${s.strategiesTried} loading orders tried — ${s.strategyLabel} won.`
+      : `Loading order: ${s.strategyLabel}.`;
+    box.appendChild(note);
+  }
+
   /* Exceptions first — they change the answer */
   if (plan.rejected.length) {
     const alert = el('div', 'notice notice--danger');
@@ -609,7 +618,8 @@ function buildPdf() {
   y = doc.paragraph(
     `${v.name} · internal ${fmt(v.length)} × ${fmt(v.width)} × ${fmt(v.height)} m · max payload ` +
     `${Math.round(v.payload).toLocaleString()} kg. Stacking ${state.options.allowStacking ? 'allowed' : 'not allowed'}; ` +
-    `turning on side ${state.options.allowTilt ? 'allowed' : 'not allowed'}; clearance ${Math.round(state.options.gap * 1000)} mm per item.`,
+    `turning on side ${state.options.allowTilt ? 'allowed' : 'not allowed'}; clearance ${Math.round(state.options.gap * 1000)} mm per item. ` +
+    `Loading order: ${s.strategyLabel}${s.strategiesTried > 1 ? `, the best of ${s.strategiesTried} tried` : ''}.`,
     M, y, W, { size: 9, leading: 12 });
   y += 10;
 
