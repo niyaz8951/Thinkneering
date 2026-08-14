@@ -54,7 +54,7 @@
      place because both the runAi guard and the button-disabling in
      switchSheetTab have to agree on it. */
   var MAP_LEVEL_AI = ['review_map', 'find_duplicates', 'suggest_lanes',
-                      'summarise_nodes', 'answer_question'];
+                      'summarise_nodes'];
 
   var pointers = new Map();
   var pinch = null;
@@ -1467,15 +1467,6 @@
       var tag = (ev.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
       if (ev.target.isContentEditable) return;
-
-      // Works with nothing selected — asking about the map is not a
-      // node-level action.
-      if (ev.key === '/' || ev.key === '?') {
-        ev.preventDefault();
-        openSheet('ai');
-        $('question').focus();
-        return;
-      }
       if (!selectedId) return;
       var n = nodeById(selectedId);
       if (!n) return;
@@ -1542,13 +1533,6 @@
       $('connect-dialog').close();
       await reload();
     });
-
-    /* Ask AI. Two entry points because the controls bar is hidden in full
-       screen, which is exactly where someone is most likely to want to ask
-       something about what they are looking at. */
-    function openAssistant() { openSheet('ai'); $('question').focus(); }
-    $('ask-ai-open').addEventListener('click', openAssistant);
-    $('ask-ai-canvas').addEventListener('click', openAssistant);
 
     /* Focus bar */
     $('focus-exit').addEventListener('click', clearFocus);
@@ -1679,13 +1663,6 @@
       });
     });
 
-    $('ask').addEventListener('click', function () {
-      var q = $('question').value.trim();
-      if (q) runAi('answer_question', q);
-    });
-    $('question').addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') { ev.preventDefault(); $('ask').click(); }
-    });
   }
 
   function init() {

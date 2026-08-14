@@ -174,11 +174,20 @@ const ACTIONS = {
   },
 
   answer_question: {
-    shape: '{"summary":"string","sections":[{"heading":"string","items":["string"]}]}',
+    shape: '{"answered":true,"summary":"string",' +
+           '"sections":[{"heading":"string","items":["string"]}],' +
+           '"usedNodes":["exact node title"]}',
     instruction:
-      'Answer the question using ONLY the knowledge in this map. State plainly which nodes the answer ' +
-      'comes from. If the map does not contain enough to answer, say exactly that and list what would ' +
-      'need to be added. Do not fill the gap from general knowledge.'
+      'Answer the question using ONLY the map above. The map is your entire world for this answer.\n' +
+      'Reason across it, do not just look words up: follow the connections between nodes, use the ' +
+      'lane a node sits in, and use aliases so a question that names something differently still ' +
+      'finds it. If several nodes connect to the answer, say how they relate rather than listing ' +
+      'them flatly.\n' +
+      'Set "answered" to true only if the map genuinely contains the answer. If it does not, set ' +
+      '"answered" to false, say plainly that this map does not cover it, and name what would need ' +
+      'to be added — do NOT answer from your own knowledge, and do NOT guess.\n' +
+      'List in "usedNodes" the exact titles of every node you drew on. If that list would be empty, ' +
+      '"answered" must be false.'
   }
 };
 
@@ -241,7 +250,8 @@ async function _onRequestPost(context) {
 
   const spec = ACTIONS[body.action];
   const focus = body.node || nodes.find(n => n.id === body.nodeId) || null;
-  const prompt = buildPrompt(spec, map, nodes, edges, focus, body.question);
+  const prompt = buildPrompt(spec, map, nodes, edges, focus, body.question,
+                             Array.isArray(body.history) ? body.history : null);
 
   let raw;
   try { raw = await runModel(env, prompt); }
@@ -271,6 +281,19 @@ async function _onRequestPost(context) {
     context.waitUntil(saveNodeSuggestion(env, body.nodeId, result));
   }
   if (body.action === 'answer_question' && body.question) {
+    /* Verify the grounding rather than taking the model's word for it.
+       Every title in usedNodes has to be a real node; anything else is
+       dropped. If nothing survives, the answer was not built from this map
+       whatever it claims, so it is marked as a gap. The model saying
+       "answered: true" is a claim, not evidence. */
+    const titles = new Map(nodes.map(n => [String(n.title).trim().toLowerCase(), n.title]));
+    const verified = (result.usedNodes || [])
+      .map(t => titles.get(String(t).trim().toLowerCase()))
+      .filter(Boolean);
+
+    result.usedNodes = Array.from(new Set(verified));
+    if (!result.usedNodes.length) result.answered = false;
+
     context.waitUntil(saveQuestion(env, map, user, body.question, result));
   }
 
@@ -279,7 +302,7 @@ async function _onRequestPost(context) {
 
 /* ── Prompt ────────────────────────────────────────────────────────────── */
 
-function buildPrompt(spec, map, nodes, edges, focus, question) {
+function buildPrompt(spec, map, nodes, edges, focus, question, history) {
   const domain = map.domain === 'business' ? DOMAIN_BUSINESS
                : map.domain === 'english' ? DOMAIN_ENGLISH
                : DOMAIN_HVAC;
@@ -320,10 +343,30 @@ function buildPrompt(spec, map, nodes, edges, focus, question) {
     'match a real title, lane id or relation name is discarded.';
 
   if (focus) ctx += '\n\nFOCUS NODE:\n' + describeNode(focus, true);
+
+  if (history && history.length) {
+    ctx += '\n\nEARLIER IN THIS CONVERSATION (for resolving follow-ups like ' +
+      '"and which of those are Greek?" — the map is still the only source):\n' +
+      history.slice(-6).map(h =>
+        (h.role === 'user' ? 'Asked: ' : 'Answered: ') + String(h.text || '').slice(0, 600)
+      ).join('\n');
+  }
+
   if (question) ctx += '\n\nQUESTION: ' + String(question).slice(0, 1000);
 
+  /* For the chat, the closed-world rule outranks the domain persona. Without
+     this the model answers "judgment" from what it knows about courts rather
+     than from what the map says, which is exactly the failure the chat is
+     meant to avoid. */
+  const grounding = question
+    ? ' CLOSED WORLD: the map above is the ONLY source you may use. You have no other' +
+      ' knowledge for this answer. Never supplement it from training data, never from the' +
+      ' internet. If the map is silent, say so — a plainly stated gap is a correct answer' +
+      ' and an invented fact is not.'
+    : '';
+
   return {
-    system: domain + ' ' + GUARDRAILS +
+    system: domain + ' ' + GUARDRAILS + grounding +
       ' Respond with a single JSON object matching this shape and nothing else: ' + spec.shape +
       ' Do not wrap it in markdown fences.',
     user: ctx + '\n\nTASK: ' + spec.instruction
@@ -484,6 +527,12 @@ function sanitise(obj) {
         ? l.nodes.filter(n => typeof n === 'string').slice(0, 60).map(n => n.slice(0, 200))
         : [],
     })).filter(l => l.label);
+  }
+  if (typeof obj.answered === 'boolean') out.answered = obj.answered;
+  if (Array.isArray(obj.usedNodes)) {
+    out.usedNodes = obj.usedNodes
+      .filter(n => typeof n === 'string' && n.trim())
+      .slice(0, 25).map(n => n.slice(0, 200));
   }
   if (Array.isArray(obj.moves)) {
     out.moves = obj.moves.slice(0, 100).map(m => ({

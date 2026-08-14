@@ -62,6 +62,8 @@
       maps = body.maps || [];
       isAdmin = !!body.isAdmin;
       $('admin-line').hidden = !isAdmin;
+      fillChatMaps();
+      renderChat();
       render();
     } catch (err) {
       grid.innerHTML = '<p class="kg-muted">Could not load your maps (' + esc(err.message) +
@@ -107,6 +109,168 @@
             : '') +
         '</div></article>';
     }).join('');
+  }
+
+  /* ── Ask a map ──────────────────────────────────────────────────────
+     A conversation grounded in one map. History is kept client-side and
+     sent with each turn so follow-ups like "and which of those are
+     Greek?" resolve — the endpoint is stateless.
+     ---------------------------------------------------------------- */
+
+  var chat = { mapId: null, history: [] };
+
+  var STARTERS = {
+    english: ['Which words are built from the root spec-?',
+              'What is the difference between affect and effect?',
+              'Which prefixes does this map cover?'],
+    hvac:    ['What does an AHU contain?',
+              'Which parameters does a specification ask about a cooling coil?',
+              'What flows between the compressor and the condenser?'],
+    business:['What happens after the order is vetted?',
+              'Which department owns quality checks?',
+              'Where can this process stall?']
+  };
+
+  function fillChatMaps() {
+    var sel = $('chat-map');
+    if (!maps.length) {
+      sel.innerHTML = '<option value="">No maps yet</option>';
+      $('chat-input').disabled = true;
+      $('chat-send').disabled = true;
+      return;
+    }
+    var previous = chat.mapId;
+    sel.innerHTML = maps.map(function (m) {
+      return '<option value="' + esc(m.id) + '">' + esc(m.title) +
+        ' (' + (m.approved_count || 0) + ' approved)</option>';
+    }).join('');
+
+    if (previous && maps.some(function (m) { return m.id === previous; })) sel.value = previous;
+    chat.mapId = sel.value;
+    $('chat-input').disabled = false;
+    $('chat-send').disabled = false;
+    renderChatChips();
+    renderChatScope();
+  }
+
+  function currentChatMap() {
+    return maps.filter(function (m) { return m.id === chat.mapId; })[0] || null;
+  }
+
+  function renderChatScope() {
+    var m = currentChatMap();
+    if (!m) return;
+    var approved = m.approved_count || 0;
+    var total = m.node_count || 0;
+    var note = '';
+    if (!total) {
+      note = ' This map has no nodes yet, so there is nothing to answer from.';
+    } else if (!approved) {
+      // Worth saying plainly — an unapproved map answers nothing, and that
+      // looks like a broken assistant rather than an empty one.
+      note = ' None of its ' + total + ' nodes are approved yet, so answers will be thin until they are.';
+    }
+    $('chat-scope').textContent =
+      'Answers come only from the nodes, lanes and connections in ' + m.title +
+      ' — never from the internet or general knowledge. If the map does not cover something, it says so.' + note;
+  }
+
+  function renderChatChips() {
+    var m = currentChatMap();
+    var list = (m && STARTERS[m.domain]) || STARTERS.english;
+    $('chat-chips').innerHTML = list.map(function (q) {
+      return '<button type="button" class="kg-chip-q" data-q="' + esc(q) + '">' + esc(q) + '</button>';
+    }).join('');
+  }
+
+  function renderChat() {
+    var log = $('chat-log');
+    if (!chat.history.length) {
+      log.innerHTML = '<p class="kg-muted">Ask something about this map. Try one of the suggestions below.</p>';
+      return;
+    }
+    log.innerHTML = chat.history.map(function (turn) {
+      if (turn.role === 'user') {
+        return '<div class="kg-msg kg-msg-you"><p>' + esc(turn.text) + '</p></div>';
+      }
+      if (turn.pending) {
+        return '<div class="kg-msg kg-msg-ai"><p class="kg-muted">Reading the map…</p></div>';
+      }
+      if (turn.error) {
+        return '<div class="kg-msg kg-msg-ai"><p class="kg-muted">' + esc(turn.error) + '</p></div>';
+      }
+      return '<div class="kg-msg kg-msg-ai">' + renderAnswer(turn.result) + '</div>';
+    }).join('');
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function renderAnswer(result) {
+    if (!result) return '<p class="kg-muted">Nothing came back.</p>';
+    var html = '';
+    if (result.summary) html += '<p>' + esc(result.summary) + '</p>';
+
+    (result.sections || []).forEach(function (sec) {
+      if (sec.heading) html += '<h4>' + esc(sec.heading) + '</h4>';
+      if (sec.text) html += '<p>' + esc(sec.text) + '</p>';
+      if (sec.items && sec.items.length) {
+        html += '<ul>' + sec.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+      }
+    });
+
+    // Which nodes the answer leaned on. This is what separates a grounded
+    // answer from a plausible one — you can go and check it.
+    if (result.usedNodes && result.usedNodes.length) {
+      html += '<p class="kg-msg-sources">From: ' +
+        result.usedNodes.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join(' ') + '</p>';
+    }
+    if (result.answered === false) {
+      html += '<p class="kg-msg-gap">This map does not cover that yet.</p>';
+    }
+    return html || '<p class="kg-muted">Nothing came back.</p>';
+  }
+
+  async function sendChat(text) {
+    var q = (text || $('chat-input').value).trim();
+    if (!q || !chat.mapId) return;
+
+    $('chat-input').value = '';
+    chat.history.push({ role: 'user', text: q });
+    var pending = { role: 'ai', pending: true };
+    chat.history.push(pending);
+    renderChat();
+    $('chat-send').disabled = true;
+
+    try {
+      // Only completed turns go back as history, and only the last few — a
+      // long transcript would crowd out the map itself in the prompt.
+      var priorTurns = chat.history.filter(function (t) {
+        return t.role === 'user' || (t.role === 'ai' && t.result);
+      }).slice(-7, -1).map(function (t) {
+        return t.role === 'user'
+          ? { role: 'user', text: t.text }
+          : { role: 'assistant', text: (t.result && t.result.summary) || '' };
+      });
+
+      var body = await readJson(await fetch('/api/knowledge/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'answer_question',
+          mapId: chat.mapId,
+          question: q,
+          history: priorTurns
+        })
+      }));
+      pending.pending = false;
+      pending.result = body.result;
+    } catch (err) {
+      pending.pending = false;
+      pending.error = 'Could not answer: ' + err.message;
+    } finally {
+      $('chat-send').disabled = false;
+      renderChat();
+      $('chat-input').focus();
+    }
   }
 
   /* ── Create ────────────────────────────────────────────────────── */
@@ -376,6 +540,28 @@
       var del = ev.target.closest('[data-delete]');
       if (del) deleteMap(del.getAttribute('data-delete'));
     });
+    $('chat-map').addEventListener('change', function (ev) {
+      chat.mapId = ev.target.value;
+      // A conversation is grounded in one map; carrying it across would
+      // invite answers built from a map that was never asked.
+      chat.history = [];
+      renderChat();
+      renderChatChips();
+      renderChatScope();
+    });
+    $('chat-send').addEventListener('click', function () { sendChat(); });
+    $('chat-input').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); sendChat(); }
+    });
+    $('chat-clear').addEventListener('click', function () {
+      chat.history = [];
+      renderChat();
+    });
+    $('chat-chips').addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-q]');
+      if (b) sendChat(b.getAttribute('data-q'));
+    });
+
     $('review-close').addEventListener('click', function () { $('review-dialog').close(); });
     $('review-apply').addEventListener('click', applyReview);
     load();

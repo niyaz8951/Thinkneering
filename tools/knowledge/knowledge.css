@@ -919,3 +919,121 @@ body.kg-map-full .kg-scrim { z-index: 310; }
   .kg-ask { flex-direction: column; }
   .kg-ask .kg-btn { width: 100%; justify-content: center; }
 }
+
+/* ── Ask a map ──────────────────────────────────────────────────────
+   Chat grounded in one map, on the dashboard. Deliberately plain: the
+   answer and its sources are the content, everything else recedes.
+   ------------------------------------------------------------------ */
+
+.kg-chat-panel { margin-bottom: var(--space-4); }
+
+.kg-chat-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.kg-chat-picker { flex: 1 1 240px; }
+.kg-chat-scope { font-size: 13px; margin-bottom: var(--space-3); }
+
+.kg-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 120px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  -webkit-overflow-scrolling: touch;
+}
+
+.kg-msg {
+  max-width: 92%;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.kg-msg p { margin: 0 0 var(--space-2); }
+.kg-msg p:last-child { margin-bottom: 0; }
+.kg-msg ul { margin: 0 0 var(--space-2); padding-left: var(--space-4); }
+.kg-msg li { margin-bottom: var(--space-1); }
+
+.kg-msg h4 {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 600;
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--color-text);
+}
+
+.kg-msg-you {
+  align-self: flex-end;
+  background: var(--color-primary);
+  color: #ffffff;
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.kg-msg-ai {
+  align-self: flex-start;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+/* The provenance line. An answer you can go and check is worth more than
+   one you have to take on trust. */
+.kg-msg-sources {
+  margin-top: var(--space-3) !important;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.kg-msg-sources span {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+  margin: 2px 2px 0 0;
+}
+
+.kg-msg-gap {
+  margin-top: var(--space-2) !important;
+  font-size: 13px;
+  color: var(--color-warning);
+}
+
+.kg-chat-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+
+.kg-chip-q {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  min-height: 34px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.kg-chip-q:hover { color: var(--color-primary); border-color: var(--color-primary); }
+
+@media (max-width: 560px) {
+  .kg-chat-log { max-height: 50dvh; }
+  .kg-msg { max-width: 100%; }
+}

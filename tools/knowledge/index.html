@@ -22,6 +22,36 @@
     <p>Each map is an independent knowledge domain — HVAC equipment, a business process, a product line. Nodes you approve become the reference material Compliance Maker uses to answer specification clauses, so what gets approved here is what gets said to a consultant.</p>
   </header>
 
+  <!-- ── Ask a map ──────────────────────────────────────────────────
+       Chat grounded in one map. Sits above Create map because asking is
+       the everyday action; creating a map is occasional.
+       ------------------------------------------------------------- -->
+  <section class="kg-panel kg-chat-panel" aria-label="Ask a knowledge map">
+    <div class="kg-chat-head">
+      <h2 class="kg-panel-title" style="margin:0">Ask a map</h2>
+      <label class="kg-field kg-chat-picker">
+        <span class="kg-label">Using</span>
+        <select id="chat-map" class="kg-input"></select>
+      </label>
+      <button type="button" class="kg-btn kg-btn-sm" id="chat-clear">Clear</button>
+    </div>
+
+    <p class="kg-muted kg-chat-scope" id="chat-scope">
+      Answers come only from the nodes, lanes and connections in the chosen map — never from the
+      internet or general knowledge. If the map does not cover something, it says so.
+    </p>
+
+    <div class="kg-chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Conversation"></div>
+
+    <div class="kg-ask">
+      <input class="kg-input" id="chat-input" type="text" autocomplete="off"
+             placeholder="Which words are built from the root spec-?">
+      <button type="button" class="kg-btn kg-btn-primary" id="chat-send">Ask</button>
+    </div>
+
+    <div class="kg-chat-chips" id="chat-chips"></div>
+  </section>
+
   <section class="kg-panel" aria-label="Create a map">
     <h2 class="kg-panel-title">Start a new map</h2>
     <div class="kg-row">

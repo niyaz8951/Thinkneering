@@ -105,6 +105,50 @@ Three details that are easy to get wrong and are handled explicitly:
 
 Mouse and trackpad are untouched — wheel still zooms.
 
+### Ask a map
+
+Chat moved out of the map editor and onto the dashboard, above **Create map**.
+Pick a map from the dropdown and ask it questions; the map is the brain.
+
+Removed from the editor: the *Ask AI* button in the controls bar, the one on
+the canvas, and *Ask this map anything* inside the node AI tab. The node AI
+tab keeps everything else — the lock switch, the AI opinion, and the node and
+map action buttons.
+
+**Grounding is enforced, not requested.** Three layers, because a prompt
+instruction on its own is a suggestion:
+
+1. A closed-world rule is added to the system prompt for this action, ranked
+   above the domain persona. Without it the model answers "judgment" from what
+   it knows about courts rather than from what the map says — which is exactly
+   the failure the earlier AI note on that node showed.
+2. The model must return `usedNodes`: the exact titles it drew on. If that list
+   would be empty, it must set `answered: false`.
+3. **The server verifies those titles against the map before returning.** Any
+   that are not real nodes are dropped, and if none survive, the answer is
+   marked as a gap whatever the model claimed. A model saying "answered: true"
+   is a claim; a title that resolves to a node is evidence.
+
+The answer shows a **From:** line listing the nodes it used, so you can go and
+check it rather than taking it on trust.
+
+**It reasons over the graph, not just the text.** The prompt carries lanes,
+every node with its aliases, attributes and standards, and every connection
+with its relation type — so "which words are built from the root spec-?"
+follows `built_from` edges rather than string-matching, and a question that
+names something by an alias still finds the node.
+
+Follow-ups work: the last few turns go back with each question, so "and which
+of those are Greek?" resolves. Changing map clears the conversation, since
+carrying it over would invite an answer built from a map that was never asked.
+
+**One judgement call worth knowing:** the chat reads *all* nodes in the map,
+not only approved ones. The approval boundary exists to protect what
+Compliance Maker publishes to a consultant; applying it here would make a map
+mid-authoring answer nothing. If you would rather the chat only saw approved
+knowledge, it is one `WHERE` clause in `ai.js`. The panel tells you when a map
+has no approved nodes, so the state is visible either way.
+
 ### Apply on an AI review
 
 Two bugs sat behind "review suggests changes, Apply does nothing", and a third
