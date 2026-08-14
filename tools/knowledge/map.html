@@ -42,6 +42,10 @@
         </select>
       </label>
       <div class="kg-btn-group kg-wrap">
+        <button type="button" class="kg-btn kg-btn-primary" id="ask-ai-open">
+          <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Ask AI
+        </button>
         <button type="button" class="kg-btn" id="lanes-edit">Lanes</button>
         <button type="button" class="kg-btn" id="tidy">Tidy by lane</button>
         <button type="button" class="kg-btn" id="fit">Fit</button>
@@ -90,6 +94,9 @@
           </button>
           <button type="button" class="kg-icon-btn" id="zoom-out" aria-label="Zoom out">
             <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h12"/></svg>
+          </button>
+          <button type="button" class="kg-icon-btn" id="ask-ai-canvas" aria-label="Ask AI about this map">
+            <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
           <button type="button" class="kg-icon-btn kg-only-full" id="fit-full" aria-label="Fit to screen">
             <svg class="kg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
@@ -267,12 +274,18 @@
             <p class="kg-card-meta" id="ai-note-when"></p>
           </div>
 
-          <h3 class="kg-subhead">Ask about this node</h3>
-          <div class="kg-btn-group kg-wrap">
-            <button type="button" class="kg-btn kg-btn-sm" data-ai="draft_summary">Draft summary &amp; aliases</button>
-            <button type="button" class="kg-btn kg-btn-sm" data-ai="explain_node">Explain node</button>
-            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_attributes">Suggest parameters</button>
-            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_relations">Missing relationships</button>
+          <h3 class="kg-subhead" style="margin-top:0">Ask this map anything</h3>
+          <div class="kg-ask">
+            <input class="kg-input" id="question" type="text"
+                   placeholder="Which words use the root spec-? What is missing from the air side?">
+            <button type="button" class="kg-btn kg-btn-primary" id="ask">Ask</button>
+          </div>
+          <p class="kg-muted">Answered only from what is written in this map. If the map does not
+            cover it, the assistant says so rather than filling the gap from general knowledge.</p>
+
+          <div class="kg-ai-output" id="ai-output">
+            <p class="kg-muted">Answers and suggestions appear here. Nothing the assistant writes
+              becomes approved knowledge until you save and approve it yourself.</p>
           </div>
 
           <h3 class="kg-subhead">Whole map</h3>
@@ -283,17 +296,15 @@
             <button type="button" class="kg-btn kg-btn-sm" data-ai="summarise_nodes">Summarise nodes</button>
           </div>
 
-          <div class="kg-row" style="margin-top:var(--space-3)">
-            <label class="kg-field kg-field-grow">
-              <span class="kg-label">Ask this map a question</span>
-              <input class="kg-input" id="question" type="text" placeholder="Which words use the root spec-?">
-            </label>
-            <button type="button" class="kg-btn" id="ask">Ask</button>
+          <h3 class="kg-subhead">About the selected node</h3>
+          <p class="kg-muted" id="ai-node-hint">Nothing selected — tap a node on the map to enable these.</p>
+          <div class="kg-btn-group kg-wrap">
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="draft_summary">Draft summary &amp; aliases</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="explain_node">Explain node</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_attributes">Suggest parameters</button>
+            <button type="button" class="kg-btn kg-btn-sm" data-ai="suggest_relations">Missing relationships</button>
           </div>
 
-          <div class="kg-ai-output" id="ai-output">
-            <p class="kg-muted">Suggestions land here as drafts. Nothing the assistant writes becomes approved knowledge until you save and approve it yourself.</p>
-          </div>
         </div>
       </div>
     </aside>

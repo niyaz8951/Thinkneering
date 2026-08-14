@@ -56,6 +56,21 @@ const GUARDRAILS = [
   'Be concise. No preamble.'
 ].join(' ');
 
+/* Mirrors the relation keys in tools/knowledge/domain-*.js. Pages Functions
+   cannot import a browser global, so this is duplicated by necessity — if you
+   add a relation to a pack, add it here too, or the model is never told the
+   name and every connection using it is discarded on the way back in. */
+const RELATION_NAMES = {
+  hvac: ['contains', 'part_of', 'supplies', 'receives', 'flows_to', 'controls',
+         'monitors', 'depends_on', 'produces', 'requires', 'connected_to',
+         'governed_by', 'causes'],
+  english: ['means', 'sense_of', 'built_from', 'builds', 'synonym_of', 'antonym_of',
+            'confused_with', 'stronger_than', 'used_in', 'collocates',
+            'governed_by', 'belongs_to', 'example_of'],
+  business: ['precedes', 'contains', 'part_of', 'approves', 'requires', 'produces',
+             'depends_on', 'responsible', 'connected_to', 'causes']
+};
+
 const ACTIONS = {
   draft_summary: {
     shape: '{"summary":"string","aliases":["string"],"gaps":["string"],"confidence":0}',
@@ -196,6 +211,34 @@ async function _onRequestPost(context) {
   const edges = (edgeRows && edgeRows.results) || [];
   if (!nodes.length) return json({ error: 'This map has no nodes yet' }, 400);
 
+  /* Applying a review is a replay, not a fresh question. Re-prompting here
+     was the bug behind "Apply does nothing": the model is not deterministic,
+     so the second generation proposed different nodes to the ones the user
+     had just agreed to, and titles that no longer resolved were silently
+     dropped. The proposal is stored when it is first shown; apply loads that
+     row and writes it. No model call, no drift, and it is instant. */
+  if (body.action === 'review_and_align' && body.apply === true) {
+    if (!(await requireRole(env, user, body.mapId, 'contributor'))) {
+      return json({ error: 'You need contributor access to apply a review' }, 403);
+    }
+    if (!body.reviewId) return json({ error: 'Missing reviewId' }, 400);
+
+    const row = await env.DB.prepare(
+      'SELECT detail_json FROM knowledge_reviews WHERE id = ? AND map_id = ?'
+    ).bind(body.reviewId, map.id).first();
+
+    if (!row || !row.detail_json) {
+      return json({ error: 'That review has expired. Run the review again.' }, 404);
+    }
+
+    let saved;
+    try { saved = JSON.parse(row.detail_json); }
+    catch (err) { return json({ error: 'That review could not be read. Run it again.' }, 500); }
+
+    const applied = await applyAlignment(env, map, user, nodes, saved, true);
+    return json({ ok: true, result: saved, applied });
+  }
+
   const spec = ACTIONS[body.action];
   const focus = body.node || nodes.find(n => n.id === body.nodeId) || null;
   const prompt = buildPrompt(spec, map, nodes, edges, focus, body.question);
@@ -215,10 +258,14 @@ async function _onRequestPost(context) {
   // review_and_align is the only action that writes structural change back.
   // Everything it proposes is filtered against each node's ai_open flag first,
   // and per-node opinions land in ai_note — never in the node's own fields.
+  //
+  // The review is saved BEFORE returning, and its id goes back with the
+  // proposal, so the Apply step can replay exactly what the user agreed to
+  // instead of asking the model again. See the apply branch above.
   if (body.action === 'review_and_align') {
-    const applied = await applyAlignment(env, map, user, nodes, result, body.apply === true);
-    context.waitUntil(saveReview(env, map, user, result));
-    return json({ ok: true, result, applied });
+    const applied = await applyAlignment(env, map, user, nodes, result, false);
+    const reviewId = await saveReview(env, map, user, result);
+    return json({ ok: true, result, applied, reviewId });
   }
   if (body.action === 'draft_summary' && body.nodeId && result.summary) {
     context.waitUntil(saveNodeSuggestion(env, body.nodeId, result));
@@ -243,7 +290,7 @@ function buildPrompt(spec, map, nodes, edges, focus, question) {
   // The lanes are part of the map's meaning, not decoration. Without them the
   // model cannot comment on how the map is organised, which is most of what
   // a review is for.
-  const lanes = parseLanes(map.lanes);
+  const lanes = effectiveLanes(map, nodes);
   ctx += '\nLANES (columns this map is organised into):\n' +
     (lanes.length
       ? lanes.map(l => '- ' + l.label + ' [id ' + l.id + '] — ' +
@@ -261,6 +308,17 @@ function buildPrompt(spec, map, nodes, edges, focus, question) {
     (e.label ? ': ' + e.label : '') + ']--> ' + e.to_title
   ).join('\n') || '(none recorded)');
 
+  /* An explicit vocabulary block. Without it the model invents lane names and
+     relation types, and every proposal referencing one is discarded on the way
+     back in — which reads to the user as "review suggested things and then
+     nothing happened". */
+  ctx += '\n\nVOCABULARY YOU MUST USE\n' +
+    'Lane ids (use the id exactly, not the label): ' +
+    (lanes.map(l => l.id).join(', ') || '(none — do not propose lane moves)') + '\n' +
+    'Relation names: ' + (RELATION_NAMES[map.domain] || RELATION_NAMES.hvac).join(', ') + '\n' +
+    'Node titles: use them exactly as written above. Anything that does not ' +
+    'match a real title, lane id or relation name is discarded.';
+
   if (focus) ctx += '\n\nFOCUS NODE:\n' + describeNode(focus, true);
   if (question) ctx += '\n\nQUESTION: ' + String(question).slice(0, 1000);
 
@@ -276,6 +334,23 @@ function parseLanes(raw) {
   if (!raw) return [];
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; }
   catch (err) { return []; }
+}
+
+/* Maps created before the `lanes` column existed have it NULL, but their
+   nodes still carry lane ids. Deriving the list from the nodes means the
+   review sees the same columns the editor draws, instead of being told the
+   map has no organisation at all. */
+function effectiveLanes(map, nodes) {
+  const declared = parseLanes(map.lanes);
+  if (declared.length) return declared;
+
+  const seen = [];
+  nodes.forEach(n => {
+    if (n.lane && !seen.some(l => l.id === n.lane)) {
+      seen.push({ id: n.lane, label: String(n.lane).replace(/[-_]/g, ' ') });
+    }
+  });
+  return seen;
 }
 
 function describeNode(n, full) {
@@ -474,22 +549,53 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
 
   const open = (n) => n && Number(n.aiOpen) === 1;
 
-  const laneLabels = asArray(map.lanes).reduce((acc, l) => {
-    if (l && l.label) acc[String(l.label).trim().toLowerCase()] = l.id;
-    return acc;
-  }, {});
+  // Counted so a review that proposes plenty but resolves to nothing can say
+  // why, instead of returning three zeroes and looking broken.
+  let unmatchedTitles = 0;
+
+  /* Lane vocabulary.
+     Two things were wrong here and both silently dropped every move:
+
+     1. Maps created before the `lanes` column existed have it NULL. The HVAC
+        and Business maps are in that state, which is why review appeared to
+        work on the Dictionary (whose lanes were written by the migration)
+        and do nothing everywhere else. The lanes actually in use on the
+        nodes are a perfectly good fallback.
+     2. Only the label was accepted. The model is shown each node's lane
+        *id* — 'refrigeration', 'wordparts' — so it usually answers with the
+        id, which then matched nothing. Both are accepted now. */
+  // Squashing to letters and digits makes 'Air side', 'air-side' and 'airside'
+  // the same key, so a lane still resolves however the model chose to write it.
+  const laneKey = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const laneVocab = {};
+  const addLane = (alias, id) => { const k = laneKey(alias); if (k) laneVocab[k] = id; };
+
+  asArray(map.lanes).forEach(l => {
+    if (!l || !l.id) return;
+    addLane(l.id, l.id);
+    if (l.label) addLane(l.label, l.id);
+  });
+
+  if (!Object.keys(laneVocab).length) {
+    nodes.forEach(n => { if (n.lane) addLane(n.lane, n.lane); });
+  }
 
   /* Lane moves */
   const moves = [];
+  const unknownLanes = new Set();
   (result.moves || []).forEach(m => {
     const node = find(m.node);
-    if (!node) return;
+    if (!node) { unmatchedTitles++; return; }
     if (!open(node)) { summary.skippedLocked++; return; }
-    const laneId = laneLabels[String(m.lane).trim().toLowerCase()];
-    if (!laneId || laneId === node.lane) return;
+    const laneId = laneVocab[laneKey(m.lane)];
+    if (!laneId) { unknownLanes.add(String(m.lane)); return; }
+    if (laneId === node.lane) return;
     moves.push({ id: node.id, lane: laneId });
   });
   summary.movedNodes = moves.length;
+  // Surfaced rather than swallowed: a move that names a lane the map does not
+  // have is worth telling the user about, not quietly discarding.
+  if (unknownLanes.size) summary.unknownLanes = Array.from(unknownLanes).slice(0, 10);
 
   /* New connections \u2014 both ends must be unlocked, and the edge must not exist */
   const existing = await env.DB.prepare(
@@ -499,27 +605,35 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
     e => e.from_id + '|' + e.relation + '|' + e.to_id
   ));
 
+  const validRelations = new Set(RELATION_NAMES[map.domain] || RELATION_NAMES.hvac);
+
   const newEdges = [];
+  const unknownRelations = new Set();
   (result.connections || []).forEach(c => {
     const from = find(c.from), to = find(c.to);
     if (!from || !to || from.id === to.id) return;
     if (!open(from) || !open(to)) { summary.skippedLocked++; return; }
+    // An invented relation name would render as an unlabelled line the editor
+    // cannot describe. Better to drop it and say so.
+    if (!validRelations.has(c.relation)) { unknownRelations.add(String(c.relation)); return; }
     const key = from.id + '|' + c.relation + '|' + to.id;
     if (seen.has(key)) return;
     seen.add(key);
     newEdges.push({ from: from.id, to: to.id, relation: c.relation, label: '' });
   });
   summary.addedEdges = newEdges.length;
+  if (unknownRelations.size) summary.unknownRelations = Array.from(unknownRelations).slice(0, 10);
 
   /* Per-node opinions */
   const notes = [];
   (result.nodeNotes || []).forEach(n => {
     const node = find(n.node);
-    if (!node) return;
+    if (!node) { unmatchedTitles++; return; }
     if (!open(node)) { summary.skippedLocked++; return; }
     notes.push({ id: node.id, note: n.note });
   });
   summary.notedNodes = notes.length;
+  if (unmatchedTitles) summary.unmatchedTitles = unmatchedTitles;
 
   if (!apply) return summary;
 
@@ -562,11 +676,12 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
 async function saveReview(env, map, user, result) {
   try {
     const now = nowIso();
+    const id = newId('rev');
     await env.DB.prepare(
       'INSERT INTO knowledge_reviews (id, map_id, scope, scope_id, summary, detail_json, score, ' +
       'model, requested_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
     ).bind(
-      newId('rev'), map.id, 'map', null,
+      id, map.id, 'map', null,
       String(result.summary || '').slice(0, 4000),
       JSON.stringify(result).slice(0, 100000),
       map.knowledge_score, MODEL, userId(user), now
@@ -574,7 +689,12 @@ async function saveReview(env, map, user, result) {
 
     await env.DB.prepare('UPDATE knowledge_maps SET last_reviewed_at = ? WHERE id = ?')
       .bind(now, map.id).run();
-  } catch (err) { /* review history is not worth failing the response over */ }
+    return id;
+  } catch (err) {
+    // Review history is not worth failing the response over, but without a
+    // saved row there is nothing to apply, so the caller must know.
+    return null;
+  }
 }
 
 async function saveNodeSuggestion(env, nodeId, result) {

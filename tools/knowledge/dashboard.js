@@ -220,9 +220,17 @@
         body: JSON.stringify({ action: 'review_and_align', mapId: mapId, apply: false })
       }));
 
-      pendingReview = { mapId: mapId };
+      // The reviewId is what makes Apply replay this exact proposal rather
+      // than asking the model again and getting a different answer.
+      pendingReview = { mapId: mapId, reviewId: body.reviewId };
       $('review-output').innerHTML = renderAlignment(body.result, body.applied);
-      $('review-apply').hidden = !hasChanges(body.applied);
+      $('review-apply').hidden = !hasChanges(body.applied) || !body.reviewId;
+
+      if (hasChanges(body.applied) && !body.reviewId) {
+        $('review-output').innerHTML +=
+          '<p class="kg-muted">This proposal could not be saved, so it cannot be applied. ' +
+          'Run the review again.</p>';
+      }
       load();
     } catch (err) {
       $('review-output').innerHTML = '<p class="kg-muted">Review failed: ' + esc(err.message) + '</p>';
@@ -244,14 +252,20 @@
       var body = await readJson(await fetch('/api/knowledge/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'review_and_align', mapId: pendingReview.mapId, apply: true })
+        body: JSON.stringify({
+          action: 'review_and_align',
+          mapId: pendingReview.mapId,
+          reviewId: pendingReview.reviewId,
+          apply: true
+        })
       }));
       var a = body.applied || {};
       $('review-output').innerHTML =
         '<p><strong>Applied.</strong> ' + a.movedNodes + ' nodes moved lane, ' +
         a.addedEdges + ' connections added as drafts, ' + a.notedNodes + ' nodes given an AI note' +
         (a.skippedLocked ? ', ' + a.skippedLocked + ' suggestions skipped on nodes closed to AI' : '') +
-        '.</p><p class="kg-ai-caveat">Open the map to see them. New connections are drafts until ' +
+        '.</p>' + notApplied(a) +
+        '<p class="kg-ai-caveat">Open the map to see them. New connections are drafts until ' +
         'someone approves them.</p>';
       btn.hidden = true;
       load();
@@ -261,6 +275,26 @@
       btn.disabled = false;
       btn.textContent = 'Apply these changes';
     }
+  }
+
+  /* Anything the model proposed that could not be resolved. Without this a
+     review can suggest a page of changes and apply none of them, with no
+     explanation — which is indistinguishable from a broken button. */
+  function notApplied(a) {
+    if (!a) return '';
+    var bits = [];
+    if (a.unmatchedTitles) {
+      bits.push(a.unmatchedTitles + ' suggestion' + (a.unmatchedTitles > 1 ? 's named nodes' : ' named a node') +
+        ' that do not exist in this map');
+    }
+    if (a.unknownLanes && a.unknownLanes.length) {
+      bits.push('lanes this map does not have: ' + a.unknownLanes.map(esc).join(', '));
+    }
+    if (a.unknownRelations && a.unknownRelations.length) {
+      bits.push('relation types this map does not use: ' + a.unknownRelations.map(esc).join(', '));
+    }
+    if (!bits.length) return '';
+    return '<p class="kg-muted"><strong>Skipped:</strong> ' + bits.join('; ') + '.</p>';
   }
 
   function renderAlignment(result, applied) {
@@ -276,7 +310,7 @@
       (a.skippedLocked
         ? '<li><strong>' + a.skippedLocked + '</strong> suggestions skipped — those nodes are closed to AI</li>'
         : '') +
-      '</ul>';
+      '</ul>' + notApplied(a);
 
     if (result.lanes && result.lanes.length) {
       html += '<h3>Proposed lanes</h3><ol>' + result.lanes.map(function (l) {

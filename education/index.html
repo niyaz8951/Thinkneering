@@ -95,10 +95,12 @@
         list.hidden = false;
         list.innerHTML = d.books.map(function (b) {
           return '<div class="card book-card">' +
-            '<a class="book-card__open" href="/read/' + encodeURIComponent(b.slug) + '">' +
+            '<a class="book-card__open" href="/read/' + encodeURIComponent(b.slug) + '"' +
+            ' aria-label="Open ' + TN.esc(b.title) + '">' +
             '<span class="card__title">' + TN.esc(b.title) + '</span>' +
             (b.subtitle ? '<span class="book-card__sub">' + TN.esc(b.subtitle) + '</span>' : '') +
-            '<span class="card__desc">' + TN.esc(b.description || '') + '</span></a>' +
+            (b.description ? '<span class="card__desc">' + TN.esc(b.description) + '</span>' : '') +
+            '</a>' +
             '<span class="card__foot">' +
             (b.author ? '<span class="chip">' + TN.esc(b.author) + '</span>' : '') +
             '<span class="chip chip--restricted">' + TN.esc(b.format.toUpperCase()) + '</span>' +
@@ -217,16 +219,6 @@
         '<div class="field"><label for="p-subtitle">Subtitle</label>' +
         '<input id="p-subtitle" type="text" value="' + TN.esc(book.subtitle || '') + '" maxlength="120"></div>' +
         '</div>' +
-        '<div class="field"><label for="p-domain">Dictionary vocabulary</label>' +
-        '<select id="p-domain">' +
-        ['general', 'english', 'hvac', 'engineering'].map(function (d) {
-          // A guess, not a decision: an EPUB reader is usually a language
-          // text, and it stays changeable here before anything is saved.
-          var pick = (book.format === 'epub' ? 'english' : 'general') === d;
-          return '<option value="' + d + '"' + (pick ? ' selected' : '') + '>' +
-            d.charAt(0).toUpperCase() + d.slice(1) + '</option>';
-        }).join('') + '</select>' +
-        '<p class="hint">Which vocabulary tap-to-define answers from.</p></div>' +
         '<div class="field"><label for="p-desc">Description</label>' +
         '<input id="p-desc" type="text" value="' + TN.esc(book.description || '') + '" maxlength="240"></div>' +
         '<p class="hint">' + book.chapters.length + ' chapter' + (book.chapters.length === 1 ? '' : 's') +
@@ -275,8 +267,7 @@
             'X-Book-Author': encodeURIComponent(TN.el('#p-author').value.trim()),
             'X-Book-Subtitle': encodeURIComponent(TN.el('#p-subtitle').value.trim()),
             'X-Book-Description': encodeURIComponent(TN.el('#p-desc').value.trim()),
-            'X-Book-Chapters': String(pending.book.chapters.length),
-            'X-Book-Domain': encodeURIComponent(TN.el('#p-domain').value)
+            'X-Book-Chapters': String(pending.book.chapters.length)
           },
           body: await pending.file.arrayBuffer()
         });

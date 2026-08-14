@@ -50,6 +50,12 @@
      be recognised the moment it lands. `pinch` holds the anchor state for the
      current two-finger gesture; `suppressTap` stops the release of a pinch
      being read as a tap on whatever was underneath. */
+  /* Actions that read the whole map and need no node selected. Kept in one
+     place because both the runAi guard and the button-disabling in
+     switchSheetTab have to agree on it. */
+  var MAP_LEVEL_AI = ['review_map', 'find_duplicates', 'suggest_lanes',
+                      'summarise_nodes', 'answer_question'];
+
   var pointers = new Map();
   var pinch = null;
   var suppressTap = false;
@@ -895,8 +901,7 @@
   function aiOut(html) { $('ai-output').innerHTML = html; }
 
   async function runAi(action, question) {
-    var wholeMap = ['review_map', 'find_duplicates', 'suggest_lanes', 'summarise_nodes'];
-    if (wholeMap.indexOf(action) === -1 && !selectedId) {
+    if (MAP_LEVEL_AI.indexOf(action) === -1 && !selectedId) {
       aiOut('<p class="kg-muted">Select a node first.</p>');
       return;
     }
@@ -1010,11 +1015,31 @@
     sheetTab = name;
     var hasNode = !!nodeById(selectedId);
 
-    // One rule: a pane shows when it is the chosen tab AND a node is loaded.
+    // Details and Notes describe a node, so they need one. The AI tab is
+    // where you ask about the map as a whole — making it wait for a node
+    // selection is what put the question box out of reach.
     document.querySelectorAll('.kg-tabpane').forEach(function (pane) {
-      pane.hidden = !(hasNode && pane.getAttribute('data-pane') === name);
+      var paneName = pane.getAttribute('data-pane');
+      var needsNode = paneName !== 'ai';
+      pane.hidden = !(paneName === name && (hasNode || !needsNode));
     });
-    $('inspector-empty').hidden = hasNode;
+    $('inspector-empty').hidden = hasNode || name === 'ai';
+
+    // Node-specific assistant buttons go quiet when nothing is selected,
+    // rather than the whole pane disappearing.
+    document.querySelectorAll('[data-ai]').forEach(function (b) {
+      var mapLevel = MAP_LEVEL_AI.indexOf(b.getAttribute('data-ai')) !== -1;
+      b.disabled = !mapLevel && !hasNode;
+    });
+    var nodeHint = $('ai-node-hint');
+    if (nodeHint) nodeHint.hidden = hasNode;
+
+    // Header reads sensibly with nothing selected.
+    if (!hasNode) {
+      $('sheet-dot').style.background = 'var(--color-text-muted)';
+      $('sheet-kind').textContent = 'Whole map';
+      $('sheet-title').textContent = mapInfo ? mapInfo.title : 'Map';
+    }
 
     document.querySelectorAll('.kg-sheet-tabs .kg-seg-btn').forEach(function (b) {
       var on = b.getAttribute('data-tab') === name;
@@ -1441,6 +1466,16 @@
     document.addEventListener('keydown', function (ev) {
       var tag = (ev.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (ev.target.isContentEditable) return;
+
+      // Works with nothing selected — asking about the map is not a
+      // node-level action.
+      if (ev.key === '/' || ev.key === '?') {
+        ev.preventDefault();
+        openSheet('ai');
+        $('question').focus();
+        return;
+      }
       if (!selectedId) return;
       var n = nodeById(selectedId);
       if (!n) return;
@@ -1507,6 +1542,13 @@
       $('connect-dialog').close();
       await reload();
     });
+
+    /* Ask AI. Two entry points because the controls bar is hidden in full
+       screen, which is exactly where someone is most likely to want to ask
+       something about what they are looking at. */
+    function openAssistant() { openSheet('ai'); $('question').focus(); }
+    $('ask-ai-open').addEventListener('click', openAssistant);
+    $('ask-ai-canvas').addEventListener('click', openAssistant);
 
     /* Focus bar */
     $('focus-exit').addEventListener('click', clearFocus);

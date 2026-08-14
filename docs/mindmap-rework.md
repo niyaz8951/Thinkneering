@@ -105,6 +105,35 @@ Three details that are easy to get wrong and are handled explicitly:
 
 Mouse and trackpad are untouched — wheel still zooms.
 
+### Apply on an AI review
+
+Two bugs sat behind "review suggests changes, Apply does nothing", and a third
+behind "other maps don't behave like the Dictionary".
+
+**1. Apply re-ran the model.** The dry run generated one proposal, you agreed
+to it, and pressing Apply generated a *second, different* one. Node titles from
+the new generation often did not resolve, so nothing was written. The proposal
+is now saved when it is first shown and Apply replays that exact row by
+`reviewId` — no model call, no drift, and it is instant. An expired or missing
+review says so rather than failing silently.
+
+**2. Lane moves were dropped on every map except the Dictionary.** The applier
+read `map.lanes`, which is NULL on the HVAC and Business maps because they
+predate that column. With no lane vocabulary, every proposed move was
+discarded. Your Dictionary worked only because the migration wrote lanes into
+it explicitly. Lanes now fall back to the ones actually in use on the nodes,
+and match on id or label with punctuation and spacing ignored, so `airside`,
+`air-side` and `Air side` all resolve.
+
+**3. The model was never told the vocabulary.** It had to infer lane names from
+node lines and guess relation types, so it invented both — and anything
+invented was discarded on the way back in. The prompt now states the exact lane
+ids and relation names available, and the applier validates against them.
+
+Anything that still cannot be resolved is now reported — unmatched node titles,
+unknown lanes, unknown relations — instead of vanishing. A review that proposes
+a page of changes and applies none of them will say why.
+
 ### 2 & 3. The dictionary was a blank HVAC map
 
 The cause was one line in `map.js`:

@@ -64,12 +64,54 @@
    it; a button nested in an anchor is invalid and unreachable by keyboard.
    The link now wraps only the text, and the card is the positioning
    context. */
+/* The whole tile opens the book, exactly like the cards on the home page.
+   Those are a plain <a class="card">, which cannot be used here: an admin
+   needs a Remove button inside the tile, and a <button> nested in an <a> is
+   invalid HTML and unreachable by keyboard.
+
+   So the card stays a <div> and the link stretches over it — an ::after with
+   inset: 0 covers the tile and takes the clicks. The Remove button is lifted
+   above that layer so it stays its own control. One tile, two targets, and
+   still only one link for a screen reader to announce. */
 .book-card__open {
   display: flex; flex-direction: column; gap: var(--space-2);
   text-decoration: none; color: inherit;
 }
-.book-card__open:hover .card__title { color: var(--color-primary); }
-.book-card__remove { margin-left: auto; }
+.book-card__open::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+}
+
+/* The lift and glow are copied from a.card:hover rather than reinvented, so
+   a book tile and a tool tile behave identically. */
+.book-card { transition: box-shadow .18s, border-color .18s, transform .18s; }
+.book-card:hover {
+  box-shadow: var(--shadow-lifted);
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+}
+.book-card:hover .card__title { color: var(--color-primary); }
+
+/* Tabbing to the card highlights the card, not an invisible overlay. */
+.book-card:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-lifted);
+}
+.book-card__open:focus-visible { outline: none; }
+.book-card:focus-within .card__title { color: var(--color-primary); }
+
+.book-card__remove {
+  margin-left: auto;
+  position: relative;   /* above the stretched link, so Remove stays Remove */
+  z-index: 1;
+}
+
+/* A description is optional. Without this the empty paragraph still holds
+   its line and the tile shows a gap where the text would be. */
+.book-card .card__desc:empty { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .book-card, .book-card:hover { transition: none; transform: none; }
+}
 
 /* --------------------------------------------------------------- verse */
 /* A poem arrives as one paragraph per line. At paragraph spacing every line

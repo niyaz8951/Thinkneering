@@ -901,3 +901,21 @@ body.kg-map-full .kg-scrim { z-index: 310; }
   :root { --kg-canvas-h: 58dvh; }
   .kg-sheet-body { padding: var(--space-3) var(--space-3) var(--space-6); }
 }
+
+/* ── Ask AI ─────────────────────────────────────────────────────────
+   The question box leads the AI pane, because asking is what people
+   open it for. Everything else in the pane is secondary to this row.
+   ------------------------------------------------------------------ */
+
+.kg-ask { display: flex; gap: var(--space-2); align-items: stretch; }
+.kg-ask .kg-input { flex: 1; min-width: 0; }
+.kg-ask .kg-btn { flex: none; }
+
+/* A disabled assistant button should read as "not yet", not as broken. */
+.kg-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.kg-btn[disabled]:hover { border-color: var(--color-border); color: var(--color-text); }
+
+@media (max-width: 420px) {
+  .kg-ask { flex-direction: column; }
+  .kg-ask .kg-btn { width: 100%; justify-content: center; }
+}
