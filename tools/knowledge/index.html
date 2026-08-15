@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/global.css?v=5">
-<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=1">
+<link rel="stylesheet" href="/assets/css/global.css?v=9">
+<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=3">
 </head>
 <body>
 
@@ -22,68 +22,89 @@
     <p>Each map is an independent knowledge domain — HVAC equipment, a business process, a product line. Nodes you approve become the reference material Compliance Maker uses to answer specification clauses, so what gets approved here is what gets said to a consultant.</p>
   </header>
 
-  <!-- ── Ask a map ──────────────────────────────────────────────────
-       Chat grounded in one map. Sits above Create map because asking is
-       the everyday action; creating a map is occasional.
+  <!-- ── View switcher ──────────────────────────────────────────────
+       Three jobs live on this page and only one is ever being done at a
+       time. Stacking all three cost a scroll past the two you did not
+       want. The switcher uses the same .kg-seg tablist as the admin
+       console, the dictionary review and the map view picker.
        ------------------------------------------------------------- -->
-  <section class="kg-panel kg-chat-panel" aria-label="Ask a knowledge map">
-    <div class="kg-chat-head">
-      <h2 class="kg-panel-title" style="margin:0">Ask a map</h2>
-      <label class="kg-field kg-chat-picker">
-        <span class="kg-label">Using</span>
-        <select id="chat-map" class="kg-input"></select>
-      </label>
-      <button type="button" class="kg-btn kg-btn-sm" id="chat-clear">Clear</button>
+  <div class="kg-views" id="view-tabs">
+    <div class="kg-seg" role="tablist" aria-label="Knowledge repository view">
+      <button type="button" class="kg-seg-btn" id="tab-btn-new"
+              role="tab" aria-selected="false" aria-controls="view-new" data-view="new">Start a new map</button>
+      <button type="button" class="kg-seg-btn is-active" id="tab-btn-maps"
+              role="tab" aria-selected="true" aria-controls="view-maps" data-view="maps">Your maps</button>
+      <button type="button" class="kg-seg-btn" id="tab-btn-ask"
+              role="tab" aria-selected="false" aria-controls="view-ask" data-view="ask">Ask a map</button>
     </div>
-
-    <p class="kg-muted kg-chat-scope" id="chat-scope">
-      Answers come only from the nodes, lanes and connections in the chosen map — never from the
-      internet or general knowledge. If the map does not cover something, it says so.
-    </p>
-
-    <div class="kg-chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Conversation"></div>
-
-    <div class="kg-ask">
-      <input class="kg-input" id="chat-input" type="text" autocomplete="off"
-             placeholder="Which words are built from the root spec-?">
-      <button type="button" class="kg-btn kg-btn-primary" id="chat-send">Ask</button>
-    </div>
-
-    <div class="kg-chat-chips" id="chat-chips"></div>
-  </section>
-
-  <section class="kg-panel" aria-label="Create a map">
-    <h2 class="kg-panel-title">Start a new map</h2>
-    <div class="kg-row">
-      <label class="kg-field kg-field-grow">
-        <span class="kg-label">Name</span>
-        <input id="new-title" type="text" class="kg-input" placeholder="e.g. AHU product knowledge" autocomplete="off">
-      </label>
-      <label class="kg-field">
-        <span class="kg-label">Start from</span>
-        <select id="new-seed" class="kg-input">
-          <option value="">Empty map</option>
-          <option value="english">English word map (seeded)</option>
-          <option value="hvac">HVAC knowledge base (seeded)</option>
-          <option value="business">Business process (seeded)</option>
-        </select>
-      </label>
-      <label class="kg-field">
-        <span class="kg-label">Who can see it</span>
-        <select id="new-visibility" class="kg-input">
-          <option value="restricted">Only people an admin adds</option>
-          <option value="org">Anyone signed in with knowledge access</option>
-        </select>
-      </label>
-      <button type="button" class="kg-btn kg-btn-primary" id="create-map">Create map</button>
-    </div>
-    <p class="kg-muted kg-note" id="create-note">Seeded maps import as drafts. Nothing answers a Compliance Maker query until someone approves it.</p>
-  </section>
-
-  <h2 class="kg-subhead">Your maps</h2>
-  <div class="kg-grid" id="map-grid">
-    <p class="kg-muted">Loading…</p>
   </div>
+
+  <!-- ── Start a new map ──────────────────────────────────────────── -->
+  <section class="kg-view" id="view-new" role="tabpanel" aria-labelledby="tab-btn-new" tabindex="-1" hidden>
+    <div class="kg-panel">
+      <h2 class="kg-panel-title">Start a new map</h2>
+      <div class="kg-row">
+        <label class="kg-field kg-field-grow">
+          <span class="kg-label">Name</span>
+          <input id="new-title" type="text" class="kg-input" placeholder="e.g. AHU product knowledge" autocomplete="off">
+        </label>
+        <label class="kg-field">
+          <span class="kg-label">Start from</span>
+          <select id="new-seed" class="kg-input">
+            <option value="">Empty map</option>
+            <option value="english">English word map (seeded)</option>
+            <option value="hvac">HVAC knowledge base (seeded)</option>
+            <option value="business">Business process (seeded)</option>
+          </select>
+        </label>
+        <label class="kg-field">
+          <span class="kg-label">Who can see it</span>
+          <select id="new-visibility" class="kg-input">
+            <option value="restricted">Only people an admin adds</option>
+            <option value="org">Anyone signed in with knowledge access</option>
+          </select>
+        </label>
+        <button type="button" class="kg-btn kg-btn-primary" id="create-map">Create map</button>
+      </div>
+      <p class="kg-muted kg-note" id="create-note">Seeded maps import as drafts. Nothing answers a Compliance Maker query until someone approves it.</p>
+    </div>
+  </section>
+
+  <!-- ── Your maps ────────────────────────────────────────────────── -->
+  <section class="kg-view" id="view-maps" role="tabpanel" aria-labelledby="tab-btn-maps" tabindex="-1">
+    <div class="kg-grid" id="map-grid">
+      <p class="kg-muted">Loading…</p>
+    </div>
+  </section>
+
+  <!-- ── Ask a map ────────────────────────────────────────────────── -->
+  <section class="kg-view" id="view-ask" role="tabpanel" aria-labelledby="tab-btn-ask" tabindex="-1" hidden>
+    <div class="kg-panel kg-chat-panel">
+      <div class="kg-chat-head">
+        <h2 class="kg-panel-title" style="margin:0">Ask a map</h2>
+        <label class="kg-field kg-chat-picker">
+          <span class="kg-label">Using</span>
+          <select id="chat-map" class="kg-input"></select>
+        </label>
+        <button type="button" class="kg-btn kg-btn-sm" id="chat-clear">Clear</button>
+      </div>
+
+      <p class="kg-muted kg-chat-scope" id="chat-scope">
+        Answers come only from the nodes, lanes and connections in the chosen map — never from the
+        internet or general knowledge. If the map does not cover something, it says so.
+      </p>
+
+      <div class="kg-chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Conversation"></div>
+
+      <div class="kg-ask">
+        <input class="kg-input" id="chat-input" type="text" autocomplete="off"
+               placeholder="Which words are built from the root spec-?">
+        <button type="button" class="kg-btn kg-btn-primary" id="chat-send">Ask</button>
+      </div>
+
+      <div class="kg-chat-chips" id="chat-chips"></div>
+    </div>
+  </section>
 
   <p class="kg-footnote" id="admin-line" hidden>
     You have admin access — the <a href="/tools/knowledge/admin.html">knowledge admin console</a> handles user access, the approval queue and the gap list. <a href="/tools/knowledge/dictionary.html">Dictionary review</a> handles words readers looked up while reading.
@@ -102,9 +123,80 @@
 
 <div data-site-footer></div>
 
-<script src="/assets/js/global.js?v=5" defer></script>
+<script src="/assets/js/global.js?v=9" defer></script>
 <script src="/tools/knowledge/domain-hvac.js?v=1" defer></script>
 <script src="/tools/knowledge/domain-business.js?v=1" defer></script>
 <script src="/tools/knowledge/dashboard.js?v=1" defer></script>
+
+<script>
+/* View switcher. Deliberately separate from dashboard.js: showing and hiding
+   three regions has nothing to do with loading maps, and keeping it here means
+   dashboard.js is untouched by this change. The class and ARIA convention is
+   copied from admin.js so all four knowledge screens behave the same way. */
+(function () {
+  'use strict';
+
+  var VIEWS = ['new', 'maps', 'ask'];
+  var tabs = document.getElementById('view-tabs');
+  if (!tabs) return;
+
+  var buttons = Array.prototype.slice.call(tabs.querySelectorAll('.kg-seg-btn'));
+
+  /* chosen  — the user picked this, so record it in the URL and put the
+                cursor where they are about to type.
+     keyed   — the choice came from an arrow key, so focus follows to the
+                newly selected tab button. */
+  function show(name, chosen, keyed) {
+    if (VIEWS.indexOf(name) === -1) name = 'maps';
+
+    VIEWS.forEach(function (v) {
+      document.getElementById('view-' + v).hidden = v !== name;
+    });
+    buttons.forEach(function (b) {
+      var on = b.getAttribute('data-view') === name;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      /* Only the selected tab is in the tab order; the arrow keys move
+         between them. That is what a tablist is supposed to do. */
+      b.tabIndex = on ? 0 : -1;
+      if (on && keyed) b.focus();
+    });
+
+    if (!chosen) return;
+
+    /* replaceState, not a new entry: switching view is not a page the Back
+       button should have to walk through. A reload or a shared link lands
+       on the same view. */
+    if (history.replaceState) history.replaceState(null, '', '#' + name);
+    else location.hash = name;
+
+    if (name === 'ask' && !keyed) {
+      var input = document.getElementById('chat-input');
+      if (input && !input.disabled) input.focus();
+    }
+  }
+
+  buttons.forEach(function (b, i) {
+    b.addEventListener('click', function () { show(b.getAttribute('data-view'), true, false); });
+    b.addEventListener('keydown', function (ev) {
+      var step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (step) {
+        ev.preventDefault();
+        show(buttons[(i + step + buttons.length) % buttons.length].getAttribute('data-view'), true, true);
+      } else if (ev.key === 'Home' || ev.key === 'End') {
+        ev.preventDefault();
+        show(buttons[ev.key === 'Home' ? 0 : buttons.length - 1].getAttribute('data-view'), true, true);
+      }
+    });
+  });
+
+  window.addEventListener('hashchange', function () {
+    show((location.hash || '').replace('#', ''), false, false);
+  });
+
+  /* No hash means no opinion, so land on Your maps and leave the URL alone. */
+  show((location.hash || '').replace('#', '') || 'maps', false, false);
+})();
+</script>
 </body>
 </html>

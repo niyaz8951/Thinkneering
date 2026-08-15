@@ -77,8 +77,38 @@
   display: flex; flex-direction: column; gap: var(--space-2);
   text-decoration: none; color: inherit;
 }
+/* `a:hover { text-decoration: underline }` in global.css is (0,1,1) and beat
+   the (0,1,0) rule above, so hovering a tile underlined the title, the
+   subtitle and the whole description at once. Matching on the hover state
+   takes the specificity back. A tool card never underlines; nor does this. */
+.book-card__open:hover,
+.book-card__open:focus,
+.book-card__open:focus-visible { text-decoration: none; }
+
 .book-card__open::after {
   content: ''; position: absolute; inset: 0; border-radius: inherit;
+}
+
+/* Every tile the same height. Two things made them differ: a description can
+   be one line or fifteen (a publisher blurb), and an extracted article puts a
+   raw URL in that slot, which has no spaces to break on and pushed past the
+   tile edge. Clamping bounds the text; `grid-auto-rows: 1fr` on the shelf
+   makes every row match the tallest, so the grid reads as one even block.
+   The grid template itself is untouched. */
+.book-shelf { grid-auto-rows: 1fr; }
+
+.book-card .card__title,
+.book-card .book-card__sub,
+.book-card .card__desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book-card .card__title { -webkit-line-clamp: 2; line-clamp: 2; }
+.book-card .book-card__sub { -webkit-line-clamp: 1; line-clamp: 1; }
+.book-card .card__desc {
+  -webkit-line-clamp: 3; line-clamp: 3;
+  overflow-wrap: anywhere;   /* a bare URL has nowhere else to break */
 }
 
 /* The lift and glow are copied from a.card:hover rather than reinvented, so
@@ -106,8 +136,10 @@
 }
 
 /* A description is optional. Without this the empty paragraph still holds
-   its line and the tile shows a gap where the text would be. */
+   its line and the tile shows a gap where the text would be. Declared after
+   the clamp rules above, which also set `display`, so this still wins. */
 .book-card .card__desc:empty { display: none; }
+.book-card .book-card__sub:empty { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .book-card, .book-card:hover { transition: none; transform: none; }

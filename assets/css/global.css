@@ -46,7 +46,15 @@
   --shadow-lifted: 0 10px 28px rgba(20, 22, 26, 0.10); /* [NEW] hover + modal */
 
   --maxw: 1100px;
+  --maxw-wide: 1360px; /* [NEW] the two workbench screens (map, knowledge admin) */
   --maxw-read: 720px; /* [NEW] reader measure */
+
+  /* [NEW] The page side gutter. Three page containers had grown their own
+     copy of this value and two of them had drifted to --space-3 on mobile,
+     so the knowledge and process-map screens sat 8px tighter than every
+     other page. One token, referenced by every container, means they cannot
+     drift apart again. The value is --space-4 per the design system. */
+  --gutter: var(--space-4);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -104,7 +112,7 @@ img { max-width: 100%; display: block; }
 }
 .skip-link:focus { top: var(--space-3); }
 
-.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--space-4); }
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter); }
 .stack > * + * { margin-top: var(--space-3); }
 .muted { color: var(--color-text-muted); }
 .eyebrow {
@@ -121,7 +129,7 @@ img { max-width: 100%; display: block; }
 }
 .site-header__inner {
   display: flex; align-items: center; gap: var(--space-4);
-  height: 60px; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--space-4);
+  height: 60px; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter);
 }
 .brand {
   display: inline-flex; align-items: center; gap: var(--space-2);
@@ -150,7 +158,7 @@ img { max-width: 100%; display: block; }
   background: var(--color-surface); padding: var(--space-5) 0;
 }
 .site-footer__inner {
-  max-width: var(--maxw); margin: 0 auto; padding: 0 var(--space-4);
+  max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter);
   display: flex; flex-wrap: wrap; gap: var(--space-4); justify-content: space-between;
   color: var(--color-text-muted); font-size: 0.875rem;
 }
@@ -273,8 +281,13 @@ main { padding-bottom: var(--space-6); }
 .section-block { margin-top: var(--space-6); }
 .section-block__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
 
-.hero { padding: var(--space-7) 0 var(--space-5); }
-.hero h1 { font-size: clamp(2rem, 5vw, 2.75rem); max-width: 18ch; margin-bottom: var(--space-3); }
+/* The hero sits on `.wrap hero`, so it inherits the side gutter from `.wrap`.
+   Setting `padding` as a shorthand here would reset left and right to zero —
+   same specificity, later in the file — and the whole first screen would run
+   edge to edge on a phone. Vertical padding is set on its own axis so the
+   gutter survives. The same applies to any future class paired with `.wrap`. */
+.hero { padding-top: var(--space-7); padding-bottom: var(--space-5); }
+.hero h1 { font-size: clamp(1.75rem, 6vw, 2.75rem); max-width: 18ch; margin-bottom: var(--space-3); }
 .hero p { font-size: 1.0625rem; color: var(--color-text-muted); max-width: 56ch; }
 .hero__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-4); }
 .layer-strip {
@@ -396,7 +409,7 @@ dialog.modal h2 { margin-bottom: var(--space-3); }
 .paywall .chip { margin-bottom: var(--space-3); }
 
 /* ----------------------------------------------------------- auth pages */
-.auth-wrap { max-width: 420px; margin: var(--space-7) auto; padding: 0 var(--space-4); }
+.auth-wrap { max-width: 420px; margin: var(--space-7) auto; padding: 0 var(--gutter); }
 .auth-wrap .panel { padding: var(--space-5); }
 
 
@@ -512,6 +525,10 @@ body.is-reading main { padding-bottom: var(--space-7); }
   .site-nav { order: 3; width: 100%; }
   h1 { font-size: 1.625rem; }
   .panel, .card { padding: var(--space-3); }
+  /* 72px of dead space above the first line costs a third of a phone screen
+     before a word is read. The desktop rhythm is kept; the phone one is not. */
+  .hero { padding-top: var(--space-5); padding-bottom: var(--space-4); }
+  .page-head { padding-top: var(--space-5); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
