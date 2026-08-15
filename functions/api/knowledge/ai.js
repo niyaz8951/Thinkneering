@@ -291,8 +291,38 @@ async function _onRequestPost(context) {
       .map(t => titles.get(String(t).trim().toLowerCase()))
       .filter(Boolean);
 
-    result.usedNodes = Array.from(new Set(verified));
-    if (!result.usedNodes.length) result.answered = false;
+    let used = Array.from(new Set(verified));
+
+    /* If the model wrote a real answer but forgot to fill usedNodes, look for
+       the grounding in the answer itself before calling it a gap. Declaring
+       "this map does not cover that" about a map that plainly does is worse
+       than a missing citation line. Titles and aliases both count, since the
+       answer may well use the alias the question did. */
+    if (!used.length) {
+      const answerText = [
+        result.summary || '',
+        ...(result.sections || []).flatMap(sec =>
+          [sec.heading || '', sec.text || '', ...(sec.items || [])])
+      ].join(' ').toLowerCase();
+
+      if (answerText.trim().length > 20) {
+        const found = new Set();
+        nodes.forEach(n => {
+          const names = [n.title].concat(asArray(n.aliases));
+          const hit = names.some(name => {
+            const needle = String(name).trim().toLowerCase();
+            // Two characters or fewer matches almost anything by accident.
+            return needle.length > 2 && answerText.indexOf(needle) !== -1;
+          });
+          if (hit) found.add(n.title);
+        });
+        used = Array.from(found).slice(0, 25);
+      }
+    }
+
+    result.usedNodes = used;
+    // Only now, with nothing declared and nothing inferable, is it a gap.
+    if (!used.length) result.answered = false;
 
     context.waitUntil(saveQuestion(env, map, user, body.question, result));
   }
@@ -433,15 +463,41 @@ async function runModel(env, prompt) {
   let last = null;
   for (const opts of attempts) {
     const out = await env.AI.run(MODEL, Object.assign({ messages }, opts));
-    const text = typeof out === 'string' ? out : (out.response || '');
-    last = text;
-    if (extractJson(text)) return text;
+    const payload = readModelPayload(out);
+
+    // An object came back already parsed — nothing left to extract, use it.
+    if (payload && typeof payload === 'object') return payload;
+
+    last = payload;
+    if (extractJson(payload)) return payload;
   }
   return last;
 }
 
+/* Workers AI does not always hand back a string.
+ *
+ * Depending on the model and the request, `res.response` can be an
+ * already-parsed object. The old code did `String(response)` on it, got
+ * "[object Object]", found no opening brace, decided all three attempts had
+ * failed, and printed that string as the answer — which then had no cited
+ * nodes and was marked as a gap. A perfectly good answer, thrown away in
+ * parsing. Normalise the shape once, here, so nothing downstream has to guess.
+ */
+function readModelPayload(out) {
+  if (out == null) return '';
+  if (typeof out === 'string') return out;
+
+  const inner = out.response !== undefined ? out.response : out;
+  if (typeof inner === 'string') return inner;
+  if (inner && typeof inner === 'object') return inner;
+
+  return String(inner || '');
+}
+
 function extractJson(text) {
   if (!text) return null;
+  // Already an object: it is the parsed result, not something to parse.
+  if (typeof text === 'object') return text;
   const cleaned = String(text).replace(/```json/gi, '').replace(/```/g, '').trim();
   const start = cleaned.indexOf('{');
   if (start === -1) return null;
@@ -507,6 +563,12 @@ function parseResult(raw) {
     const clean = sanitise(parsed);
     if (clean) return clean;
   }
+
+  // Prose fallback. Only ever for genuine text — stringifying an object here
+  // is what produced "[object Object]" on screen, so an object that survived
+  // sanitising with nothing usable is treated as a failure, not as an answer.
+  if (raw && typeof raw === 'object') return null;
+
   const text = String(raw || '').trim();
   return text ? { summary: text.slice(0, 6000) } : null;
 }

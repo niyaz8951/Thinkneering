@@ -204,29 +204,41 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  /* Anything that is not a plain string is a parsing failure upstream, not
+     content. Rendering it produced "[object Object]" on screen; this keeps
+     that class of bug visible as a fault rather than dressed up as an answer. */
+  function text(v) {
+    return (typeof v === 'string' && v.trim()) ? v : '';
+  }
+
   function renderAnswer(result) {
-    if (!result) return '<p class="kg-muted">Nothing came back.</p>';
+    if (!result || typeof result !== 'object') {
+      return '<p class="kg-muted">The answer could not be read. Try asking again.</p>';
+    }
     var html = '';
-    if (result.summary) html += '<p>' + esc(result.summary) + '</p>';
+    if (text(result.summary)) html += '<p>' + esc(result.summary) + '</p>';
 
     (result.sections || []).forEach(function (sec) {
-      if (sec.heading) html += '<h4>' + esc(sec.heading) + '</h4>';
-      if (sec.text) html += '<p>' + esc(sec.text) + '</p>';
-      if (sec.items && sec.items.length) {
-        html += '<ul>' + sec.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+      if (!sec || typeof sec !== 'object') return;
+      if (text(sec.heading)) html += '<h4>' + esc(sec.heading) + '</h4>';
+      if (text(sec.text)) html += '<p>' + esc(sec.text) + '</p>';
+      var items = (sec.items || []).map(text).filter(Boolean);
+      if (items.length) {
+        html += '<ul>' + items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
       }
     });
 
     // Which nodes the answer leaned on. This is what separates a grounded
     // answer from a plausible one — you can go and check it.
-    if (result.usedNodes && result.usedNodes.length) {
+    var sources = (result.usedNodes || []).map(text).filter(Boolean);
+    if (sources.length) {
       html += '<p class="kg-msg-sources">From: ' +
-        result.usedNodes.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join(' ') + '</p>';
+        sources.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join(' ') + '</p>';
     }
     if (result.answered === false) {
       html += '<p class="kg-msg-gap">This map does not cover that yet.</p>';
     }
-    return html || '<p class="kg-muted">Nothing came back.</p>';
+    return html || '<p class="kg-muted">The answer came back empty. Try asking again.</p>';
   }
 
   async function sendChat(text) {

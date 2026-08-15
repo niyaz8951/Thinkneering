@@ -105,6 +105,37 @@ Three details that are easy to get wrong and are handled explicitly:
 
 Mouse and trackpad are untouched — wheel still zooms.
 
+### "[object Object]" and answers that vanished
+
+Not caused by unapproved nodes — the chat reads every node regardless of
+status. It was a response-parsing bug.
+
+Workers AI does not always return `res.response` as a string. Depending on the
+model and the request it can hand back an **already-parsed object**. The old
+code did `String(response)` on it, got `"[object Object]"`, found no opening
+brace, concluded all three attempts had failed, and printed that string as the
+answer. With no cited nodes, the grounding check then marked it as a gap. The
+map was answering correctly the whole time; the answer was being discarded in
+parsing.
+
+`readModelPayload()` now normalises the shape once, and everything downstream
+works from that. Verified against seven shapes: plain string, `{response:
+string}`, `{response: object}`, bare object, fenced markdown, prose-then-JSON,
+and empty.
+
+Two related hardenings went in alongside:
+
+- **A missing citation list no longer means "not covered".** If the model
+  writes a real answer but forgets to fill `usedNodes`, the grounding is now
+  inferred from the answer text by matching node titles *and aliases*. Telling
+  someone a map does not cover something it plainly does is worse than a
+  missing citation line. Off-map answers are still caught — inference only
+  finds nodes that are actually in the map.
+- **The renderer refuses non-strings.** Anything that is not a plain string is
+  a fault upstream, not content, so it surfaces as "the answer could not be
+  read" rather than being dressed up as an answer. This class of bug stays
+  visible instead of printing `[object Object]`.
+
 ### Ask a map
 
 Chat moved out of the map editor and onto the dashboard, above **Create map**.
