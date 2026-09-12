@@ -1399,8 +1399,13 @@
     if (e) { if (canEdit()) editEdge(e.getAttribute('data-edge-id')); return; }
 
     selectedId = null;
-    if (focusId) clearFocus();
-    panning = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
+    // Focus is NOT cleared here. At pointerdown there is no way to tell a tap
+    // on the background from the start of a pan, and clearing now meant that
+    // dragging the canvas to see more of a focused node's neighbourhood threw
+    // the focus away — exactly when you were using it. `moved` decides on
+    // release, the same way it already does for nodes.
+    panning = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y,
+                moved: false, sx: ev.clientX, sy: ev.clientY };
     svg.classList.add('is-panning');
     svg.setPointerCapture(ev.pointerId);
     render();
@@ -1438,6 +1443,12 @@
       return;
     }
     if (panning) {
+      // 4px, not 0: a mouse rarely stays perfectly still between press and
+      // release, and a thumb never does. Below this it is a tap.
+      if (!panning.moved &&
+          (Math.abs(ev.clientX - panning.sx) > 4 || Math.abs(ev.clientY - panning.sy) > 4)) {
+        panning.moved = true;
+      }
       view.x = panning.vx + (ev.clientX - panning.x);
       view.y = panning.vy + (ev.clientY - panning.y);
       scene.setAttribute('transform', 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')');
@@ -1489,6 +1500,10 @@
         }
       }
     }
+    // A tap on empty canvas still releases focus — that is how you get out of
+    // it without hunting for the Show all button. A pan does not.
+    if (panning && !panning.moved && focusId) clearFocus();
+
     dragging = null; panning = null;
     svg.classList.remove('is-panning');
     render();
