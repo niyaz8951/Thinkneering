@@ -49,7 +49,8 @@ Then push and let Pages build. `global.css` and `global.js` are referenced as `?
 
 ```bash
 python3 _dev/tests/knowledge-typed.test.py   # 35 checks — schema and access rules
-node _dev/tests/graph-retrieval.test.mjs     # 18 checks — retrieval logic
+node _dev/tests/graph-retrieval.test.mjs     # 30 checks — retrieval and conflicts
+node _dev/tests/gap-proposer.test.mjs        # 14 checks — the AI judgment gate
 node _dev/tests/access-model.test.mjs        # 19 checks — the site stays account-only
 node _dev/tests/reflow.test.mjs              # 14 checks — the shared text-reflow module
 node _dev/tests/imports.test.mjs             # every relative import resolves
@@ -105,6 +106,52 @@ form is worse than offering none. `_dev/tests/access-model.test.mjs` asserts it.
 The `next` parameter is validated against `^/[^/\\]` before redirecting. Without that
 check, a crafted link could send someone to another origin the instant after they typed
 their password.
+
+---
+
+## The AI judges which gaps are worth a node
+
+`proposeFromGap()` now runs after any answer that came back **TO VERIFY** with unrecognised
+terms. A model is asked one narrow question — is this a reusable engineering subject, or
+something specific to this job — and answers in JSON.
+
+Everything it returns is treated as untrusted:
+
+- the kind must exist in `knowledge_kinds`, or the node becomes a `note`;
+- the title must not already resolve through `knowledge_aliases`, and must not already be
+  sitting in the queue;
+- a title that is only digits is refused, because that is a quantity wearing a name;
+- **no numbers are accepted from the model at all.** A proposal carries the clause verbatim
+  and nothing else. A fabricated value in the queue is one click from being approved.
+
+It runs in `waitUntil`, after the engineer already has their reply, and returns `null` on
+any failure. A judgment that cannot be made is a judgment of no: failing to propose costs a
+queue entry, failing the answer costs someone their work.
+
+`/api/knowledge/propose` and the automatic path now share one writer
+(`proposeNode` in `functions/_lib/gap-proposer.js`), so the two cannot drift on what a
+proposal is allowed to be.
+
+---
+
+## Conflicting approved values are flagged, never resolved
+
+Two approved values for one parameter is usually two real jobs specified differently, and
+the engineer is the only one who knows which applies. Picking the higher-ranked one and
+saying nothing was the failure worth avoiding — the answer looked exactly as confident as
+an uncontested one.
+
+`detectConflicts()` groups facts by node, parameter and scope tier, and reports any tier
+holding more than one distinct value. Three things it deliberately does not call a
+conflict: the same value recorded twice from two documents, the same value with different
+unit casing, and a project value differing from a general one — that last is precedence
+working as designed.
+
+A conflict appears in three places: a `CONFLICTING APPROVED VALUES` block in the prompt
+instructing the model to give both values and pick neither, a `conflicts` array on the
+response for the UI, and **a forced downgrade to TO VERIFY in code**. The downgrade is not
+left to the prompt: an instruction is a request, and the whole point of flagging a conflict
+is that the reader cannot miss it.
 
 ---
 
@@ -312,6 +359,8 @@ it. Batch approval is faster and is how a review queue stops being a review.
 | `assets/js/reflow.js` | The missing module the Text Cleaner requires |
 | `assets/js/save-to-book.js` | One save-to-library flow, shared by both tools |
 | `_dev/tests/reflow.test.mjs` | 14 checks on the reflow module |
+| `functions/_lib/gap-proposer.js` | AI judgment, and the one proposal writer |
+| `_dev/tests/gap-proposer.test.mjs` | 14 checks on the judgment gate |
 | `_dev/tests/access-model.test.mjs` | 15 checks that the site stays account-only |
 | `functions/_lib/graph-retrieval.js` | Retrieval, prompt block, allow-list, usage logging |
 | `functions/api/knowledge/types.js` | Serves the legality matrix to the UI |
@@ -368,7 +417,12 @@ visitors and every caller resolves to `full`. The dead branches are left in plac
 than torn out in the same drop as the access change; removing them is a separate pass with
 its own testing, across a 112 KB file.
 
-**Nothing calls `/api/knowledge/propose` automatically yet.** The endpoint is built and
-tested. Deciding what triggers it — every `TO VERIFY`, or an explicit "raise this" button
-in Compliance Maker — is a judgement about how fast you want the queue to fill, and that
-is yours rather than mine.
+**The map is unchanged at scale.** It gets dense around thirty nodes and will get worse.
+Collapsing lanes, filtering by kind and status, and saved views are all plausible; which
+one matters depends on how it actually fails in use, so it waits for that.
+
+**Watch the queue's first week.** The judgment prompt is tuned conservatively, but
+"reusable engineering subject" is a line a model draws imperfectly. If the queue fills with
+noise, tighten `JUDGE_PROMPT`; if real gaps are being dropped, loosen it. The `body` of
+every auto-proposed node records the clause and the model's stated reason, so the rejects
+tell you which way to move.

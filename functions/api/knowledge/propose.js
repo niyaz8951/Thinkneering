@@ -28,9 +28,9 @@
  */
 
 import {
-  json, withJson, userOf, userId, requireRole,
-  nowIso, newId, jsonField, normaliseTerm
+  json, withJson, userOf, userId, requireRole, nowIso, newId
 } from '../../_lib/knowledge.js';
+import { proposeNode } from '../../_lib/gap-proposer.js';
 
 const MAX_FACTS = 12;
 
@@ -51,70 +51,34 @@ export const onRequestPost = withJson(async (context) => {
   const role = await requireRole(env, user, body.mapId, 'contributor');
   if (!role) return json({ error: 'You cannot contribute to this map' }, 403);
 
-  const kindRow = await env.DB.prepare(
-    'SELECT kind FROM knowledge_kinds WHERE kind = ? AND is_active = 1'
-  ).bind(String(body.kind || 'component')).first();
-  const kind = kindRow ? kindRow.kind : 'note';
+  const written = await proposeNode(env, user, {
+    mapId: body.mapId,
+    title,
+    kind: body.kind,
+    aliases: body.aliases || [],
+    clause: body.clause,
+    projectId: String(body.projectId || '').trim() || null,
+    sourceRef: body.sourceRef
+  });
 
-  const norm = normaliseTerm(title);
-  const me = userId(user);
-  const now = nowIso();
-
-  // ── Already known under this name? ────────────────────────────────────
-  const existing = await env.DB.prepare(
-    'SELECT n.id, n.title, n.status FROM knowledge_aliases a ' +
-    'JOIN knowledge_nodes n ON n.id = a.node_id ' +
-    'WHERE a.map_id = ? AND a.alias_norm = ? LIMIT 1'
-  ).bind(body.mapId, norm).first();
-
-  if (existing) {
-    // Record the sighting against the node that already covers it. The clause
-    // is evidence about that node whether or not anything new is created.
-    if (body.clause) {
+  if (!written.created) {
+    // Recording the sighting against whatever already covers it: the clause is
+    // evidence about that node whether or not anything new was made.
+    if (body.clause && written.nodeId) {
       await env.DB.prepare(
         'INSERT INTO knowledge_usage (id, node_id, consumer, context, outcome, user_id, created_at) ' +
         'VALUES (?,?,?,?,?,?,?)'
       ).bind(
-        newId('ku'), existing.id, 'compliance-maker',
-        String(body.clause).slice(0, 500), 'gap', me, now
+        newId('ku'), written.nodeId, 'compliance-maker',
+        String(body.clause).slice(0, 500), 'gap', userId(user), nowIso()
       ).run();
     }
-    return json({
-      ok: true,
-      created: false,
-      nodeId: existing.id,
-      status: existing.status,
-      message: 'Already held as "' + existing.title + '".'
-    });
+    return json({ ok: true, created: false, nodeId: written.nodeId || null, message: written.reason });
   }
 
-  // ── Create the draft ──────────────────────────────────────────────────
-  const nodeId = newId('kn');
-
-  // The clause goes in the body, verbatim. A reviewer deciding whether this
-  // node should exist needs to read the words that raised it, not a summary of
-  // them written by the thing that could not answer them.
-  const bodyText = body.clause
-    ? 'Raised from a specification clause Compliance Maker could not answer:\n\n> ' +
-      String(body.clause).slice(0, 2000)
-    : '';
-
-  await env.DB.prepare(
-    'INSERT INTO knowledge_nodes ' +
-    '(id, map_id, kind, title, aliases, summary, body, attributes, tags, standards, lane, ' +
-    ' x, y, status, scope, project_id, origin, source_ref, version, created_by, created_at, updated_at) ' +
-    "VALUES (?,?,?,?,?,?,?,'[]','[]','[]','',0,0,'draft',?,?,?,?,1,?,?,?)"
-  ).bind(
-    nodeId, body.mapId, kind, title,
-    jsonField(body.aliases || []),
-    String(body.summary || '').slice(0, 2000),
-    bodyText,
-    String(body.projectId || '').trim() ? 'project' : 'general',
-    String(body.projectId || '').trim() || null,
-    'proposed',
-    String(body.sourceRef || '').slice(0, 200) || null,
-    me, now, now
-  ).run();
+  const nodeId = written.nodeId;
+  const me = userId(user);
+  const now = nowIso();
 
   // ── Draft facts ───────────────────────────────────────────────────────
   // Values come across exactly as given. Nothing is inferred here: a fact with

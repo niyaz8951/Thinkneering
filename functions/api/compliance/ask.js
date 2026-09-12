@@ -37,8 +37,9 @@ import {
   loadCriteria, matchCriterion, compareValues, compareClasses, classTokens,
 } from '../../_compliance.js';
 import { loadKb, kbForClause, kbLines } from '../../_kb.js';
-import { retrieve, knowledgeBlock, allowedText, citations, logUsage }
+import { retrieve, knowledgeBlock, allowedText, citations, logUsage, detectConflicts }
   from '../../_lib/graph-retrieval.js';
+import { proposeFromGap } from '../../_lib/gap-proposer.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 const MAX_Q = 400;
@@ -370,6 +371,9 @@ HARD RULES
 - A value marked "recorded on one project, not a general rule" is evidence that
   it has been done once, not that it is standard. Say so in those terms. Never
   restate a project-scoped value as what we always offer.
+- If a CONFLICTING APPROVED VALUES block is present, the record disagrees with
+  itself on that parameter. Give both values and say which projects or sources
+  they came from. Do not pick one, and do not average them.
 
 Reply with ONE JSON object and nothing else. Exactly three keys, every value a
 plain string, every colon OUTSIDE the quotes — "answer": "..." and never
@@ -646,6 +650,19 @@ async function handlePost(context) {
     }
   }
 
+  // A contested parameter cannot support a confident status, whatever the
+  // model chose. This is enforced here rather than left to the prompt: an
+  // instruction is a request, and the whole point of flagging a conflict is
+  // that the reader must not be able to miss it.
+  const conflicts = detectConflicts(graphResult);
+  if (conflicts.length && result.status !== 'TO VERIFY') {
+    result.status = 'TO VERIFY';
+    const names = conflicts.slice(0, 3).map((c) => c.name).join(', ');
+    note = (note ? note + ' ' : '') +
+      'The approved record holds more than one value for ' + names + '. ' +
+      'Both are shown; confirm which applies to this project before answering.';
+  }
+
   // Bind the answer to the facts behind it before it is handed over, so a
   // disputed reply can be walked back to the node and its approval.
   const answerId = crypto.randomUUID();
@@ -658,12 +675,33 @@ async function handlePost(context) {
     answerId,
   }));
 
+  // A gap the graph could not answer is worth a node — sometimes. A model
+  // judges which, so the queue holds reusable subjects rather than one-off
+  // project quirks; an unread queue is worse than no queue, because it looks
+  // like coverage.
+  //
+  // Only when the answer was actually uncertain. A clause answered confidently
+  // from the product library left no gap worth filling, whatever terms the
+  // graph happened not to recognise.
+  if (result.status === 'TO VERIFY' && body.mapId) {
+    context.waitUntil(proposeFromGap(context.env, context.data && context.data.user, {
+      clause: question,
+      result: graphResult,
+      mapId: String(body.mapId),
+      projectId,
+      sourceRef: body.sourceRef ? String(body.sourceRef).slice(0, 200) : '',
+    }));
+  }
+
   return json({
     ...result,
     note: note || undefined,
     source: 'ai',
     answerId,
     citations: cited,
+    // Surfaced to the UI as well as the prompt, so the conflict is visible on
+    // the row rather than only inside the prose.
+    conflicts,
     // Terms nothing approved could answer. This is what the review queue is
     // fed from, and what tells the engineer where the graph is thin.
     gaps: graphResult ? graphResult.unmatchedTerms.slice(0, 12) : [],

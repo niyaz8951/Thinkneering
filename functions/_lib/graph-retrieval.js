@@ -182,6 +182,78 @@ export async function retrieve(env, user, query, opts) {
 }
 
 /**
+ * Approved facts that disagree with each other.
+ *
+ * Two approved values for the same parameter is not a data error to clean up
+ * quietly — it is usually two real jobs that were specified differently, and
+ * the engineer is the only one who knows which applies here. Picking the
+ * higher-ranked one and saying nothing is the failure mode worth avoiding:
+ * the answer looks just as confident as an uncontested one.
+ *
+ * A project value differing from a general one is NOT a conflict. That is
+ * precedence working as designed — the specific thing confirmed on this job
+ * beats the general rule. Only same-tier disagreement counts.
+ */
+export function detectConflicts(result) {
+  if (!result || !result.facts || !result.facts.length) return [];
+
+  const groups = new Map();
+  for (const f of result.facts) {
+    // Same node, same parameter, same scope tier. Anything else is either a
+    // different subject or precedence.
+    const key = f.node_id + '\u0000' + normaliseTerm(f.name) + '\u0000' + f.scope;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+
+  const out = [];
+  for (const facts of groups.values()) {
+    if (facts.length < 2) continue;
+
+    const distinct = new Map();
+    for (const f of facts) {
+      const sig = factSignature(f);
+      if (!distinct.has(sig)) distinct.set(sig, f);
+    }
+    if (distinct.size < 2) continue;    // same value recorded twice, not a clash
+
+    const sample = facts[0];
+    out.push({
+      nodeId: sample.node_id,
+      nodeTitle: sample.node_title || '',
+      name: sample.name,
+      scope: sample.scope,
+      values: Array.from(distinct.values()).map((f) => ({
+        factId: f.id,
+        display: factDisplay(f),
+        sourceRef: f.source_ref || '',
+        approvedAt: f.approved_at || ''
+      }))
+    });
+  }
+  return out;
+}
+
+function factDisplay(f) {
+  if (f.value_type === 'range') return f.value_num + '\u2013' + f.value_num_max + ' ' + f.unit;
+  if (f.value_type === 'number') return f.value_num + ' ' + f.unit;
+  return f.value_text || '';
+}
+
+/* Compared on the value, not the row: the same number entered twice from two
+   documents is one value, and flagging it as a conflict would train the
+   reader to ignore the flag. */
+function factSignature(f) {
+  return [
+    f.value_type,
+    f.value_num === null || f.value_num === undefined ? '' : f.value_num,
+    f.value_num_max === null || f.value_num_max === undefined ? '' : f.value_num_max,
+    String(f.unit || '').trim().toLowerCase(),
+    String(f.value_text || '').trim().toLowerCase()
+  ].join('|');
+}
+
+/**
  * The retrieved knowledge as prompt text.
  *
  * Every line carries its provenance, because the model is told elsewhere that
@@ -215,8 +287,21 @@ export function knowledgeBlock(result) {
     for (const s of (m.standards || []).slice(0, 3)) lines.push('    cites ' + s);
   }
 
-  return 'APPROVED KNOWLEDGE — written and approved by an engineer. ' +
+  let block = 'APPROVED KNOWLEDGE — written and approved by an engineer. ' +
     'These values may be quoted; nothing outside this block may be.\n' + lines.join('\n');
+
+  const conflicts = detectConflicts(result);
+  if (conflicts.length) {
+    const cl = conflicts.slice(0, 4).map((c) => {
+      const vals = c.values.map((v) => v.display + (v.sourceRef ? ' (' + v.sourceRef + ')' : ''));
+      return '- ' + c.nodeTitle + ' \u2014 ' + c.name + ': ' + vals.join('  vs  ');
+    });
+    block += '\n\nCONFLICTING APPROVED VALUES — more than one approved value exists for ' +
+      'the same parameter. Do not silently choose one. State that the record disagrees, ' +
+      'give both values, and set the status to TO VERIFY.\n' + cl.join('\n');
+  }
+
+  return block;
 }
 
 /**

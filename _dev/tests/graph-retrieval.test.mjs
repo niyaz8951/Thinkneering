@@ -1,7 +1,7 @@
 /* The pure parts of graph retrieval: tokenising, prompt assembly and the
    allow-list that stops the fabrication guard flagging a correctly retrieved
    value as invented. */
-import { tokenise, knowledgeBlock, allowedText, citations } from '../../functions/_lib/graph-retrieval.js';
+import { tokenise, knowledgeBlock, allowedText, citations, detectConflicts } from '../../functions/_lib/graph-retrieval.js';
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? (pass++, console.log('PASS  ' + name))
@@ -53,6 +53,59 @@ const cited = citations(result);
 t('citation carries node, scope and fact count',
   cited[0].nodeId === 'n1' && cited[0].scope === 'general' && cited[0].factCount === 2);
 t('no citations without matches', citations({ matches: [] }).length === 0);
+
+// --- conflicting approved values
+const f = (id, name, num, unit, scope, extra) => Object.assign({
+  id, node_id: 'n1', node_title: 'Cooling coil', name,
+  value_type: 'number', value_num: num, value_num_max: null, unit,
+  scope, project_id: null, source_ref: ''
+}, extra || {});
+
+t('two different approved values on one parameter is a conflict',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.8, 'm/s', 'general')] }).length === 1);
+
+t('the same value recorded twice is not a conflict',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.5, 'm/s', 'general')] }).length === 0);
+
+t('unit casing and padding do not create a phantom conflict',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.5, ' M/S ', 'general')] }).length === 0);
+
+t('project value differing from general is precedence, not conflict',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.8, 'm/s', 'project')] }).length === 0);
+
+t('different parameters never collide',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'panel thickness', 50, 'mm', 'general')] }).length === 0);
+
+t('facts on different nodes never collide',
+  detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.8, 'm/s', 'general', { node_id: 'n2' })] }).length === 0);
+
+t('name matching ignores case and punctuation',
+  detectConflicts({ facts: [f('a', 'Face Velocity', 2.5, 'm/s', 'general'),
+                            f('b', 'face velocity', 2.8, 'm/s', 'general')] }).length === 1);
+
+const conflicted = detectConflicts({ facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                                             f('b', 'face velocity', 2.8, 'm/s', 'general')] })[0];
+t('a conflict carries both values for the reader',
+  conflicted.values.length === 2 && conflicted.values.some((v) => v.display.startsWith('2.8')));
+
+const withConflict = {
+  matches: [{ nodeId: 'n1', title: 'Cooling coil', kind: 'component', summary: '', scope: 'general',
+              standards: [], attributes: [], facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'),
+                                                     f('b', 'face velocity', 2.8, 'm/s', 'general')] }],
+  unmatchedTerms: [],
+  facts: [f('a', 'face velocity', 2.5, 'm/s', 'general'), f('b', 'face velocity', 2.8, 'm/s', 'general')]
+};
+const cb = knowledgeBlock(withConflict);
+t('the prompt block names the conflict', cb.includes('CONFLICTING APPROVED VALUES'));
+t('the prompt block forbids silently choosing', cb.includes('Do not silently choose one'));
+t('the prompt block shows both values', cb.includes('2.5 m/s') && cb.includes('2.8 m/s'));
+t('an uncontested block carries no conflict section', !block.includes('CONFLICTING'));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
