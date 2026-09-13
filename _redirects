@@ -1,0 +1,16 @@
+# Clean URLs for data-driven pages. One HTML file serves every section and book.
+# Destinations are extensionless: Pages strips `.html` and `/index` before
+# matching, so pointing at /s/index.html would normalise back onto /s/* and be
+# rejected as a loop.
+/s        /section   200
+/s/*      /section   200
+/read     /reader    200
+/read/*   /reader    200
+
+# Knowledge became Maps and Education became Library. 301 rather than 200:
+# the old slug is genuinely gone, and a rewrite would leave two URLs serving
+# one section forever, which is how stale links never get fixed.
+/s/knowledge    /s/maps      301
+/s/knowledge/*  /s/maps/:splat  301
+/s/education    /s/library   301
+/s/education/*  /s/library/:splat  301

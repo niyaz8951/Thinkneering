@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f8fa">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d0f13">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Thinkneering">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=20">
+  <link rel="stylesheet" href="/tools/text-cleaner/styles.css?v=2">
+  <title>Text Cleaner — Thinkneering</title>
+  <meta name="description" content="Paste text and get it cleaned and copied back to your clipboard in one keystroke. Straightens quotes, breaks speech onto its own line, wraps long paragraphs. Runs entirely in your browser.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main" class="wrap">
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Text Cleaner</h1>
+      <p class="page-head__lede">Paste it, and the tidied version is already on your clipboard</p>
+      <p>Press <kbd class="tc-key">Ctrl</kbd>&nbsp;+&nbsp;<kbd class="tc-key">V</kbd> anywhere on this page.
+         The text is cleaned and copied straight back, ready to paste where it is going — no buttons, no
+         reaching for the mouse. It straightens curly quotes, puts each line of speech on its own line,
+         rewraps long paragraphs at a sentence boundary and spaces out scene breaks. Everything runs in
+         your browser — nothing is uploaded.</p>
+    </div>
+
+    <!-- 1 — Text -->
+    <section class="panel" aria-labelledby="step-text">
+      <div class="panel__head">
+        <h2 class="tc-disclosure-head">
+          <button type="button" class="tc-disclosure" data-disclosure aria-expanded="true" aria-controls="panel-text">
+            <span class="tc-disclosure__label" id="step-text">1 &mdash; Text</span>
+            <span class="tc-disclosure__meta" id="meta-text"></span>
+            <span class="tc-disclosure__chevron" data-icon="chevron-down"></span>
+          </button>
+        </h2>
+      </div>
+
+      <div class="tc-body" id="panel-text">
+        <div class="field">
+          <label for="input">Your text</label>
+          <textarea id="input" class="tc-pane" spellcheck="false"
+                    placeholder="Paste here — or anywhere on the page. Drop a .txt file on this box to load it."></textarea>
+        </div>
+
+        <div class="toolbar" role="group" aria-label="Cleaning">
+          <button type="button" class="btn btn--primary" id="btn-clean">Clean &amp; copy</button>
+          <button type="button" class="btn btn--ghost" id="btn-file">Load .txt</button>
+          <button type="button" class="btn btn--quiet" id="btn-clear">Clear</button>
+        </div>
+        <input type="file" id="file" accept=".txt,text/plain" class="sr-only">
+
+        <p class="tc-shortcuts">
+          <span><kbd class="tc-key">Ctrl</kbd>+<kbd class="tc-key">V</kbd> paste, clean and copy in one go</span>
+          <span><kbd class="tc-key">Ctrl</kbd>+<kbd class="tc-key">Enter</kbd> clean again</span>
+          <span><kbd class="tc-key">Ctrl</kbd>+<kbd class="tc-key">Shift</kbd>+<kbd class="tc-key">C</kbd> copy result</span>
+          <span><kbd class="tc-key">Esc</kbd> clear</span>
+        </p>
+        <p class="tc-status" id="status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <!-- 2 — Result -->
+    <section class="panel" aria-labelledby="step-result">
+      <div class="panel__head">
+        <h2 class="tc-disclosure-head">
+          <button type="button" class="tc-disclosure" data-disclosure aria-expanded="true" aria-controls="panel-result">
+            <span class="tc-disclosure__label" id="step-result">2 &mdash; Result</span>
+            <span class="tc-disclosure__meta" id="meta-result"></span>
+            <span class="tc-disclosure__chevron" data-icon="chevron-down"></span>
+          </button>
+        </h2>
+      </div>
+
+      <div class="tc-body" id="panel-result">
+        <div class="field">
+          <label for="output">Cleaned text</label>
+          <textarea id="output" class="tc-pane" spellcheck="false" readonly
+                    placeholder="Paste something and the tidied version lands here — already copied."></textarea>
+          <p class="hint" id="preview-note" hidden>
+            Preview held back to keep things quick on text this long. The full result is on your clipboard
+            and in the download.
+            <button type="button" class="btn btn--quiet btn--sm" id="btn-preview">Show it anyway</button>
+          </p>
+        </div>
+        <p class="tc-stats" id="stats"></p>
+
+        <div class="toolbar" role="group" aria-label="Result">
+          <button type="button" class="btn btn--primary" id="btn-copy" disabled>Copy</button>
+          <button type="button" class="btn btn--ghost" id="btn-download" disabled>Download .txt</button>
+          <!-- Revealed only for an admin, since only an admin can add a book. -->
+          <button type="button" class="btn btn--ghost" id="btn-save-book" disabled hidden
+                  aria-expanded="false" aria-controls="save-book">Save to Books</button>
+        </div>
+
+        <div class="save-book" id="save-book" hidden>
+          <p class="eyebrow">Save to the Education library</p>
+          <div class="field" style="margin-top:var(--space-2)">
+            <label for="book-title">Book title</label>
+            <input type="text" id="book-title" maxlength="120" autocomplete="off"
+                   placeholder="e.g. Humonks — Draft One">
+            <p class="hint">The name on the shelf, and the heading the reader opens with.</p>
+          </div>
+          <div class="field" style="margin-top:var(--space-3)">
+            <label for="book-collection">Shelf</label>
+            <input type="text" id="book-collection" maxlength="60" autocomplete="off"
+                   list="tn-collections" placeholder="e.g. Manuscripts, Standards, Articles">
+            <p class="hint">How the library groups it. Leave it blank to file under Unsorted.</p>
+          </div>
+          <datalist id="tn-collections"></datalist>
+          <div class="row save-book__actions">
+            <button type="button" class="btn btn--primary" id="btn-book-save">Save to Books</button>
+            <button type="button" class="btn btn--quiet" id="btn-book-cancel">Cancel</button>
+          </div>
+          <p class="status" id="book-status" role="status" aria-live="polite" style="margin-top:var(--space-2)"></p>
+        </div>
+
+        <div class="field tc-narrow">
+          <label for="filename">File name</label>
+          <input type="text" id="filename" value="cleaned">
+          <p class="hint">Saved as <span class="tc-code">name_UPDATED.txt</span>, matching the desktop script.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 — Cleaning steps (closed by default) -->
+    <section class="panel" aria-labelledby="step-settings">
+      <div class="panel__head">
+        <h2 class="tc-disclosure-head">
+          <button type="button" class="tc-disclosure" data-disclosure aria-expanded="false" aria-controls="panel-settings">
+            <span class="tc-disclosure__label" id="step-settings">3 &mdash; Cleaning steps</span>
+            <span class="tc-disclosure__meta" id="meta-settings"></span>
+            <span class="tc-disclosure__chevron" data-icon="chevron-down"></span>
+          </button>
+        </h2>
+      </div>
+
+      <div class="tc-body" id="panel-settings" hidden>
+        <p class="muted tc-intro">
+          The defaults suit most manuscripts, so open this only if something came out wrong.
+          Changes apply straight away and are remembered on this computer for your next visit.
+        </p>
+
+        <div class="tc-group">
+          <p class="tc-group__title">How it runs</p>
+          <label class="tc-toggle">
+            <input type="checkbox" id="opt-autopaste" checked>
+            <span>Clean automatically when you paste</span>
+          </label>
+          <label class="tc-toggle">
+            <input type="checkbox" id="opt-autocopy" checked>
+            <span>Copy the result to the clipboard on every run</span>
+          </label>
+          <label class="tc-toggle">
+            <input type="checkbox" id="opt-reselect" checked>
+            <span>Select the input afterwards, so the next paste replaces it</span>
+          </label>
+        </div>
+
+        <div class="tc-group">
+          <p class="tc-group__title">Steps</p>
+          <p class="hint tc-intro">
+            Applied top to bottom, and the order matters — later steps assume the earlier ones have run.
+          </p>
+          <div id="steps"></div>
+
+          <div class="field tc-narrow">
+            <label for="maxlen">Wrap paragraphs longer than</label>
+            <input type="number" id="maxlen" value="500" min="80" max="5000" step="20">
+            <p class="hint">Characters. The break lands after the last full stop before this point, never mid-sentence.</p>
+          </div>
+        </div>
+
+        <div class="toolbar tc-group">
+          <button type="button" class="btn btn--quiet" id="btn-reset-steps">Restore defaults</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=20"></script>
+  <script src="/assets/js/pwa.js?v=1"></script>
+  <script src="/assets/js/reflow.js?v=1"></script>
+  <script src="/assets/js/save-to-book.js?v=1"></script>
+  <script src="/tools/text-cleaner/textcleaner.js?v=2"></script>
+</body>
+</html>
