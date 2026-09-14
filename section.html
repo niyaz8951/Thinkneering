@@ -116,8 +116,28 @@
           TN.el('#items').innerHTML = '<div class="empty">Nothing published here yet. Check back soon.</div>';
         }
       } catch (err) {
+        /* "That section does not exist" on its own tells you nothing you can
+           act on. Ask the catalogue what it does have and say so: the slug
+           that was looked for, beside the slugs that exist, is usually the
+           whole diagnosis — a rename that has not been applied, or a link
+           built from a stale slug. */
         TN.el('#title').textContent = 'Section not found';
         TN.el('#desc').textContent = err.message;
+
+        try {
+          var all = await TN.api('/api/catalog');
+          var slugs = (all.sections || []).map(function (x) { return x.slug; });
+          TN.el('#desc').innerHTML = TN.esc(err.message) +
+            '<br>Looked for <code>' + TN.esc(path) + '</code>. ' +
+            (slugs.length
+              ? 'This site has: ' + slugs.map(function (x) {
+                  return '<a href="/s/' + TN.esc(x) + '"><code>' + TN.esc(x) + '</code></a>';
+                }).join(', ')
+              : 'The catalogue returned no sections at all.');
+        } catch (e2) {
+          TN.el('#desc').textContent = err.message +
+            ' The catalogue could not be read either: ' + e2.message;
+        }
       }
     })();
   </script>
