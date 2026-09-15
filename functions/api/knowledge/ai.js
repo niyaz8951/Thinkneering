@@ -245,6 +245,9 @@ async function _onRequestPost(context) {
     try { saved = JSON.parse(row.detail_json); }
     catch (err) { return json({ error: 'That review could not be read. Run it again.' }, 500); }
 
+    // The user opts in at apply time, not at review time: they have now seen
+    // what it proposes.
+    saved.__allowLaneMoves = body.moveLanes === true;
     const applied = await applyAlignment(env, map, user, nodes, saved, true);
     return json({ ok: true, result: saved, applied });
   }
@@ -692,10 +695,16 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
     nodes.forEach(n => { if (n.lane) addLane(n.lane, n.lane); });
   }
 
-  /* Lane moves */
+  /* Lane moves are OPT-IN.
+     A lane is an editorial decision — you put that word in that lane for a
+     reason the model cannot see. Moving it is the only thing review does that
+     is both destructive and tedious to undo, and doing it by default meant a
+     review you ran to get suggestions quietly rearranged the map.
+     Pass moveLanes:true to allow it. */
   const moves = [];
   const unknownLanes = new Set();
-  (result.moves || []).forEach(m => {
+  const laneMovesAllowed = result.__allowLaneMoves === true;
+  (laneMovesAllowed ? (result.moves || []) : []).forEach(m => {
     const node = find(m.node);
     if (!node) { unmatchedTitles++; return; }
     if (!open(node)) { summary.skippedLocked++; return; }
@@ -705,6 +714,10 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
     moves.push({ id: node.id, lane: laneId });
   });
   summary.movedNodes = moves.length;
+  // Reported either way, so the proposal can show what it WOULD move without
+  // the user discovering it only after it has happened.
+  summary.proposedLaneMoves = (result.moves || []).length;
+  summary.laneMovesApplied = laneMovesAllowed;
   // Surfaced rather than swallowed: a move that names a lane the map does not
   // have is worth telling the user about, not quietly discarding.
   if (unknownLanes.size) summary.unknownLanes = Array.from(unknownLanes).slice(0, 10);
@@ -746,6 +759,31 @@ async function applyAlignment(env, map, user, nodes, result, apply) {
   });
   summary.notedNodes = notes.length;
   if (unmatchedTitles) summary.unmatchedTitles = unmatchedTitles;
+
+  /* Nothing to do is a legitimate outcome, but three zeroes and no
+     explanation is indistinguishable from a broken button. Say which filter
+     ate the proposal. */
+  if (!summary.movedNodes && !summary.addedEdges && !summary.notedNodes) {
+    const why = [];
+    if (summary.skippedLocked) {
+      why.push(summary.skippedLocked + ' node(s) are locked to AI — open them ' +
+        'with the AI toggle on the node, or nothing can be written to them');
+    }
+    if (summary.unmatchedTitles) {
+      why.push(summary.unmatchedTitles + ' proposed title(s) match no node on this map');
+    }
+    if (summary.unknownLanes) why.push('lanes not on this map: ' + summary.unknownLanes.join(', '));
+    if (summary.unknownRelations) {
+      why.push('relations this domain does not define: ' + summary.unknownRelations.join(', '));
+    }
+    if (summary.proposedLaneMoves && !laneMovesAllowed) {
+      why.push(summary.proposedLaneMoves + ' lane move(s) were proposed but lane ' +
+        'moves are off — tick "also move lanes" to allow them');
+    }
+    summary.nothingToApply = why.length
+      ? why.join('; ')
+      : 'The review proposed nothing this map does not already have.';
+  }
 
   if (!apply) return summary;
 

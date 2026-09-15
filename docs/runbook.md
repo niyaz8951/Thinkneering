@@ -159,6 +159,45 @@ in the data instead of the routing. Use `/^\/s(?:\/(.*))?$/`.
 
 `npm test` checks both.
 
+## Import
+
+`/admin/` → **Export & import**. Choose a map, choose nodes or edges, pick a
+CSV, press **Preview**.
+
+Preview writes nothing and lists every row with what would happen and why.
+**Apply** only appears after a preview, and is withdrawn if the file changes —
+applying a preview of a different file is the one route by which this could
+write something nobody had read.
+
+Four guarantees, each enforced rather than intended:
+
+- **Nothing is deleted.** There is no delete statement in `import.js`. A row
+  absent from your CSV is a row you did not mention, not one you removed.
+- **Approved nodes are not silently overwritten.** An update to an approved
+  node is skipped unless you tick the box, and even then a CSV cannot set
+  `status`, `approved_by` or `approved_at` — it can neither approve nor
+  un-approve anything.
+- **Only columns present are written.** Export nodes, delete every column but
+  `id` and `summary`, re-import: summaries change and nothing else does.
+- **New rows land as drafts**, in the review queue, like every other proposal.
+
+A failed write changes nothing — the batch is all-or-nothing, and the error
+says so, because the first question after an error is "what did it half do".
+
+### The shape
+
+Nodes carry the content. **Edges carry the tree** — one row per relationship:
+
+```
+from_id,to_id,relation
+Technical review,Factory clarification,feeds
+```
+
+Titles work as well as ids, so you can write what you mean rather than copying
+identifiers. A node with three parents is three rows, which is why there is no
+`parent` column: a single parent would force you to pick one relationship and
+lose the other two.
+
 ## Recovery
 
 **The whole site renders empty, no header, no nav.** Almost always the Functions
