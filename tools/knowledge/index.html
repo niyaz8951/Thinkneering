@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/global.css?v=22">
-<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=10">
+<link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=11">
 </head>
 <body>
 
@@ -123,6 +123,14 @@
 <dialog class="kg-dialog" id="review-dialog">
   <h2 class="kg-panel-title" id="review-title">AI review</h2>
   <div class="kg-ai-output" id="review-output"></div>
+  <!-- Opt-in, and unticked every time. Moving a word out of the lane you put
+       it in is the one thing review does that is destructive and tedious to
+       undo, so it is never the default. -->
+  <label class="kg-check" id="review-lanes-wrap" hidden style="margin-top:var(--space-3)">
+    <input type="checkbox" id="review-lanes">
+    <span>Also move lanes — <span id="review-lanes-count"></span></span>
+  </label>
+
   <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
     <button type="button" class="kg-btn kg-btn-primary" id="review-apply" hidden>Apply these changes</button>
     <a class="kg-btn" id="review-open" href="#">Open the map</a>
@@ -136,7 +144,7 @@
 <script src="/assets/js/pwa.js?v=1" defer></script>
 <script src="/tools/knowledge/domain-hvac.js?v=1" defer></script>
 <script src="/tools/knowledge/domain-business.js?v=1" defer></script>
-<script src="/tools/knowledge/dashboard.js?v=1" defer></script>
+<script src="/tools/knowledge/dashboard.js?v=3" defer></script>
 
 <script>
 /* View switcher. Deliberately separate from dashboard.js: showing and hiding

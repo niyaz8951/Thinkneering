@@ -402,6 +402,26 @@
       $('review-output').innerHTML = renderAlignment(body.result, body.applied);
       $('review-apply').hidden = !hasChanges(body.applied) || !body.reviewId;
 
+      /* Lane moves are opt-in, so the dry run does not count them. Offer the
+         choice here, where the proposal is on screen — a lane is an editorial
+         decision and moving it by default meant a review run for suggestions
+         quietly rearranged the map. */
+      var lm = (body.applied && body.applied.proposedLaneMoves) || 0;
+      $('review-lanes-wrap').hidden = !lm;
+      if (lm) {
+        $('review-lanes-count').textContent =
+          lm + (lm === 1 ? ' word would move lane' : ' words would move lane');
+        $('review-lanes').checked = false;
+        $('review-apply').hidden = !body.reviewId;
+      }
+
+      // A proposal that resolves to nothing should say which filter ate it
+      // rather than showing three zeroes.
+      if (body.applied && body.applied.nothingToApply) {
+        $('review-output').innerHTML +=
+          '<p class="kg-muted">Nothing to apply: ' + esc(body.applied.nothingToApply) + '</p>';
+      }
+
       if (hasChanges(body.applied) && !body.reviewId) {
         $('review-output').innerHTML +=
           '<p class="kg-muted">This proposal could not be saved, so it cannot be applied. ' +
@@ -432,10 +452,18 @@
           action: 'review_and_align',
           mapId: pendingReview.mapId,
           reviewId: pendingReview.reviewId,
-          apply: true
+          apply: true,
+          moveLanes: !!($('review-lanes') && $('review-lanes').checked)
         })
       }));
       var a = body.applied || {};
+      if (a.nothingToApply) {
+        $('review-output').innerHTML =
+          '<p><strong>Nothing was applied.</strong> ' + esc(a.nothingToApply) + '</p>';
+        btn.disabled = false;
+        btn.textContent = 'Apply these changes';
+        return;
+      }
       $('review-output').innerHTML =
         '<p><strong>Applied.</strong> ' + a.movedNodes + ' nodes moved lane, ' +
         a.addedEdges + ' connections added as drafts, ' + a.notedNodes + ' nodes given an AI note' +

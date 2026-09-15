@@ -821,6 +821,114 @@
     el('#admin-nav').innerHTML = PANELS.map(function (p) {
       return '<button data-panel="' + p.key + '">' + icon(p.icon, 18) + esc(p.label) + '</button>';
     }).join('');
+    // Revealed only once access is confirmed — the links hit an admin-only
+    // endpoint, and showing them to someone who would get a 403 is worse than
+    // not showing them.
+    var ex = el('#export-panel');
+    if (ex) { ex.hidden = false; initTransfer(); }
+  }
+
+  /* ── Export and import ─────────────────────────────────────────────
+     The rule the import is built around is that it must never disturb what is
+     already there. Preview writes nothing and shows every row; you approve a
+     number you have read. */
+
+  var importPreviewed = null;
+
+  async function initTransfer() {
+    if (el('#import-map').dataset.ready) return;
+    el('#import-map').dataset.ready = '1';
+
+    try {
+      var d = await TN.api('/api/knowledge/graph');
+      el('#import-map').innerHTML = (d.maps || []).map(function (m) {
+        return '<option value="' + esc(m.id) + '">' + esc(m.title) + '</option>';
+      }).join('');
+    } catch (e) {
+      el('#import-map').innerHTML = '<option value="">No maps readable</option>';
+    }
+
+    el('#import-preview').addEventListener('click', function () { runImport(false); });
+    el('#import-apply').addEventListener('click', function () { runImport(true); });
+    // A changed file invalidates a preview. Applying a preview of the previous
+    // file is the one way this could write something nobody looked at.
+    el('#import-file').addEventListener('change', function () {
+      importPreviewed = null;
+      el('#import-apply').hidden = true;
+    });
+  }
+
+  async function runImport(apply) {
+    var f = el('#import-file').files[0];
+    if (!f) { importOut('<p class="muted">Choose a CSV first.</p>'); return; }
+
+    var csv = await f.text();
+    if (apply && importPreviewed !== csv) {
+      importOut('<p class="muted">That file changed since the preview. Preview it again.</p>');
+      el('#import-apply').hidden = true;
+      return;
+    }
+
+    importOut('<p class="muted">' + (apply ? 'Writing…' : 'Checking…') + '</p>');
+
+    try {
+      var d = await TN.api('/api/admin/import', {
+        method: 'POST',
+        body: {
+          table: el('#import-table').value,
+          mapId: el('#import-map').value,
+          csv: csv,
+          apply: !!apply,
+          updateApproved: el('#import-approved').checked
+        }
+      });
+
+      var c = d.counts || {};
+      var head = apply ? 'Done.' : 'Preview — nothing written.';
+      var line = [
+        c.create ? c.create + ' new' : '',
+        c.update ? c.update + ' updated' : '',
+        c.unchanged ? c.unchanged + ' unchanged' : '',
+        c.skipped ? c.skipped + ' skipped' : '',
+        c.error ? c.error + ' with errors' : ''
+      ].filter(Boolean).join(', ') || 'nothing to do';
+
+      // Errors and skips first: those are the rows that need a decision, and
+      // burying them under a hundred "unchanged" is how they get missed.
+      var interesting = (d.rows || []).filter(function (r) {
+        return r.action === 'error' || r.action === 'skipped';
+      }).concat((d.rows || []).filter(function (r) {
+        return r.action === 'create' || r.action === 'update';
+      })).slice(0, 60);
+
+      importOut('<p><strong>' + head + '</strong> ' + esc(line) + '</p>' +
+        (d.note ? '<p class="muted">' + esc(d.note) + '</p>' : '') +
+        (interesting.length
+          ? '<table class="data"><thead><tr><th>Line</th><th>What</th><th>Row</th>' +
+            '<th>Why</th></tr></thead><tbody>' +
+            interesting.map(function (r) {
+              return '<tr><td>' + r.line + '</td><td>' + esc(r.action) + '</td><td>' +
+                esc(r.title || '') + '</td><td>' + esc(r.reason || '') + '</td></tr>';
+            }).join('') + '</tbody></table>'
+          : ''));
+
+      if (!apply && (c.create || c.update)) {
+        importPreviewed = csv;
+        el('#import-apply').hidden = false;
+      } else {
+        importPreviewed = null;
+        el('#import-apply').hidden = true;
+      }
+    } catch (err) {
+      importOut('<p class="muted">' + esc(err.message) + '</p>');
+      el('#import-apply').hidden = true;
+    }
+  }
+
+  function importOut(html) {
+    var box = el('#import-out');
+    box.hidden = false;
+    box.innerHTML = html;
   }
 
   // one delegated listener for the whole portal
