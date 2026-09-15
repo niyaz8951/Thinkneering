@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f8fa">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d0f13">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Thinkneering">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/global.css?v=22">
+  <link rel="stylesheet" href="/tools/knowledge/knowledge.css?v=11">
+  <title>Review queue — Thinkneering</title>
+  <meta name="description" content="Draft knowledge nodes waiting on a decision, one at a time.">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header data-site-header></header>
+
+  <main id="main" class="wrap">
+    <div class="panel__head">
+      <div>
+        <p class="eyebrow">Knowledge</p>
+        <h1>Review queue</h1>
+        <p class="muted" id="lede">
+          Draft nodes raised from specification clauses. Nothing here is visible to
+          Compliance Maker until you approve it.
+        </p>
+      </div>
+      <div class="header-actions">
+        <span class="chip" id="remaining" aria-live="polite">Loading…</span>
+        <a class="btn btn--ghost btn--sm" href="/tools/knowledge/">Back to maps</a>
+      </div>
+    </div>
+
+    <div id="queue" aria-live="polite"></div>
+  </main>
+
+  <footer data-site-footer></footer>
+  <script src="/assets/js/global.js?v=22"></script>
+  <script src="/assets/js/pwa.js?v=1"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    var esc = TN.esc, icon = TN.icon;
+    var current = null;
+
+    function fmtFact(f) {
+      var value = f.value_type === 'range'
+        ? f.value_num + '–' + f.value_num_max + ' ' + f.unit
+        : f.value_type === 'number'
+          ? f.value_num + ' ' + f.unit
+          : f.value_text;
+      return '<tr><td>' + esc(f.name) + '</td><td><code>' + esc(value || '—') + '</code></td>' +
+        '<td>' + esc(f.basis || '') + '</td></tr>';
+    }
+
+    // A near-identical approved node is the single most useful thing to show
+    // beside a proposal: approving past one is how a graph ends up holding the
+    // same component twice under two spellings.
+    function similarBlock(list) {
+      if (!list || !list.length) return '';
+      return '<div class="notice notice--warning">' + icon('activity', 18) +
+        '<div><strong>Already held under a similar name</strong><ul>' +
+        list.map(function (s) {
+          return '<li>' + esc(s.title) + ' <span class="muted">(' + esc(s.kind) + ')</span></li>';
+        }).join('') +
+        '</ul>If this proposal is the same thing, reject it and add the alias to the ' +
+        'existing node instead.</div></div>';
+    }
+
+    function render(item, remaining) {
+      TN.el('#remaining').textContent = remaining
+        ? remaining + ' waiting'
+        : 'Queue clear';
+
+      if (!item) {
+        TN.el('#queue').innerHTML =
+          '<div class="empty">Nothing is waiting for review. ' +
+          'Clauses Compliance Maker cannot answer will appear here.</div>';
+        return;
+      }
+
+      current = item;
+      var facts = item.draftFacts || [];
+      var edges = item.draftEdges || [];
+
+      TN.el('#queue').innerHTML =
+        '<article class="panel">' +
+        '<div class="panel__head"><div>' +
+        '<p class="eyebrow">' + esc(item.mapTitle || '') + ' · ' + esc(item.kind) + '</p>' +
+        '<h2>' + esc(item.title) + '</h2>' +
+        (item.summary ? '<p class="muted">' + esc(item.summary) + '</p>' : '') +
+        '</div></div>' +
+
+        similarBlock(item.similar) +
+
+        (item.body
+          ? '<section><h3>Why this was raised</h3><pre class="kg-raised-clause">' + esc(item.body) + '</pre></section>'
+          : '') +
+
+        (facts.length
+          ? '<section><h3>Proposed facts</h3><table class="data">' +
+            '<thead><tr><th>Name</th><th>Value</th><th>Basis</th></tr></thead>' +
+            '<tbody>' + facts.map(fmtFact).join('') + '</tbody></table></section>'
+          : '<p class="muted">No facts proposed — this node is a name and a description only.</p>') +
+
+        (edges.length
+          ? '<section><h3>Proposed connections</h3><ul>' + edges.map(function (e) {
+              return '<li>' + esc(e.from_title || '?') + ' <em>' +
+                esc(String(e.relation).replace(/_/g, ' ')) + '</em> ' + esc(e.to_title || '?') + '</li>';
+            }).join('') + '</ul></section>'
+          : '') +
+
+        '<section><h3>Your decision</h3>' +
+        '<div class="field"><label for="r-title">Title</label>' +
+        '<input id="r-title" type="text" value="' + esc(item.title) + '"></div>' +
+        '<div class="field"><label for="r-summary">Summary — what a downstream app reads first</label>' +
+        '<textarea id="r-summary" rows="2">' + esc(item.summary || '') + '</textarea></div>' +
+        '<div class="field"><label for="r-aliases">Aliases — every name a clause might use, comma separated</label>' +
+        '<input id="r-aliases" type="text" value="' + esc((item.aliases || []).join(', ')) + '"></div>' +
+        '<div class="field"><label for="r-scope">How widely does this hold?</label>' +
+        '<select id="r-scope">' +
+        '<option value="project">This project only</option>' +
+        '<option value="family">Product family</option>' +
+        '<option value="general">General</option>' +
+        '</select><p class="hint" id="r-scope-hint"></p></div>' +
+        '<div class="field"><label for="r-reason">Reason, if rejecting</label>' +
+        '<input id="r-reason" type="text" placeholder="Duplicate of the existing coil node"></div>' +
+        '<div class="hero__actions">' +
+        '<button class="btn btn--primary" id="r-approve">Approve</button>' +
+        '<button class="btn btn--ghost" id="r-reject">Reject</button>' +
+        '</div></section></article>';
+
+      TN.el('#r-scope').value = item.scope || 'project';
+      scopeHint();
+      TN.el('#r-scope').addEventListener('change', scopeHint);
+      TN.el('#r-approve').addEventListener('click', function () { decide('approve'); });
+      TN.el('#r-reject').addEventListener('click', function () { decide('reject'); });
+    }
+
+    function scopeHint() {
+      var v = TN.el('#r-scope').value;
+      TN.el('#r-scope-hint').textContent = v === 'project'
+        ? 'Recorded once, on one job. Compliance Maker will say so rather than quoting it as standard.'
+        : v === 'family'
+          ? 'Holds across this product line, not only the job it came from.'
+          : 'True regardless of project or product line.';
+    }
+
+    async function decide(action) {
+      if (!current) return;
+      var payload = { nodeId: current.id, action: action };
+
+      if (action === 'approve') {
+        payload.scope = TN.el('#r-scope').value;
+        payload.edits = {
+          title: TN.el('#r-title').value.trim(),
+          summary: TN.el('#r-summary').value.trim(),
+          aliases: TN.el('#r-aliases').value.split(',')
+            .map(function (a) { return a.trim(); }).filter(Boolean)
+        };
+      } else {
+        payload.reason = TN.el('#r-reason').value.trim();
+      }
+
+      TN.el('#r-approve').disabled = true;
+      TN.el('#r-reject').disabled = true;
+
+      try {
+        await TN.api('/api/knowledge/review', { method: 'POST', body: payload });
+        TN.toast(action === 'approve' ? 'Approved and indexed.' : 'Rejected.', 'success');
+        await load();
+      } catch (err) {
+        TN.toast(err.message, 'error');
+        TN.el('#r-approve').disabled = false;
+        TN.el('#r-reject').disabled = false;
+      }
+    }
+
+    async function load() {
+      try {
+        var d = await TN.api('/api/knowledge/review');
+        render(d.next, d.remaining);
+      } catch (err) {
+        TN.el('#queue').innerHTML = '<div class="notice notice--danger">' +
+          icon('activity', 18) + '<div>' + esc(err.message) + '</div></div>';
+        TN.el('#remaining').textContent = '—';
+      }
+    }
+
+    document.addEventListener('tn:ready', load);
+  })();
+  </script>
+</body>
+</html>

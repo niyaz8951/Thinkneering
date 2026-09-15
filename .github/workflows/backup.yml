@@ -1,0 +1,61 @@
+# Weekly snapshot of the database.
+#
+# D1, Workers AI and Vectorize will not exist in this form in 2031. Six years
+# of curated project knowledge trapped inside a discontinued service is the
+# worst outcome available, and it is entirely preventable.
+#
+# Cloudflare Pages has no scheduled handler, so the schedule lives here. The
+# snapshot is a full SQL dump kept as a build artifact — restorable with
+# `wrangler d1 execute --file=`, and readable with nothing but sqlite3 if
+# Cloudflare is gone.
+#
+# Setup, once:
+#   Repo → Settings → Secrets → Actions → New repository secret
+#     CLOUDFLARE_API_TOKEN    (D1 read is enough)
+#     CLOUDFLARE_ACCOUNT_ID
+#
+# Artifacts expire. If this knowledge matters in five years, download one
+# every few months and keep it somewhere you control — a backup that only
+# exists inside the service you are backing up against is not a backup.
+name: backup
+
+on:
+  schedule:
+    # 03:00 UTC Sunday. Off-peak for GCC working hours.
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Export the database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler@4 d1 export thinkneering-db --remote \
+            --output=thinkneering-$(date +%Y-%m-%d).sql
+
+      - name: Fail loudly on an empty dump
+        # A zero-byte backup that uploads successfully is worse than a failed
+        # job: it looks like protection and is not.
+        run: |
+          size=$(stat -c%s thinkneering-*.sql)
+          echo "dump is ${size} bytes"
+          if [ "$size" -lt 10000 ]; then
+            echo "Dump is suspiciously small — check the token and the database name."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinkneering-backup
+          path: thinkneering-*.sql
+          retention-days: 90

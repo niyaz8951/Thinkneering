@@ -1,0 +1,29 @@
+# Line endings are normalised to LF, in the repository and in the working copy.
+#
+# Without this file, a Windows clone with core.autocrlf=true converts every
+# text file to CRLF on checkout. Git then has to rewrite all 128 files on any
+# operation that touches the tree — which is why a commit of four lines in
+# .gitignore produced a screen of "LF will be replaced by CRLF" warnings and
+# then died on a file nobody had edited.
+#
+# LF is also what actually runs: these files are served by Cloudflare Pages and
+# executed by Workers, neither of which wants CRLF, and a .sql file with CRLF
+# line endings is a needless diff against every earlier migration.
+* text=auto eol=lf
+
+# Binary. Never touch these, never try to diff them as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.xlsx  binary
+*.xlsm  binary
+*.docx  binary
+*.epub  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
