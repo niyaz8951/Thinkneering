@@ -1,0 +1,296 @@
+/* Container & trailer calculator — tool-specific styles only.
+   Layout, panels, buttons, fields, tables, notices and the segmented control
+   all come from global.css. Nothing here hardcodes a colour, font or spacing
+   value; every rule below exists because global.css has no equivalent. */
+
+.cc-panel { margin-top: var(--space-4); }
+
+/* ---------------------------------------------------------- setup */
+
+.cc-fields {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.cc-fields + .cc-fields { margin-top: var(--space-3); }
+
+/* .field + .field adds a top margin; inside a grid the gap already spaces them. */
+.cc-fields .field + .field { margin-top: 0; }
+
+.cc-rules {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+
+.cc-rules legend {
+  padding-inline: var(--space-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.cc-check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.cc-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+  accent-color: var(--color-primary);
+}
+
+.cc-check em {
+  display: block;
+  font-style: normal;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------- cargo */
+
+.cc-count {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.cc-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.cc-units {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: 0.875rem;
+}
+
+.cc-notice { margin-top: var(--space-3); }
+
+/* Editable cells: inputs sit flush until hovered or focused. */
+.cc-cargo { min-width: 760px; }
+
+.cc-cargo td { padding: var(--space-1) var(--space-2); }
+
+.cc-cargo input[type='text'],
+.cc-cargo input[type='number'] {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.875rem;
+  border-color: transparent;
+  background: transparent;
+}
+
+.cc-cargo input:hover,
+.cc-cargo input:focus {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.cc-cargo input[type='number'] {
+  text-align: right;
+  font-family: var(--font-mono);
+  min-width: 96px;
+}
+
+.cc-cargo td:first-child input { min-width: 190px; }
+
+.cc-cargo input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.cc-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  flex: none;
+}
+
+/* ---------------------------------------------------------- results */
+
+.cc-section { margin-top: var(--space-5); }
+
+.cc-section > h3 {
+  font-size: 1rem;
+  margin-bottom: var(--space-3);
+}
+
+.cc-load {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  background: var(--color-surface);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.cc-load > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.cc-load h4 {
+  font-family: var(--font-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cc-load-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cc-views {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.cc-views figure { margin: 0; }
+
+.cc-views figcaption {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.cc-views svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.cc-meters {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.cc-meter {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.cc-bar {
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.cc-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.cc-bar > span.is-good { background: var(--color-success); }
+.cc-bar > span.is-warn { background: var(--color-warning); }
+.cc-bar > span.is-bad { background: var(--color-danger); }
+
+.cc-meter .cc-val {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.cc-pieces {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.cc-pieces summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  padding: var(--space-1) 0;
+}
+
+.cc-pieces .table-wrap { margin-top: var(--space-2); }
+
+/* The current vehicle's row in the comparison table. */
+.cc-current td {
+  background: var(--color-primary-tint);
+  font-weight: 600;
+}
+
+.cc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-4);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cc-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.cc-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.cc-notes {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.cc-notes li + li { margin-top: var(--space-2); }
+
+@media (min-width: 900px) {
+  .cc-views { grid-template-columns: 1fr 1fr; }
+  .cc-views .cc-view--full { grid-column: 1 / -1; }
+}
+
+/* The headline stat — vehicle count — is the one figure people came for. */
+.cc-headline { color: var(--color-primary); }

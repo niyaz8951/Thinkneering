@@ -1,0 +1,24 @@
+{
+  "name": "Thinkneering",
+  "short_name": "Thinkneering",
+  "description": "Compliance Maker, Maps and Library — engineering knowledge, approved before it is said.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f8fa",
+  "theme_color": "#2f5fff",
+  "lang": "en",
+  "icons": [
+    { "src": "/assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/assets/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Compliance Maker", "url": "/tools/compliance-maker/" },
+    { "name": "Maps", "url": "/tools/knowledge/" },
+    { "name": "Library", "url": "/education/" }
+  ]
+}

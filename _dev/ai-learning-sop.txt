@@ -1,0 +1,489 @@
+================================================================================
+COMPLIANCE MAKER — HOW THE AI DECIDES, AND HOW IT LEARNS
+Standard operating procedure, in plain English.
+================================================================================
+
+Two things are described here:
+
+  PART ONE — the path a single clause takes to become an answer.
+  PART TWO — how a corrected answer changes what happens next time.
+
+One thing to be clear about before either: THE MODEL ITSELF NEVER CHANGES.
+Its weights are fixed. What improves is what it is TOLD each time — the facts,
+the past answers, and the section descriptions supplied with the clause. This
+is memory and retrieval, not training. The practical effect is the same (it
+gets better the more you use it) but the mechanism matters when you are trying
+to work out why an answer was wrong.
+
+
+================================================================================
+PART ONE — THE PATH TO AN ANSWER
+================================================================================
+
+--------------------------------------------------------------------------------
+STAGE 0 — BEFORE ANY AI IS INVOLVED
+--------------------------------------------------------------------------------
+
+Most rows never reach the model at all.
+
+  1. The PDF is parsed in the browser. Clauses, section headings and part
+     headers are separated, and each clause is given its position in the
+     hierarchy (for example: PART 2 PRODUCTS -> 2.02 CASING).
+
+  2. Highlighting is applied — standards, materials, numbers, ALL-CAPS terms.
+     Cosmetic only. It never affects an answer.
+
+  3. LIBRARY PRE-FILL (signed-in users). Every clause is compared against the
+     product/factory library workbook.
+       - Exact text match  -> filled, marked "from library" (yellow)
+       - Close match       -> filled, marked "from library" (yellow)
+     A filled row is REMOVED from the AI's work. The model is never asked
+     about a clause the library already answers.
+
+  4. CONFLICT CHECK. Each filled answer is compared with the most recent
+     answer logged for that same clause. A disagreement is flagged red with
+     the previous answer shown. Nothing is overwritten — you are told, and
+     you decide.
+
+  Only rows still blank after all of this go to the model.
+
+--------------------------------------------------------------------------------
+STAGE 0b — THE PRODUCT KNOWLEDGE BASE
+--------------------------------------------------------------------------------
+
+One table now holds what used to be four: the unit-section list, the standard
+offering, the glossary and the comparison rules. They were describing the same
+thing from four angles, and keeping them apart meant four admin screens, four
+downloads, and four chances for the same fact to disagree with itself.
+
+One row is one answerable thing:
+
+  AHU / Panel       / Insulation : 62 mm Foam (default) | 42 mm Foam
+  AHU / Fan Section / Fan type   : EC plug fan, EBM (default) | DIDW, Nicotra
+
+  section      the part of the machine
+  attribute    what varies about it
+  options      ordered. THE FIRST IS THE DEFAULT — what we quote as standard
+  definition   plain English, for the AI and for whoever reads the sheet
+  direction    higher / lower / exact — how to judge a value against a
+               requirement, so 62 mm against a required 50 mm is understood
+               as better rather than merely different
+
+A single row therefore answers all four questions the AI has about a clause:
+does this product have such a part, what do we offer for it, what does the
+term mean, and is our value better or worse than what was asked.
+
+HOW IT FILLS: every datasheet read adds to it. A new attribute arrives as a
+draft; a new value for a known attribute is appended as an option and NEVER
+promoted over a default someone chose by hand. Values that describe one job —
+serials, air flows, weights — are skipped, or the real options would be buried
+under them.
+
+HOW YOU FIX IT:
+  Library & answer log -> Knowledge base (Excel)
+
+  One row per attribute. Columns are found by NAME on re-upload, so inserting
+  a column does not silently shift every value. Moving a value into the
+  Default column is the entire editing gesture. Anything typed by hand is
+  trusted immediately: a person writing a value down deliberately is a
+  stronger signal than having seen it on one PDF.
+
+WHERE IT IS USED: on EVERY clause, whether or not a datasheet is attached.
+With a datasheet, the datasheet wins and the KB fills the gaps. Without one,
+the KB is the answer — and a clause that could previously only end in
+TO VERIFY now gets "Comply with remarks" naming what we actually supply.
+
+--------------------------------------------------------------------------------
+STAGE 0c — WHAT KIND OF QUESTION IS THIS? (the specification side)
+--------------------------------------------------------------------------------
+
+A compliance job draws on two documents that are learned differently and
+answered differently.
+
+  THE DATASHEET says what the machine IS. Sections and components. Covered by
+  Stage 0b above.
+
+  THE SPECIFICATION says what is being ASKED, and not every clause is asking
+  about the equipment at all. A specification section is one of:
+
+    PRODUCT     A requirement about the equipment. Check it against the
+                datasheet, then the library.
+    CONTRACTOR  Site execution — installation, rigging, commissioning. Not a
+                technical question. It is a scope-of-supply answer with fixed
+                wording, and the datasheet is irrelevant to it.
+    REFERENCE   Standards, certification, submittals. Answer from the library
+                and reference facts. A dimension does not answer "is it
+                certified", so a datasheet measurement must never be used.
+    UNKNOWN     Too few confirmed answers to say.
+
+WHY THIS MATTERS: "shall be 50 mm" means different things in each. In a
+product section it is a value to check against the unit. Inside an
+installation clause it is somebody else's problem, and answering it from the
+datasheet is answering the wrong question confidently.
+
+HOW A SECTION GETS CLASSIFIED: from confirmed answers only.
+  - 60% or more answered By Contractor / By Others  -> CONTRACTOR
+  - 60% or more of the clauses cite a standard      -> REFERENCE
+  - otherwise                                       -> PRODUCT
+  - fewer than 2 confirmed answers                  -> UNKNOWN, unused
+
+TRUST: a section is classified as a draft, and promoted automatically once
+five confirmed answers agree. Editing it in /admin/ moves it off draft, which
+freezes it — the statistics will never quietly reclassify a section a human
+has ruled on.
+
+REVIEWING IT: Library & answer log -> Knowledge tree (Excel). Two sheets, per
+product: Specification topics (what each section asks) and Unit sections (what
+the product has). Read it regularly. Anything wrong is fixed in
+/admin/ -> Compliance, and the fix sticks.
+
+--------------------------------------------------------------------------------
+STAGE 0d — WHAT THE FACTORY OFFERS (the standard offering)
+--------------------------------------------------------------------------------
+
+A selection report describes ONE unit and is then discarded. Across many
+reports the same fields recur with a small set of values — panel insulation is
+62 mm on one job and 42 mm on another — and that set IS the product range.
+
+Every datasheet read now records its values. Over time this builds, per
+product, a list of every field with every value the factory has been seen to
+supply, and how often each was seen.
+
+WHAT IT IS FOR: answering when NO datasheet is attached. Those clauses could
+previously only end in TO VERIFY, because nothing in the system knew what a
+unit would be. Now the standard value is quoted, and if the standard does not
+meet the clause but a recorded option does, that is a real Comply naming the
+option — not a deviation.
+
+PRIORITY IS UNCHANGED. An attached datasheet describes the unit actually
+selected for the project and always wins. The offering is what CAN be built,
+never what WAS bought, and the prompt says so in those words.
+
+WHAT IS NOT RECORDED: serial numbers, references, air flows, project weights —
+anything specific to one job. They would accumulate one row per project and
+bury the real options. A genuine option recurs; a project value does not,
+which is why a value seen only once is never quoted as standard until a human
+confirms it.
+
+REVIEWING AND FIXING IT:
+  Library & answer log -> Standard offering (Excel)
+  One row per field. First value column is the DEFAULT, the rest are options.
+
+  Editing is deliberately one gesture: move a value into the Default column
+  and upload the sheet back. No status column to interpret, no flag to tick.
+  Anything typed in by hand is trusted immediately — a person writing a value
+  down on purpose is a stronger signal than having seen it on one datasheet.
+
+  Automatic defaults never overwrite a human choice. Once a default has been
+  set from an uploaded sheet, later datasheets add options around it but leave
+  the default alone.
+
+--------------------------------------------------------------------------------
+STAGE 1 — WHAT TRAVELS WITH EACH CLAUSE
+--------------------------------------------------------------------------------
+
+Clauses are sent in batches of three. Each one carries:
+
+  - the clause text
+  - its position in the specification hierarchy
+  - up to 5 past verified answers to similar clauses
+  - the learned profile of its section, if one exists
+  - (shared by the batch) the datasheet fields, if a datasheet was uploaded
+  - (shared by the batch) the reference facts judged relevant to these clauses
+
+--------------------------------------------------------------------------------
+STAGE 2 — THE LADDER
+--------------------------------------------------------------------------------
+
+The model works down and stops at the first step that resolves the clause.
+
+  STEP 1  DATASHEET      Project-specific. Beats everything.      verified: TRUE
+  STEP 2  LIBRARY        What was answered before.                verified: TRUE
+  STEP 3  CONSTRUCTED    Pattern-following, no invented facts.    verified: FALSE
+
+Step 3 may only produce Comply, Comply with remarks, or TO VERIFY. A guess
+must never produce Not Applicable, because deciding a clause does not apply
+requires knowing what the unit actually is.
+
+--------------------------------------------------------------------------------
+STAGE 2b — THE GROUNDING CHECK (after the model answers)
+--------------------------------------------------------------------------------
+
+Every answer is inspected before anyone sees it.
+
+If a remark quotes a measurement that appears in the CLAUSE but in none of the
+sources, the model has restated the requirement as the answer — writing
+"Panel thickness is 50mm" because the clause asked for 50 mm, when the
+datasheet actually said 62 mm. That answer is withdrawn and becomes TO VERIFY
+naming the value needing confirmation.
+
+Only measurements with units are checked. Standard and section numbers are
+references, and repeating them is correct.
+
+The number of withdrawn answers is reported after every run. Treat a rising
+count as a signal that the datasheet is not being read well — not as noise.
+
+--------------------------------------------------------------------------------
+STAGE 2a — IS THIS VALUE BETTER OR WORSE?
+--------------------------------------------------------------------------------
+
+Where the clause and the datasheet both state a value, the comparison is
+computed before the model sees the clause — including which way is better.
+
+  higher is better    thickness, efficiency, filter class
+  lower is better     pressure drop, leakage, sound power
+  must match exactly  voltage, connection size
+  not established     stated as unknown; Not Comply is forbidden on the
+                      number alone
+
+Classed values use their published scale, not their digits: TB1 is the best
+thermal bridging class, so TB2 against a required TB3 is Comply. F9 against a
+required F7 is also Comply, and there the digits happen to run the other way.
+
+Built-in defaults cover the common properties. Override any of them per
+product in /admin/ -> Compliance -> Comparison rules, and download the
+knowledge tree to see every rule currently in force.
+
+A WRONG DIRECTION HERE IS EXPENSIVE: it turns a better unit into a Not
+Comply, or worse, a worse unit into a Comply. This is the sheet to read first
+in the knowledge tree download.
+
+--------------------------------------------------------------------------------
+STAGE 3 — WHAT COMES BACK, AND HOW IT IS MARKED
+--------------------------------------------------------------------------------
+
+STATUS VOCABULARY — taken from a real completed matrix, not invented:
+
+  Comply               meets it as standard
+  Comply with remarks  meets it, but what we supply differs from the wording.
+                       THE MOST COMMON ANSWER (41 of 125 in the sample), e.g.
+                       "Offered units are with 62 mm foam insulation" against
+                       a clause asking for 50 mm.
+  Not Applicable       does not apply to this selection at all
+  By Contractor        site execution, not equipment supply
+  Noted                asserts something; nothing to comply with
+  TO VERIFY            nothing on file supports an answer
+
+The tool previously allowed "Deviation" and "Not Comply", which appeared ZERO
+times in 589 real rows. A vocabulary the reviewers do not use forces them to
+rewrite every row, which is worse than leaving the row blank.
+
+  ORANGE   verified: true    Backed by datasheet or library.
+  AMBER    verified: false   A guess. The Compliance cell also gets a
+                             literal "[GUESS]" prefix, so the marking
+                             survives even if the colours are stripped or
+                             the Comments column is deleted.
+  RED                        Contradicts a previously logged answer.
+  YELLOW                     Came from the library, never reached the model.
+
+Two independent markings for a guess — colour and text — because the export
+gets edited, recoloured and forwarded, and one of the two usually survives.
+
+--------------------------------------------------------------------------------
+STAGE 4 — WHEN THE MODEL RETURNS NOTHING
+--------------------------------------------------------------------------------
+
+An empty response is treated as retryable, not as a verdict:
+
+  Pass 1   full prompt
+  Pass 2   same clauses, stripped-down prompt   (length is the usual cause)
+  Pass 3   one clause at a time                 (nearly always lands)
+
+Only after all three does a row come back unanswered, and it is then left
+blank for a human rather than filled with something invented.
+
+
+================================================================================
+PART TWO — HOW IT LEARNS
+================================================================================
+
+--------------------------------------------------------------------------------
+THE ONE RULE
+--------------------------------------------------------------------------------
+
+  IT NEVER LEARNS FROM ITS OWN UNCONFIRMED OUTPUT.
+
+An AI-sourced answer that nobody has checked is excluded from every rollup and
+every profile. This is the single most important line in the whole design.
+Without it the tool would treat its own guesses as evidence, grow more
+confident with every run, and drift steadily wrong while looking increasingly
+authoritative. That failure is very hard to notice from the inside, because
+everything continues to look consistent.
+
+Learning requires a human decision. There are no exceptions to this.
+
+--------------------------------------------------------------------------------
+BLANK ROWS ARE DECISIONS TOO
+--------------------------------------------------------------------------------
+
+Measured on a real completed matrix: of 585 clause rows, a human answered 124
+and deliberately left 461 blank. Only 37% of the answered ones got a remark.
+
+The tool answers every blank row, so it produces roughly twelve times the text
+a human writes — and every extra line is something to read and delete. That,
+more than per-answer accuracy, is what makes an output feel unusable.
+
+Which rows deserve an answer is NOT predictable from the clause wording. A
+reasonable linguistic rule scores 22% precision against that document, barely
+above answering everything. It is judgement about what a particular consultant
+will scrutinise. So it cannot be inferred — it has to be remembered.
+
+Uploaded matrices therefore now record their BLANK rows as well, with verdict
+'blank'. They are kept out of the answer log, because a blank is not an answer
+to pre-fill, and kept in the feedback record so row selection can eventually
+be learned from them.
+
+Matrices uploaded before this change did not record their blanks and cannot be
+recovered. See architecture-review.txt for what this is building towards.
+
+--------------------------------------------------------------------------------
+THE LOOP
+--------------------------------------------------------------------------------
+
+  1. AI PROPOSES.
+     Every suggestion is recorded immediately — clause, section, status,
+     remark, and whether it claimed to be verified.
+
+     WHY IMMEDIATELY: the exported file only ever carries the FINAL text. If
+     the suggestion is not stored when it is made, a corrected answer becomes
+     indistinguishable from an answer nobody touched, and the whole comparison
+     is impossible.
+
+  2. A HUMAN FINISHES THE MATRIX.
+     Offline, in Excel, the way the work is done anyway. No new habit.
+
+  3. SOMEONE WITH TRAINING ACCESS UPLOADS IT.
+     "Library & answer log" -> Upload completed matrix.
+
+  4. EVERY ROW IS COMPARED AND CLASSIFIED. (The correction matrix, below.)
+
+  5. EVERY CONFIRMED ROW ENTERS THE ANSWER LOG.
+     Marked source = "confirmed". From that moment it drives library pre-fill,
+     the conflict check and the section profiles FOR EVERY SIGNED-IN USER.
+
+  6. SECTION PROFILES REBUILD AUTOMATICALLY.
+     Answer counts and typical statuses update on upload. Summaries written by
+     an admin are LOCKED and are never overwritten.
+
+--------------------------------------------------------------------------------
+THE CORRECTION MATRIX
+--------------------------------------------------------------------------------
+
+Each uploaded row is compared with what the AI proposed for that same clause.
+The "[GUESS]" prefix is stripped before comparing — shipping that text
+untouched means the answer was accepted, not rewritten.
+
++------------+--------------------------------+------------------------------+
+| VERDICT    | WHAT IT MEANS                  | WHAT HAPPENS                 |
++------------+--------------------------------+------------------------------+
+| ACCEPTED   | Shipped exactly as suggested.  | Recorded as confirmation.    |
+|            | The AI was right.              | Answer enters the log as     |
+|            |                                | confirmed and pre-fills for  |
+|            |                                | everyone.                    |
++------------+--------------------------------+------------------------------+
+| CORRECTED  | Shipped differently. A human   | The HUMAN answer wins, and   |
+|            | overruled the AI.              | permanently. Both versions   |
+|            |                                | are kept side by side so the |
+|            |                                | disagreement is visible.     |
++------------+--------------------------------+------------------------------+
+| NEW        | No suggestion on file. Either  | Treated as a confirmed human |
+|            | the library answered it, or it | answer. Enters the log,       |
+|            | predates AI review, or nobody  | pre-fills, feeds profiles.   |
+|            | ran AI on it.                  |                              |
++------------+--------------------------------+------------------------------+
+
+An ACCEPTED answer and a CORRECTED answer both enter the log as confirmed.
+Being right and being fixed are equally good outcomes — both produce an answer
+a human stands behind, which is the only thing the log is for.
+
+--------------------------------------------------------------------------------
+READING THE CORRECTIONS — WHERE THE REAL IMPROVEMENT COMES FROM
+--------------------------------------------------------------------------------
+
+/admin/ -> Compliance shows the running tally and the last 40 corrections.
+The full history downloads as Excel from Library & answer log -> Corrections
+log, with the AI's version and the shipped version side by side.
+
+This is the most useful document the system produces. Read it looking for
+PATTERNS, not individual mistakes:
+
+  THE SAME CORRECTION, REPEATEDLY
+    A missing or wrong FACT. Fix it once in /admin/ -> Compliance -> Reference
+    facts and the whole class of error stops. This is the highest-value repair
+    available and it takes about a minute.
+
+  ONE SECTION CORRECTED FAR MORE THAN OTHERS
+    The section profile is wrong or missing. Edit the summary by hand; your
+    edit locks and will not be overwritten.
+
+  AMBER (GUESS) ROWS CORRECTED CONSTANTLY
+    Step 3 is guessing badly for this product. Either the reference facts are
+    too thin to pattern-match from, or the library is too small yet. More
+    confirmed answers is the fix; there is no shortcut.
+
+  ORANGE (VERIFIED) ROWS BEING CORRECTED
+    The most serious signal in the system. The AI claimed a real source and
+    was still wrong, which means either a datasheet field was misread or a
+    library answer is itself wrong. Investigate these first, every time —
+    a wrong library answer will keep propagating until it is corrected at
+    source.
+
+  BY CONTRACTOR ROWS BEING CHANGED
+    The site-execution keyword list disagrees with how your team draws the
+    scope line. That list is currently in code, not in the database — worth
+    raising if it happens often.
+
+--------------------------------------------------------------------------------
+WHO CAN DO WHAT
+--------------------------------------------------------------------------------
+
+  SIGNED OUT
+    Convert, highlight, preview, download Excel. 10 pages.
+    Nothing pre-fills. No database is touched at all.
+
+  SIGNED IN
+    50 pages. Library pre-fill, conflict checks, answer logging.
+
+  + AI CLAUSE REVIEW (granted per user)
+    Datasheet upload and AI answering.
+
+  + TRAINING (granted per user, SEPARATELY)
+    Upload completed matrices. Download the answer log, the library file and
+    the corrections log.
+
+  WHY TRAINING IS A SEPARATE GRANT: running AI on your own work affects your
+  document. Uploading a completed matrix rewrites what EVERY other user is
+  shown from then on. Those are different levels of trust and should be
+  granted separately, to different people if you want.
+
+--------------------------------------------------------------------------------
+HONEST LIMITS
+--------------------------------------------------------------------------------
+
+  - A section is only recognised if the datasheet numbers it like "4) Coil
+    Cooling DX Supply". A report laid out differently yields no sections, and
+    the tool falls back to treating every value as whole-unit data — safe,
+    but it loses the cross-section protection.
+
+  - Datasheet field matching uses synonym groups maintained in code. A term
+    nobody has grouped yet means the right field silently fails to reach the
+    clause. If a datasheet value is being ignored, this is the first place to
+    look.
+
+  - Clause matching is word-overlap, not meaning. Two clauses saying the same
+    thing in different words will not match. Embeddings would fix this and are
+    the single biggest available quality improvement.
+
+  - The model is small and fast, chosen for cost and latency. A larger model
+    would follow the ladder more reliably, at more cost per matrix.
+
+  - Nothing verifies that an uploaded matrix was actually checked. The
+    training grant is the only safeguard, and it is a human safeguard. Give it
+    to people whose work you would sign.
+
+  - Corrections apply from the moment they are uploaded. Matrices already
+    downloaded do not update.
+
+  - A wrong answer confirmed by upload becomes a wrong answer for everyone,
+    with no automatic way to notice. The corrections log is the place it would
+    show up, as the same clause being corrected back and forth.
