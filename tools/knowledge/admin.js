@@ -72,17 +72,24 @@
       if (selected.has(n.id)) (byMap[n.map_id] = byMap[n.map_id] || []).push(n.id);
     });
 
-    setStatus('Approving and indexing…');
-    var total = 0, terms = 0;
+    var total = 0, terms = 0, all = 0;
+    Object.keys(byMap).forEach(function (m) { all += byMap[m].length; });
+    setStatus('Approving and indexing 0 of ' + all + '…');
     try {
+      // One request per 100 nodes, so a long queue approves in one click but
+      // no single request runs long enough to time out, and the count ticks.
       for (var mapId of Object.keys(byMap)) {
-        var body = await api('/api/knowledge/admin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'bulk-approve', mapId: mapId, ids: byMap[mapId] })
-        });
-        total += body.approved || 0;
-        terms += body.indexedTerms || 0;
+        var ids = byMap[mapId];
+        for (var i = 0; i < ids.length; i += 100) {
+          var body = await api('/api/knowledge/admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'bulk-approve', mapId: mapId, ids: ids.slice(i, i + 100) })
+          });
+          total += body.approved || 0;
+          terms += body.indexedTerms || 0;
+          setStatus('Approving and indexing ' + total + ' of ' + all + '…');
+        }
       }
       selected.clear();
       setStatus(total + ' nodes approved, ' + terms + ' search terms indexed. They can answer Compliance Maker queries now.');
@@ -252,6 +259,13 @@
     });
 
     $('approve-selected').addEventListener('click', approveSelected);
+    $('approve-all').addEventListener('click', function () {
+      if (!queue.length) { setStatus('Nothing waiting.'); return; }
+      if (!window.confirm('Approve all ' + queue.length + ' waiting nodes across every map? ' +
+        'Each becomes quotable by Compliance Maker.')) return;
+      queue.forEach(function (n) { selected.add(n.id); });
+      approveSelected();
+    });
     $('access-map').addEventListener('change', loadAccess);
     bindImport();
     $('grant').addEventListener('click', grant);
@@ -275,15 +289,42 @@
       f.text().then(function (text) { $('import-csv').value = text; });
     });
     $('import-preview').addEventListener('click', function () { runImport(false); });
-    $('import-apply').addEventListener('click', function () { runImport(true); });
-    $('import-csv').addEventListener('input', function () { $('import-apply').disabled = true; });
+    // Apply always answers. Without a preview of this exact CSV it runs the
+    // preview and says so; with a preview that has nothing to write it says
+    // why. A disabled button that says nothing is what "nothing happens" was.
+    $('import-apply').addEventListener('click', function () {
+      var csv = $('import-csv').value;
+      if (!importPlan || importPlan.csv !== csv) {
+        runImport(false).then(function () {
+          if (importPlan && importPlan.writable) {
+            $('import-status').textContent = 'Preview shown below — ' + importPlan.writable +
+              ' rows would be written. Read them, then click Apply again.';
+          }
+        });
+        return;
+      }
+      if (!importPlan.writable) {
+        $('import-status').textContent = 'Nothing to write: ' + describeCounts(importPlan.counts) +
+          '. See the Note column for the reason on each row.';
+        return;
+      }
+      runImport(true);
+    });
+    $('import-csv').addEventListener('input', function () { importPlan = null; });
+    $('import-map').addEventListener('change', function () { importPlan = null; });
+    $('import-table').addEventListener('change', function () { importPlan = null; });
+  }
+
+  function describeCounts(c) {
+    c = c || {};
+    return Object.keys(c).filter(function (k) { return c[k]; })
+      .map(function (k) { return c[k] + ' ' + k; }).join(', ') || 'no rows';
   }
 
   async function runImport(apply) {
     var csv = $('import-csv').value;
-    if (!csv.trim()) { $('import-status').textContent = 'Nothing to import.'; return; }
+    if (!csv.trim()) { $('import-status').textContent = 'Nothing to import — choose a CSV file or paste one.'; return; }
     $('import-status').textContent = apply ? 'Writing…' : 'Checking…';
-    $('import-apply').disabled = true;
     try {
       var body = await api('/api/admin/import', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -292,12 +333,14 @@
           apply: apply, updateApproved: $('import-update-approved').checked
         })
       });
-      importPlan = body;
+      var c = body.counts || {};
+      importPlan = apply ? null : { csv: csv, counts: c, writable: (c.create || 0) + (c.update || 0) };
       renderImport(body, apply);
-      $('import-apply').disabled = apply || !(body.counts && (body.counts.create || body.counts.update));
       $('import-status').textContent = apply
-        ? 'Done. New rows are drafts in the approval queue.'
-        : 'Preview only — nothing written. Read the rows, then Apply.';
+        ? 'Done: ' + describeCounts(c) + '. New rows are drafts in the approval queue.'
+        : (importPlan.writable
+            ? 'Preview only — nothing written yet. ' + importPlan.writable + ' rows would be written. Click Apply to write them.'
+            : 'Preview only — nothing to write: ' + describeCounts(c) + '. See the Note column.');
       if (apply) loadQueue();
     } catch (err) {
       $('import-status').textContent = err.message;

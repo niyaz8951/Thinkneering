@@ -91,9 +91,9 @@
   },
   "/tools/knowledge/admin.js": {
     "versions": [
-      "2"
+      "4"
     ],
-    "sha": "b59058aaeb5034de"
+    "sha": "a7f8e3e92b1e4350"
   },
   "/tools/knowledge/dashboard.js": {
     "versions": [

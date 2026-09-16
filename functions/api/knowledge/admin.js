@@ -69,7 +69,7 @@ async function queueView(env) {
     '       n.confidence, m.title AS map_title ' +
     'FROM knowledge_nodes n JOIN knowledge_maps m ON m.id = n.map_id ' +
     "WHERE n.status IN ('proposed','draft') AND m.status = 'active' " +
-    'ORDER BY CASE n.status WHEN \'proposed\' THEN 0 ELSE 1 END, n.updated_at DESC LIMIT 300'
+    'ORDER BY CASE n.status WHEN \'proposed\' THEN 0 ELSE 1 END, n.updated_at DESC LIMIT 1000'
   ).all();
 
   return json({ ok: true, queue: (nodes && nodes.results) || [] });
@@ -140,14 +140,23 @@ async function _onRequestPost(context) {
   }
 
   if (body.action === 'bulk-approve') {
-    const ids = asArray(body.ids).slice(0, 200);
+    // Up to 1,000 ids, written in chunks: D1 allows 100 bound parameters per
+    // statement, so an IN (...) list of 186 imported words failed outright —
+    // which is what "approve in one go" was hitting.
+    const ids = asArray(body.ids).slice(0, 1000);
     if (!body.mapId || !ids.length) return json({ error: 'Missing mapId or ids' }, 400);
 
-    const ph = ids.map(() => '?').join(',');
-    await env.DB.prepare(
-      "UPDATE knowledge_nodes SET status = 'approved', approved_by = ?, approved_at = ?, " +
-      'updated_at = ? WHERE map_id = ? AND id IN (' + ph + ')'
-    ).bind(me, now, now, body.mapId, ...ids).run();
+    const CHUNK = 50;
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+
+    for (const part of chunks) {
+      const ph = part.map(() => '?').join(',');
+      await env.DB.prepare(
+        "UPDATE knowledge_nodes SET status = 'approved', approved_by = ?, approved_at = ?, " +
+        'updated_at = ? WHERE map_id = ? AND id IN (' + ph + ')'
+      ).bind(me, now, now, body.mapId, ...part).run();
+    }
 
     // Edges between two approved nodes become approved with them; an edge to a
     // node still in draft stays hidden, so the graph never exposes half a fact.
@@ -157,13 +166,15 @@ async function _onRequestPost(context) {
       "AND to_id IN (SELECT id FROM knowledge_nodes WHERE map_id = ? AND status = 'approved')"
     ).bind(body.mapId, body.mapId, body.mapId).run();
 
-    const rows = await env.DB.prepare(
-      'SELECT * FROM knowledge_nodes WHERE map_id = ? AND id IN (' + ph + ')'
-    ).bind(body.mapId, ...ids).all();
-
     let indexed = 0;
-    for (const r of ((rows && rows.results) || [])) {
-      indexed += await reindexNode(env, r);
+    for (const part of chunks) {
+      const ph = part.map(() => '?').join(',');
+      const rows = await env.DB.prepare(
+        'SELECT * FROM knowledge_nodes WHERE map_id = ? AND id IN (' + ph + ')'
+      ).bind(body.mapId, ...part).all();
+      for (const r of ((rows && rows.results) || [])) {
+        indexed += await reindexNode(env, r);
+      }
     }
 
     await refreshCounts(env, body.mapId);

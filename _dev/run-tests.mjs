@@ -26,10 +26,27 @@ const suites = readdirSync(DIR)
 let failed = [];
 let totalPass = 0;
 
+/* Windows has no `python3`: the launcher is `py`, and plain `python` may be
+   the Microsoft Store stub that exits without running anything. Try each in
+   turn and keep the first that runs Python at all. */
+function pythonCommand() {
+  for (const cmd of ['python3', 'python', 'py']) {
+    const probe = spawnSync(cmd, ['-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8' });
+    if (probe.status === 0 && /^3/.test((probe.stdout || '').trim())) return cmd;
+  }
+  return null;
+}
+const PYTHON = suites.some((f) => f.endsWith('.py')) ? pythonCommand() : null;
+
 for (const file of suites) {
   const py = file.endsWith('.py');
-  const res = spawnSync(py ? 'python3' : 'node', [join(DIR, file)], {
-    encoding: 'utf8', cwd: ROOT
+  if (py && !PYTHON) {
+    failed.push(file);
+    console.log('  FAIL  ' + file.padEnd(34) + 'Python 3 not found — install it from python.org (tick "Add to PATH")');
+    continue;
+  }
+  const res = spawnSync(py ? PYTHON : 'node', [join(DIR, file)], {
+    encoding: 'utf8', cwd: ROOT, shell: process.platform === 'win32'
   });
 
   const out = (res.stdout || '') + (res.stderr || '');

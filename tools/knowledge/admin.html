@@ -49,6 +49,7 @@
     <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
       <button type="button" class="kg-btn kg-btn-primary" id="approve-selected">Approve selected</button>
       <button type="button" class="kg-btn" id="select-all">Select all shown</button>
+      <button type="button" class="kg-btn" id="approve-all">Approve everything waiting</button>
     </div>
   </section>
 
@@ -129,7 +130,7 @@
     </label>
     <div class="kg-btn-group kg-wrap" style="margin-top:var(--space-3)">
       <button type="button" class="kg-btn" id="import-preview">Preview</button>
-      <button type="button" class="kg-btn kg-btn-primary" id="import-apply" disabled>Apply</button>
+      <button type="button" class="kg-btn kg-btn-primary" id="import-apply">Apply</button>
       <label class="kg-check" style="margin-left:var(--space-2)"><input type="checkbox" id="import-update-approved"> Allow updates to approved nodes (never their status)</label>
       <span class="kg-status" id="import-status" role="status" aria-live="polite"></span>
     </div>
@@ -141,6 +142,6 @@
 
 <script src="/assets/js/global.js?v=23" defer></script>
 <script src="/assets/js/pwa.js?v=1" defer></script>
-<script src="/tools/knowledge/admin.js?v=2" defer></script>
+<script src="/tools/knowledge/admin.js?v=4" defer></script>
 </body>
 </html>
