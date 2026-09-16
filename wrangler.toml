@@ -1,0 +1,62 @@
+name = "thinkneering"
+pages_build_output_dir = "."
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "thinkneering-db"
+database_id = "cac87d3e-c9c0-4d20-978c-58a859df95ea"
+
+# Workers AI. Required by the Compliance Maker's clause review and datasheet
+# extraction; every other part of the site works without it. Both features
+# degrade rather than break when it is missing — datasheet extraction falls
+# back to pattern matching, which is the "AI binding not configured" notice.
+[ai]
+binding = "AI"
+
+# The Education library. This bucket IS the book list: /api/education/library
+# calls .list() on it, so uploading a file makes it appear and deleting one
+# makes it vanish, with no manifest to edit and no deploy in between.
+#
+# Books are deliberately NOT in the repo. A file under /books/ would be a
+# public download for anyone who guessed the name; an object in here can only
+# be reached through the API, which checks admin approval first.
+[[r2_buckets]]
+binding = "BOOKS"
+bucket_name = "thinkneering-books"
+
+# Optional, only needed once you want to upload book cover images from the
+# admin panel instead of pasting URLs. Ask before wiring this up.
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "thinkneering-media"
+
+# Semantic search over the knowledge graph. OPTIONAL: without it, retrieval
+# falls back to the keyword index in knowledge_terms and everything still
+# works — it simply will not find "explosion proof enclosure" when the node is
+# called ATEX.
+#
+# Create the index before deploying with this uncommented. 768 dimensions and
+# cosine are what @cf/baai/bge-base-en-v1.5 produces; a mismatch here is
+# rejected at query time rather than at deploy, which is a confusing way to
+# find out.
+#
+#   npx wrangler vectorize create thinkneering-kb --dimensions=768 --metric=cosine
+#
+# Then POST /api/knowledge/reindex as an admin to embed what is already
+# approved. Nodes approved after that are indexed as they are approved.
+# COMMENTED OUT ON PURPOSE. Uncomment only AFTER the index exists.
+#
+# Cloudflare validates this binding at publish time. If the index is missing,
+# the Function fails to publish while the static assets publish anyway — so the
+# site serves HTML with every API dead, no sign-in, and no auth gate. That has
+# happened once; it is why this ships inert.
+#
+#   1. npx wrangler vectorize create thinkneering-kb --dimensions=768 --metric=cosine
+#   2. uncomment the three lines below
+#   3. push, and confirm the build log says "Success: Deployment complete"
+#   4. POST /api/knowledge/reindex as an admin until it returns done:true
+#
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "thinkneering-kb"
