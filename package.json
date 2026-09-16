@@ -1,0 +1,12 @@
+{
+  "name": "thinkneering",
+  "private": true,
+  "type": "module",
+  "description": "Compliance answers drawn from engineering knowledge you have approved.",
+  "scripts": {
+    "test": "node _dev/run-tests.mjs",
+    "health": "echo 'Sign in as admin and open /api/admin/health'",
+    "backup": "wrangler d1 export thinkneering-db --remote --output=backup-$(date +%Y-%m-%d).sql"
+  },
+  "engines": { "node": ">=20" }
+}
