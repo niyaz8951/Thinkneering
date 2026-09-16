@@ -1,0 +1,24 @@
+# Clean URLs for data-driven pages. One HTML file serves every section and book.
+#
+# ORDER MATTERS. Cloudflare matches these top to bottom and stops at the first
+# hit, so every specific rule has to sit above the splat that would swallow it.
+# The renames were below /s/* and never fired — the build log flagged it.
+
+# Knowledge became Maps and Education became Library. 301 rather than a
+# rewrite: the old slug is genuinely gone, and a rewrite would leave two URLs
+# serving one section forever, which is how stale links never get fixed.
+/s/knowledge    /s/maps            301
+/s/knowledge/*  /s/maps/:splat     301
+/s/education    /s/library         301
+/s/education/*  /s/library/:splat  301
+
+# Destinations MUST be extensionless.
+#
+# Pages strips `.html` with its own 301. A rewrite to /section.html therefore
+# triggers that redirect, the address bar becomes /section, and the original
+# /s/<slug> is gone — the page then parses its own URL and looks for a section
+# called "ection". This was tried and it is why that happened.
+/s        /section   200
+/s/*      /section   200
+/read     /reader    200
+/read/*   /reader    200
