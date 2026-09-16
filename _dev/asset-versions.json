@@ -139,9 +139,9 @@
   },
   "/tools/knowledge/map.js": {
     "versions": [
-      "12"
+      "13"
     ],
-    "sha": "d2fb8392d92cbf73"
+    "sha": "4f2a1c3616799a59"
   },
   "/tools/process-map/domain-hvac.js": {
     "versions": [

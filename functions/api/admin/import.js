@@ -134,6 +134,40 @@ async function planNodes(env, mapId, parsed, body) {
   // rather than creating two nodes that then fight over one alias.
   const seenTitles = new Map();
 
+  // Where a new node lands on the canvas: the next free row of its lane,
+  // the same rule the dictionary uses. Imported at 0,0 — as before — a
+  // hundred nodes sat on one point in the corner and the map looked empty.
+  const laneCounts = {};
+  try {
+    const counted = await env.DB.prepare(
+      'SELECT lane, COUNT(*) AS n FROM knowledge_nodes WHERE map_id = ? GROUP BY lane'
+    ).bind(mapId).all();
+    for (const r of ((counted && counted.results) || [])) laneCounts[r.lane || ''] = r.n || 0;
+  } catch (err) { /* positions still get assigned from zero */ }
+  // A CSV says "airside"; the map's lane, made in the lane editor from the
+  // label "Air side", is "air-side". Match lanes by their letters so an
+  // import lands in the column it meant, not in "Unassigned".
+  const laneKey = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const laneLookup = new Map();
+  try {
+    const m = await env.DB.prepare('SELECT lanes FROM knowledge_maps WHERE id = ?').bind(mapId).first();
+    const mapLanes = m && m.lanes ? JSON.parse(m.lanes) : [];
+    for (const l of (Array.isArray(mapLanes) ? mapLanes : [])) {
+      if (l && l.id) { laneLookup.set(laneKey(l.id), l.id); laneLookup.set(laneKey(l.label), l.id); }
+    }
+  } catch (err) { /* no lanes on this map — values are kept as written */ }
+  const resolveLane = (v) => {
+    const raw = String(v || '').trim();
+    if (!raw || !laneLookup.size) return raw;
+    return laneLookup.get(laneKey(raw)) || raw;
+  };
+
+  const placeIn = (lane) => {
+    const i = laneCounts[lane] || 0;
+    laneCounts[lane] = i + 1;
+    return { x: 120 + Math.floor(i / 12) * 320, y: 120 + (i % 12) * 150 };
+  };
+
   parsed.rows.forEach((row, i) => {
     const line = i + 2;                       // +1 header, +1 for 1-based
     const title = (row.title || '').trim();
@@ -170,17 +204,19 @@ async function planNodes(env, mapId, parsed, body) {
 
       const kind = (row.kind || '').trim() || 'note';
       const nodeId = newId('kn');
+      const lane = resolveLane(row.lane).slice(0, 60);
+      const pos = placeIn(lane);
       writes.push(env.DB.prepare(
         'INSERT INTO knowledge_nodes (id, map_id, kind, title, aliases, summary, body, ' +
         "attributes, tags, standards, lane, x, y, status, scope, origin, source_ref, " +
         "version, created_by, created_at, updated_at) " +
-        "VALUES (?,?,?,?,?,?,?,'[]','[]','[]',?,0,0,'draft',?,'import',?,1,?,?,?)"
+        "VALUES (?,?,?,?,?,?,?,'[]','[]','[]',?,?,?,'draft',?,'import',?,1,?,?,?)"
       ).bind(
         nodeId, mapId, kind, title.slice(0, 200),
         listField(row.aliases),
         (row.summary || '').slice(0, 2000),
         (row.body || '').slice(0, 8000),
-        (row.lane || '').slice(0, 60),
+        lane, pos.x, pos.y,
         scopeOf(row.scope),
         (row.source_ref || '').slice(0, 200) || null,
         'import', now, now
@@ -201,7 +237,8 @@ async function planNodes(env, mapId, parsed, body) {
     const vals = [];
     NODE_FIELDS.forEach((f) => {
       if (!(f in row)) return;
-      const next = f === 'aliases' ? listField(row.aliases) : String(row[f] || '');
+      const next = f === 'aliases' ? listField(row.aliases)
+        : f === 'lane' ? resolveLane(row.lane) : String(row[f] || '');
       const prev = f === 'aliases' ? String(target.aliases || '[]') : String(target[f] || '');
       if (next === prev) return;
       sets.push(f + ' = ?');

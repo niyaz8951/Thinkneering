@@ -10,6 +10,11 @@ never deletes and never approves.
 | `hvac-gulf-nodes.csv` | your HVAC knowledge base map | Nodes | 109 |
 | `hvac-gulf-edges.csv` | same map — import **after** the nodes | Edges | 211 |
 
+If you already imported before this version: the nodes were placed at
+0,0 (one point in the corner of the canvas) — open the map on the
+Graph tab and press **Tidy by lane** once; it now saves every position,
+approved nodes included. Future imports land in their lanes directly.
+
 Order for the HVAC map: run `db/2026-09-outline.sql` first (the outline
 `under` relation must be legal), then nodes, preview, apply; then edges,
 preview, apply.

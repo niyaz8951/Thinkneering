@@ -579,6 +579,21 @@
       : { x: node._freeX, y: node._freeY };
   }
 
+  async function saveAllPositions() {
+    var list = nodes.slice();
+    var done = 0, failed = 0;
+    setStatus('Saving positions 0 of ' + list.length + '…');
+    // Ten at a time: quick enough for a few hundred nodes, gentle on D1.
+    for (var i = 0; i < list.length; i += 10) {
+      await Promise.all(list.slice(i, i + 10).map(function (n) {
+        return postNode({ id: n.id, positionOnly: true, x: Math.round(n.x), y: Math.round(n.y), lane: n.lane })
+          .then(function () { done++; }, function () { failed++; });
+      }));
+      setStatus('Saving positions ' + (done + failed) + ' of ' + list.length + '…');
+    }
+    setStatus('Tidied and saved: ' + done + ' positions' + (failed ? ', ' + failed + ' failed' : '') + '.');
+  }
+
   function layoutByLane() {
     var rows = {};
     nodes.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (n) {
@@ -590,7 +605,7 @@
     });
     render();
     fit();
-    setStatus('Tidied. Positions save when you save a node.');
+    setStatus('Tidied.');
   }
 
 
@@ -3382,6 +3397,13 @@
         return;
       }
       layoutByLane(); render(); fit();
+      // Tidy used to arrange the canvas only in memory — "positions save
+      // when you save a node" — so a reload put everything back, and a
+      // batch of imported nodes stacked at 0,0 could never be spread for
+      // good. Positions are layout, not knowledge: save them all now,
+      // approved nodes included, through the position-only save that
+      // leaves approval alone.
+      if (canEdit()) saveAllPositions();
     });
     $('fit').addEventListener('click', fit);
 
