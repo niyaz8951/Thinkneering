@@ -408,5 +408,28 @@ re_rules2 = con.execute("SELECT COUNT(*) FROM knowledge_edge_rules").fetchone()[
 check('the outline migration re-runs without growing the rule table',
       lambda: (_ for _ in ()).throw(AssertionError((re_rules, re_rules2))) if re_rules != re_rules2 else None)
 
+# ── The import reset ─────────────────────────────────────────────────
+# db/reset-imported-nodes.sql removes what Import CSV created and nothing
+# else, and runs twice without complaint.
+def import_reset():
+    before = con.execute("SELECT COUNT(*) FROM knowledge_nodes").fetchone()[0]
+    a, b = nid(), nid()
+    con.execute("INSERT INTO knowledge_nodes (id,map_id,kind,title,status,origin,created_by,created_at,updated_at)"
+                " VALUES (?,'map_sbu','note','Imported one','approved','import','u1',datetime('now'),datetime('now'))", (a,))
+    con.execute("INSERT INTO knowledge_nodes (id,map_id,kind,title,status,origin,created_by,created_at,updated_at)"
+                " VALUES (?,'map_sbu','note','Hand made','approved','human','u1',datetime('now'),datetime('now'))", (b,))
+    con.execute("INSERT INTO knowledge_edges (id,map_id,from_id,to_id,relation,status,created_by,created_at)"
+                " VALUES (?,'map_sbu',?,?,'under','draft','import',datetime('now'))", (nid(), a, b))
+    con.execute("INSERT INTO knowledge_terms (map_id,node_id,term,weight,source) VALUES ('map_sbu',?,'imported',1,'title')", (a,))
+    con.executescript(open(os.path.join(ROOT, 'db/reset-imported-nodes.sql')).read())
+    assert con.execute("SELECT COUNT(*) FROM knowledge_nodes WHERE id=?", (a,)).fetchone()[0] == 0, 'imported node stays'
+    assert con.execute("SELECT COUNT(*) FROM knowledge_nodes WHERE id=?", (b,)).fetchone()[0] == 1, 'hand-made node removed'
+    assert con.execute("SELECT COUNT(*) FROM knowledge_edges WHERE to_id=?", (b,)).fetchone()[0] == 0, 'imported edge stays'
+    assert con.execute("SELECT COUNT(*) FROM knowledge_terms WHERE node_id=?", (a,)).fetchone()[0] == 0, 'index row stays'
+    after = con.execute("SELECT COUNT(*) FROM knowledge_nodes").fetchone()[0]
+    assert after == before + 1, (before, after)
+    con.executescript(open(os.path.join(ROOT, 'db/reset-imported-nodes.sql')).read())
+check('the import reset removes imported nodes, edges and index rows and nothing else, twice', import_reset)
+
 print('\n%d/%d passed' % (PASS, PASS + FAIL))
 sys.exit(1 if FAIL else 0)

@@ -16,7 +16,7 @@ const dbFiles = readdirSync(join(ROOT, 'db')).filter((f) => f.endsWith('.sql'));
 
 /* Helpers, not migrations: run by hand, or not against the schema at all. */
 const HELPERS = new Set(['add-columns.sql', 'audit-catalog.sql', 'migrate-source-md.sql',
-                         'drop_recall_layer.sql']);
+                         'drop_recall_layer.sql', 'reset-imported-nodes.sql']);
 const migrations = dbFiles.filter((f) => !HELPERS.has(f));
 
 // --- the ledger
