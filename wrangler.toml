@@ -112,8 +112,8 @@ AI_FAKE = "1"
 
 [[env.local.d1_databases]]
 binding = "DB"
-database_name = "hub-db"
-database_id = "replace-with-the-production-database-id"
+database_name = "thinkneering-db"
+database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
 migrations_dir = "db/migrations"
 
 [[env.local.r2_buckets]]
