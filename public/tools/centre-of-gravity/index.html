@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/css/shell.css">
+  <link rel="stylesheet" href="../../assets/css/legacy-tools.css">
+  <link rel="stylesheet" href="styles.css">
+  <title>Centre of gravity calculator - DAME Tools Hub</title>
+  <meta name="description" content="Build a unit from rectangular blocks, find its centre of gravity on a 3D model, and get the load carried by every mounting foot. Runs in your browser.">
+  <script src="../../assets/js/config.js"></script>
+  <script src="../../assets/js/api.js"></script>
+  <script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header id="topbar"></header>
+  <script>window.cogProfile = Hub.requireLogin({ tool: "centre-of-gravity" });</script>
+
+  <main id="main" class="wrap" data-tool="centre-of-gravity">
+    <p class="hub-back"><a href="../../dashboard.html#general">&larr; General</a></p>
+
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Centre of gravity calculator</h1>
+      <p class="page-head__lede">Where the weight sits, and what each foot carries.</p>
+      <p>Describe a unit as a set of rectangular blocks with a position, a size and a weight.
+        You get the combined centre of gravity on a 3D model, the load on every support point,
+        and a tipping check. Nothing is uploaded.</p>
+    </div>
+
+    <div class="toolbar cog-toolbar">
+      <label class="sr-only" for="preset">Starting point</label>
+      <select id="preset">
+        <option value="chiller">Air-cooled chiller (sample)</option>
+        <option value="ahu">AHU section run (sample)</option>
+        <option value="blank">Empty project</option>
+      </select>
+      <button type="button" class="btn btn--ghost" id="btn-load-preset">Load</button>
+      <span class="cog-toolbar__gap" aria-hidden="true"></span>
+      <button type="button" class="btn btn--ghost" id="btn-open-json">Open project</button>
+      <input type="file" id="file-json" accept="application/json,.json" class="sr-only">
+      <button type="button" class="btn btn--ghost" id="btn-save-json">Save project</button>
+      <button type="button" class="btn btn--ghost" id="btn-csv">Download CSV</button>
+      <button type="button" class="btn btn--ghost" id="btn-png">Save image</button>
+      <button type="button" class="btn btn--ghost" id="btn-print">Print</button>
+    </div>
+
+    <!-- 1 · Setup -->
+    <section class="panel cog-panel" aria-labelledby="setup-title">
+      <div class="panel__head"><h2 id="setup-title">Setup</h2></div>
+
+      <p class="hint cog-hint">X runs along the length of the unit, Y across the width, Z upwards.
+        Positions are measured from the corner at X&nbsp;0, Y&nbsp;0, Z&nbsp;0.</p>
+
+      <div class="cog-fields">
+        <div class="field">
+          <label for="unit-length">Length unit</label>
+          <select id="unit-length">
+            <option value="mm">Millimetres (mm)</option>
+            <option value="cm">Centimetres (cm)</option>
+            <option value="m">Metres (m)</option>
+            <option value="in">Inches (in)</option>
+          </select>
+          <p class="hint">Existing figures are converted when you change this.</p>
+        </div>
+        <div class="field">
+          <label for="unit-mass">Weight unit</label>
+          <select id="unit-mass">
+            <option value="kg">Kilograms (kg)</option>
+            <option value="lb">Pounds (lb)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pos-mode">A block's position means</label>
+          <select id="pos-mode">
+            <option value="corner">Its lowest corner</option>
+            <option value="centre">Its centre</option>
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="cog-envelope">
+        <legend>Overall envelope</legend>
+        <p class="hint">Drawn as an outline in the 3D view and used to compare the centre of
+          gravity against the geometric centre. It carries no weight.</p>
+        <div class="cog-fields">
+          <div class="field">
+            <label for="env-dx">Length X <span class="muted" data-unit="length">mm</span></label>
+            <input id="env-dx" type="number" min="0" step="any" inputmode="decimal" value="10328">
+          </div>
+          <div class="field">
+            <label for="env-dy">Width Y <span class="muted" data-unit="length">mm</span></label>
+            <input id="env-dy" type="number" min="0" step="any" inputmode="decimal" value="2232">
+          </div>
+          <div class="field">
+            <label for="env-dz">Height Z <span class="muted" data-unit="length">mm</span></label>
+            <input id="env-dz" type="number" min="0" step="any" inputmode="decimal" value="2400">
+          </div>
+        </div>
+      </fieldset>
+    </section>
+
+    <!-- 2 · Blocks -->
+    <section class="panel cog-panel" aria-labelledby="blocks-title">
+      <div class="panel__head">
+        <h2 id="blocks-title">Blocks</h2>
+        <div class="cog-actions">
+          <button type="button" class="btn btn--ghost" id="btn-clear-parts">Remove all</button>
+          <button type="button" class="btn btn--primary" id="btn-add-part">Add block</button>
+        </div>
+      </div>
+
+      <p class="hint cog-hint">One row per component. Set all three sizes to 0 to enter a point
+        weight instead of a block. Clear the tick to leave a row out without deleting it.
+        Use the arrows to change the order.</p>
+
+      <div class="table-wrap">
+        <table class="data cog-parts">
+          <caption class="sr-only">Blocks — position, size and weight</caption>
+          <thead>
+            <tr>
+              <th scope="col"><span class="sr-only">Include</span></th>
+              <th scope="col">Block</th>
+              <th scope="col" class="num">X <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Y <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Z <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Size X <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Size Y <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Size Z <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Weight <span data-unit="mass">kg</span></th>
+              <th scope="col"><span class="sr-only">Move or remove</span></th>
+            </tr>
+          </thead>
+          <tbody id="parts-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="parts-empty" hidden>No blocks yet. Add one, or load a sample above.</p>
+      <p class="hint cog-undo" id="parts-undo" role="status" hidden></p>
+    </section>
+
+    <!-- 3 · Supports -->
+    <section class="panel cog-panel" aria-labelledby="supports-title">
+      <div class="panel__head">
+        <h2 id="supports-title">Support points</h2>
+        <div class="cog-actions">
+          <button type="button" class="btn btn--ghost" id="btn-clear-supports">Remove all</button>
+          <button type="button" class="btn btn--primary" id="btn-add-support">Add support</button>
+        </div>
+      </div>
+
+      <p class="hint cog-hint">Mounting feet, anti-vibration mounts, skid rails or lifting points,
+        given as X and Y positions on the base plane.</p>
+
+      <fieldset class="cog-generator">
+        <legend>Generate a grid</legend>
+        <div class="cog-fields">
+          <div class="field">
+            <label for="gen-nx">Points along X <span class="muted">1 to 40</span></label>
+            <input id="gen-nx" type="number" min="1" max="40" step="1" inputmode="numeric" value="5">
+          </div>
+          <div class="field">
+            <label for="gen-ny">Points along Y <span class="muted">1 to 40</span></label>
+            <input id="gen-ny" type="number" min="1" max="40" step="1" inputmode="numeric" value="2">
+          </div>
+          <div class="field">
+            <label for="gen-sx">Span X <span class="muted" data-unit="length">mm</span></label>
+            <input id="gen-sx" type="number" min="0" step="any" inputmode="decimal" value="9720">
+          </div>
+          <div class="field">
+            <label for="gen-sy">Span Y <span class="muted" data-unit="length">mm</span></label>
+            <input id="gen-sy" type="number" min="0" step="any" inputmode="decimal" value="2232">
+          </div>
+          <div class="field">
+            <label for="gen-ix">Inset at each end <span class="muted" data-unit="length">mm</span></label>
+            <input id="gen-ix" type="number" min="0" step="any" inputmode="decimal" value="540">
+          </div>
+          <div class="field">
+            <label for="gen-iy">Inset at each side <span class="muted" data-unit="length">mm</span></label>
+            <input id="gen-iy" type="number" min="0" step="any" inputmode="decimal" value="116">
+          </div>
+        </div>
+        <button type="button" class="btn btn--ghost cog-generate" id="btn-generate">Replace supports with this grid</button>
+      </fieldset>
+
+      <div class="table-wrap">
+        <table class="data cog-supports">
+          <caption class="sr-only">Support points — position on the base plane</caption>
+          <thead>
+            <tr>
+              <th scope="col">Support</th>
+              <th scope="col" class="num">X <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Y <span data-unit="length">mm</span></th>
+              <th scope="col"><span class="sr-only">Move or remove</span></th>
+            </tr>
+          </thead>
+          <tbody id="supports-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="supports-empty" hidden>No supports yet. Add one or generate a grid.</p>
+      <p class="hint cog-undo" id="supports-undo" role="status" hidden></p>
+
+      <div class="cog-fields cog-fields--options">
+        <div class="field">
+          <label for="cap-per-support">Capacity per support <span class="muted" data-unit="mass">kg</span></label>
+          <input id="cap-per-support" type="number" min="0" step="any" inputmode="decimal" placeholder="Leave blank to skip">
+          <p class="hint">Flags any foot carrying more than this.</p>
+        </div>
+        <div class="field">
+          <label class="check" for="opt-uplift">
+            <input type="checkbox" id="opt-uplift" checked>
+            <span>Redistribute load if a support lifts off
+              <em>Closer to how a unit actually sits on a floor.</em></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 · Results -->
+    <section class="panel cog-panel" aria-labelledby="results-title">
+      <div class="panel__head"><h2 id="results-title">Results</h2></div>
+
+      <div class="stat-grid" aria-live="polite">
+        <div class="stat">
+          <div class="stat__value" id="s-weight">—</div>
+          <div class="stat__label">Total weight</div>
+          <p class="hint" id="s-weight-sub">&nbsp;</p>
+        </div>
+        <div class="stat">
+          <div class="stat__value" id="s-cgx">—</div>
+          <div class="stat__label">Centre of gravity X</div>
+          <p class="hint" id="s-cgx-sub">&nbsp;</p>
+        </div>
+        <div class="stat">
+          <div class="stat__value" id="s-cgy">—</div>
+          <div class="stat__label">Centre of gravity Y</div>
+          <p class="hint" id="s-cgy-sub">&nbsp;</p>
+        </div>
+        <div class="stat">
+          <div class="stat__value" id="s-cgz">—</div>
+          <div class="stat__label">Centre of gravity Z</div>
+          <p class="hint" id="s-cgz-sub">&nbsp;</p>
+        </div>
+      </div>
+
+      <div class="cog-viewer">
+        <div class="cog-viewer__bar">
+          <div class="segmented" role="group" aria-label="Camera view">
+            <button type="button" data-view="iso" aria-pressed="true">3D</button>
+            <button type="button" data-view="front" aria-pressed="false">Front</button>
+            <button type="button" data-view="side" aria-pressed="false">Side</button>
+            <button type="button" data-view="top" aria-pressed="false">Top</button>
+          </div>
+          <div class="cog-viewer__toggles">
+            <button type="button" class="btn btn--quiet btn--sm" id="btn-fit">Fit</button>
+            <label class="check"><input type="checkbox" id="opt-envelope" checked><span>Envelope</span></label>
+            <label class="check"><input type="checkbox" id="opt-labels" checked><span>Labels</span></label>
+            <label class="check"><input type="checkbox" id="opt-ortho"><span>Flat view</span></label>
+          </div>
+        </div>
+        <div class="cog-canvas">
+          <canvas id="scene" tabindex="0" role="img"
+                  aria-label="3D model of the blocks with the centre of gravity marked. The same figures appear in the tables below."></canvas>
+        </div>
+        <p class="hint cog-viewer__help">Drag to rotate, scroll to zoom, hold Shift and drag to pan.
+          With the model focused, the arrow keys rotate, plus and minus zoom, and 0 resets.</p>
+      </div>
+
+      <div class="notice notice--warning cog-notices" id="notices" hidden role="status"></div>
+
+      <h3 class="cog-subhead">Load on each support</h3>
+
+      <div class="table-wrap">
+        <table class="data cog-loads">
+          <caption class="sr-only">Load carried by each support point</caption>
+          <thead>
+            <tr>
+              <th scope="col">Support</th>
+              <th scope="col" class="num">X <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Y <span data-unit="length">mm</span></th>
+              <th scope="col" class="num">Load <span data-unit="mass">kg</span></th>
+              <th scope="col" class="num">Load kN</th>
+              <th scope="col" class="num">Share</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="loads-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="loads-empty">Add support points to see the load on each one.</p>
+
+      <h3 class="cog-subhead">Tipping check</h3>
+      <p class="hint cog-stability" id="stability">Add blocks and at least three supports to check tipping.</p>
+    </section>
+
+    <!-- 5 · Notes -->
+    <section class="panel cog-panel" aria-labelledby="notes-title">
+      <div class="panel__head"><h2 id="notes-title">How the numbers are worked out</h2></div>
+      <ul class="cog-notes">
+        <li>The centre of gravity is the weighted average of each block's own centre. A block is treated as uniform, so its centre sits at the middle of its size.</li>
+        <li>With one support it carries everything. With two, the load splits along the line between them by lever arm.</li>
+        <li>With three or more, the unit is treated as <strong>rigid</strong> and the supports as <strong>equally stiff</strong>, so the loads form a plane through the centre of gravity. Three supports give an exact answer; four or more are statically indeterminate, and this is the usual first-pass assumption.</li>
+        <li>A negative load means the unit is lifting off that support rather than pressing on it. With redistribution on, that support is dropped and the rest are solved again.</li>
+        <li>Tipping is checked against the outline drawn around the supports. The margin is the shortest distance from the centre of gravity to the edge of that outline.</li>
+        <li>The sample projects carry <strong>indicative weights only</strong>. Real units also carry pipework, refrigerant charge, water content, and the effect of wind or seismic load — treat every result here as a first pass to check against certified weights.</li>
+        <li>On the 3D view a support hidden behind a block is drawn as a dotted ring instead of a dot.</li>
+        <li>Your project is kept in this browser only, under your user name, and is restored the next time you open the page. Nothing is uploaded.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <script src="../../assets/js/legacy-tools.js"></script>
+  <script src="cog.js"></script>
+</body>
+</html>

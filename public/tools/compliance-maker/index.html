@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/css/shell.css">
+  <link rel="stylesheet" href="../../assets/css/legacy-tools.css">
+  <title>Compliance Maker - DAME Tools Hub</title>
+  <meta name="description" content="Turn a specification PDF into a ready-to-fill compliance matrix in Excel, filled from the compliance library where lines were answered before.">
+
+  <style>
+    /* Tool-scoped only. Anything reusable belongs in global.css. */
+    .status { font-size: 0.8125rem; color: var(--color-text-muted); min-height: 20px; }
+    .status--error { color: var(--color-danger); }
+    .status--ok { color: var(--color-success); }
+    .row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+    /* Dropzone — a file input dressed as a target, not a new component. */
+    .dropzone {
+      border: 2px dashed var(--color-border); border-radius: var(--radius-md);
+      padding: var(--space-6) var(--space-4); text-align: center; cursor: pointer;
+      background: var(--color-surface);
+      transition: border-color .15s, background-color .15s;
+    }
+    .dropzone:hover, .dropzone.is-dragover {
+      border-color: var(--color-primary); background: var(--color-primary-tint);
+    }
+    .dropzone__icon { color: var(--color-primary); margin-bottom: var(--space-2); }
+    .dropzone__title { font-family: var(--font-heading); font-weight: 600; margin-bottom: var(--space-1); }
+    .dropzone__hint { color: var(--color-text-muted); font-size: 0.8125rem; }
+
+    .file-tag {
+      display: inline-flex; align-items: center; gap: var(--space-2);
+      background: var(--color-primary-tint); border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2);
+      font-family: var(--font-mono); font-size: 0.8125rem;
+    }
+    .file-tag button { border: 0; background: none; cursor: pointer; color: var(--color-text-muted); display: inline-flex; padding: 2px; }
+    .file-tag button:hover { color: var(--color-danger); }
+
+    .toggle-row { display: flex; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); font-size: 0.9375rem; }
+    .toggle-row input { margin-top: 3px; flex: none; width: 18px; height: 18px; }
+    #trim-note { margin-bottom: var(--space-3); color: var(--color-warning); font-weight: 600; }
+    #step-result:focus { outline: none; }
+    .toggle-row label { margin: 0; font-weight: 400; }
+
+    details.dict > summary {
+      cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--space-2);
+      font-family: var(--font-heading); font-weight: 600; font-size: 0.9375rem; padding: var(--space-1) 0;
+    }
+    details.dict > summary::-webkit-details-marker { display: none; }
+    details.dict > summary .chev { transition: transform .15s; color: var(--color-text-muted); }
+    details.dict[open] > summary .chev { transform: rotate(90deg); }
+    .dict__body { padding-top: var(--space-3); }
+
+    /* ------------------------------------------------------------------
+       PREVIEW TABLE — built on table.data, but the CELL COLOURS BELOW ARE
+       NOT THEME COLOURS AND MUST NOT BE TOKENISED. #bde5f8 and #000 are the
+       exact fills this tool writes into the .xlsx (see xlsx-writer.js). The
+       preview is meant to be WYSIWYG against the exported file — swapping
+       them for design tokens would make the preview lie about what lands
+       in Excel.
+       ------------------------------------------------------------------ */
+    table.preview { width: 100%; border-collapse: collapse; font-size: 0.8125rem; min-width: 720px; }
+    table.preview th, table.preview td {
+      border: 1px solid var(--color-border); padding: 6px 10px; text-align: left; vertical-align: top;
+    }
+    table.preview thead th {
+      font-family: var(--font-heading); font-weight: 600; font-size: 0.75rem;
+      color: var(--color-text-muted); background: var(--color-surface-sunken);
+      position: sticky; top: 0; z-index: 1;
+    }
+    table.preview td.sr { font-family: var(--font-mono); font-weight: 600; text-align: center; white-space: nowrap; width: 56px; }
+    tr.row-part td { background: #000; color: #fff; font-weight: 700; }
+    tr.row-section td { background: #bde5f8; color: #14161a; font-weight: 600; }
+    tr.row-section td.sr { color: #1e3fcc; }
+    td.sr.lvl-letter { color: #9c4a1a; }
+    td.sr.lvl-number { color: var(--color-success); }
+    .hl-red { color: #e0432f; }
+    .hl-redbold { color: #e0432f; font-weight: 700; }
+    .hl-underline { text-decoration: underline; }
+    .hl-colon { color: #a24a0e; font-weight: 700; }
+    #panel-scope, #panel-input { margin-bottom: var(--space-4); }
+    .col-empty { background: var(--color-surface); }
+    .col-filled { background: color-mix(in srgb, var(--color-success) 14%, var(--color-surface)); font-size: 0.8125rem; }
+
+    /* Dark mode: only the hardcoded preview colours need lifting. The tokens
+       themselves already follow :root[data-theme] from global.css. */
+    :root[data-theme='dark'] tr.row-section td { background: #1e3a52; color: #dbeaf7; }
+    :root[data-theme='dark'] tr.row-section td.sr { color: #9cc2ff; }
+    :root[data-theme='dark'] td.sr.lvl-letter { color: #e0895a; }
+    :root[data-theme='dark'] .hl-red, :root[data-theme='dark'] .hl-redbold { color: #ff7a68; }
+    :root[data-theme='dark'] .hl-colon { color: #d98a4e; }
+
+    /* .panel__head puts the title and its buttons on one row, which is right
+       until the title is two words long and the phone is 375px wide. Below
+       560px the head becomes a stack and the actions sit on one line. */
+    @media (max-width: 560px) {
+      .panel__head { flex-direction: column; align-items: stretch; }
+      .panel__head .row { justify-content: flex-start; }
+      table.preview { min-width: 560px; }
+    }
+
+    #panel-format, #result-panel { margin-top: var(--space-4); }
+    #paste-input { min-height: 220px; font-family: var(--font-mono); font-size: 0.875rem; }
+    /* Datasheet rows table */
+  .rows-wrap { max-height: 560px; overflow: auto; }
+  .rows-table { table-layout: fixed; min-width: 720px; }
+  table.rows-table th, table.rows-table td { vertical-align: top; overflow-wrap: anywhere; }
+  table.rows-table td.rows-sec { font-weight: 600; }
+  table.rows-table td.rows-text { white-space: pre-line; }
+  table.rows-table tr.rows-first td { border-top: 2px solid var(--color-border); }
+  table.rows-table tr.rows-sub td { background: var(--color-surface-sunken); font-weight: 600; }
+</style>
+  <script src="../../assets/js/config.js"></script>
+  <script src="../../assets/js/api.js"></script>
+  <script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header id="topbar"></header>
+  <script>window.hubReady = Hub.requireLogin({ tool: "compliance-maker" });</script>
+
+  <main id="main" class="wrap">
+    <p class="hub-back"><a href="../../dashboard.html#general">&larr; General</a></p>
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Compliance Maker</h1>
+      <p class="page-head__lede">Specification to compliance matrix</p>
+      <p>Choose the product and factory, then upload a specification PDF or paste the text.
+         Section labels are detected automatically and the clauses go into Specifications.
+         Lines that were answered before are filled in from the compliance library.</p>
+    </div>
+
+    <!-- 1 — Product and factory. Nothing else is shown until both are chosen. -->
+    <section class="panel" id="panel-scope" aria-labelledby="step-scope">
+      <div class="panel__head">
+        <h2 id="step-scope">Project, product and factory</h2>
+        <a class="btn btn--ghost btn--sm" id="lib-manage" href="library.html" hidden>Manage library</a>
+      </div>
+      <div class="field" data-project-box hidden>
+        <label for="cm-project">Project</label>
+        <select id="cm-project" disabled><option value="">Loading…</option></select>
+        <p class="hint"><span id="cm-project-hint">Choose the project this specification belongs to.</span>
+          <a href="../projects/index.html?new=1">Add New Project</a></p>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="cm-product">Product</label>
+          <select id="cm-product" disabled><option value="">Loading…</option></select>
+        </div>
+        <div class="field">
+          <label for="cm-factory">Factory</label>
+          <select id="cm-factory" disabled><option value="">Choose a product first</option></select>
+        </div>
+      </div>
+      <p class="hint" id="cm-scope-hint">Choose both to continue. Answers are kept separately for each factory.</p>
+      <p class="hint">Each conversion is saved to the company compliance library: the clause text, the product and factory, the name of the PDF file, your name and the time. The PDF file itself is read in your browser and is not uploaded.</p>
+    </section>
+
+    <!-- 1 — Specification -->
+    <section class="panel" id="panel-input" aria-labelledby="step-upload" hidden>
+      <div class="panel__head">
+        <h2 id="step-upload">Specification</h2>
+      </div>
+
+      <div class="segmented" role="tablist" aria-label="Input source" style="margin-bottom:var(--space-3)">
+        <button type="button" id="tab-pdf" role="tab" aria-selected="true" aria-pressed="true" aria-controls="pane-pdf">Upload PDF</button>
+        <button type="button" id="tab-text" role="tab" aria-selected="false" aria-pressed="false" aria-controls="pane-text" tabindex="-1">Paste text</button>
+      </div>
+
+      <div class="source-pane" id="pane-pdf" role="tabpanel" aria-labelledby="tab-pdf">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose a PDF file or drop one here">
+          <div class="dropzone__icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>
+            </svg>
+          </div>
+          <p class="dropzone__title">Choose a PDF or drop it here</p>
+          <p class="dropzone__hint">Text-based PDFs only · no scanned images · the file is read in your browser</p>
+        </div>
+        <input type="file" id="file-input" accept="application/pdf,.pdf" class="sr-only">
+      </div>
+
+      <div class="source-pane" id="pane-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+        <div class="field">
+          <label for="paste-input">Paste specification text</label>
+          <textarea id="paste-input" spellcheck="false" placeholder="PART 1  GENERAL&#10;1.01  DESCRIPTION OF WORK&#10;A.  Extent of work shall be as indicated on drawings.&#10;1.  Chilled water pipe work and its accessories."></textarea>
+          <p class="hint">Labels (1.01, A., 1., PART 1) are detected the same way as in a PDF.</p>
+        </div>
+
+        <!-- Paste-only option. It lives in this pane, not in Formatting, because
+             it changes how the text is *read* and it is meaningless for a PDF —
+             there, line breaks are wrap artifacts, not the author's intent. -->
+        <div class="toggle-row" style="margin-top:var(--space-3)">
+          <input type="checkbox" id="keep-breaks">
+          <label for="keep-breaks">
+            Keep line breaks — start a new row at every line, even when the line
+            has no label
+            <span class="hint" style="display:block">
+              Leave this off for normal specification text: labels are detected
+              even without a full stop (1, 2, 3 as well as 1., 2., 3.) and wrapped
+              lines are rejoined into one clause. Turn it on only for text where
+              every line really is its own entry.
+            </span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <input type="checkbox" id="tidy-first" checked>
+          <label for="tidy-first">
+            Tidy the text first — close up words split across a line, drop
+            repeated page headers and page numbers, straighten quotes and dashes
+            <span class="hint" style="display:block">
+              Safe for specifications: it never joins clauses or rewords anything.
+              Whatever it removes is reported in the status line below.
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Applies to both a PDF and pasted text -->
+      <div class="toggle-row" style="margin-top:var(--space-3)">
+        <input type="checkbox" id="skip-front" checked>
+        <label for="skip-front">
+          Skip the cover and contents pages — start at the specification itself
+          <span class="hint" style="display:block">
+            Everything before the real "PART 1" heading is left out: cover sheet,
+            revision table and table of contents. What was skipped is reported
+            in the status line below. Untick it if the start of your
+            specification goes missing.
+          </span>
+        </label>
+      </div>
+
+      <div class="row" style="margin-top:var(--space-3)">
+        <span id="file-slot"></span>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="hint" id="page-limit-note"></p>
+    </section>
+
+    <!-- 2 — Formatting -->
+    <section class="panel" id="panel-format" aria-labelledby="step-options" hidden>
+      <div class="panel__head"><h2 id="step-options">Formatting</h2></div>
+
+      <div class="toggle-row">
+        <input type="checkbox" id="hl-db-rules" checked>
+        <label for="hl-db-rules">Use the shared highlight rules — standards, materials and key terms in red, bold or underline</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="hl-numbers" checked>
+        <label for="hl-numbers">Highlight numbers (whole and decimal, e.g. 10, 2.5)</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="hl-caps" checked>
+        <label for="hl-caps">Highlight ALL-CAPS terms (e.g. AHRI, ASHRAE, BMS)</label>
+      </div>
+
+      <details class="dict">
+        <summary>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          Keyword dictionary
+        </summary>
+        <div class="dict__body">
+          <div class="field">
+            <label for="dict">Highlight these words wherever they appear in Specifications</label>
+            <textarea id="dict" rows="4" spellcheck="false" placeholder="One word or phrase per line, or comma-separated">disconnects
+protection
+BMS
+starters</textarea>
+            <p class="hint">Case-insensitive. Matches whole words only.</p>
+          </div>
+        </div>
+      </details>
+
+      <!-- The single action. Nothing is parsed before this is clicked. -->
+      <div class="row" style="margin-top:var(--space-4)">
+        <button type="button" id="btn-convert" class="btn btn--primary" disabled>Convert</button>
+        <span id="convert-hint" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <!-- 3 — Preview and export -->
+    <section class="panel" id="result-panel" aria-labelledby="step-result" hidden>
+      <div class="panel__head">
+        <h2 id="step-result" tabindex="-1">Preview &amp; export</h2>
+        <div class="row">
+          <button id="btn-download" class="btn btn--primary" disabled>Download Excel</button>
+          <button id="btn-clear" class="btn btn--ghost">Clear</button>
+        </div>
+      </div>
+
+      <div id="trim-note" class="notice notice--warning" role="alert" hidden></div>
+      <p id="lib-note" class="status" role="status" aria-live="polite" style="margin-bottom:var(--space-2)"></p>
+      <div class="table-wrap">
+        <table class="preview" id="preview">
+          <thead>
+            <tr>
+              <th style="width:56px">Sr</th>
+              <th>Specifications</th>
+              <th style="width:110px">Compliance</th>
+              <th style="width:140px">Remarks</th>
+              <th style="width:190px">Comments</th>
+            </tr>
+          </thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="count-note"></p>
+    </section>
+
+    <!-- Datasheet rows: the rows of the Datasheet Notes table, with the clause found for each -->
+    <section class="panel" id="rows-panel" aria-labelledby="step-rows" hidden>
+      <div class="panel__head">
+        <h2 id="step-rows">Datasheet rows</h2>
+        <label class="check"><input type="checkbox" id="rows-only"> <span>Only rows found in the specification</span></label>
+      </div>
+      <p id="rows-note" class="hint" role="status" aria-live="polite" style="margin-bottom:var(--space-2)"></p>
+      <div class="table-wrap rows-wrap" tabindex="0" role="region" aria-labelledby="step-rows">
+        <table class="data rows-table">
+          <thead><tr><th style="width:18%">Section</th><th style="width:20%">Component</th><th>Specification requirement</th><th style="width:14%">Remarks</th></tr></thead>
+          <tbody id="rows-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">This table is the second sheet of the Excel ("Datasheet rows"), with every row. Clauses come from Part 2 of the
+        specification first, then Part 1; Part 3 is not searched.</p>
+    </section>
+
+    <section class="panel" style="margin-top:var(--space-4)" aria-labelledby="tips">
+      <div class="panel__head"><h2 id="tips">Tips</h2></div>
+      <p class="muted">
+        Detected labels include section codes (1.01, 1.02), letters (A., B.), numbered
+        items (1., 2.) and part headers (PART 1). A scanned PDF has no text to extract —
+        this tool does not use OCR. Review the preview before exporting; complex or
+        multi-column layouts may need a quick tidy-up.
+      </p>
+    </section>
+  </main>
+
+
+  <!-- PDF text extraction. This is the one external dependency in the build:
+       reading text out of a PDF is not something to hand-roll. It is pinned to
+       an exact version rather than a floating tag. -->
+  <script src="../../assets/vendor/pdfjs/pdf.min.js"></script>
+  <script src="../../assets/js/legacy-tools.js"></script>
+  <script src="../../assets/js/reflow.js"></script>
+  <script src="xlsx-writer.js"></script>
+  <script src="../projects/pr-pick.js"></script>
+  <script src="cm-library.js"></script>
+  <script src="cm-rows.js"></script>
+  <script src="cm-engine.js"></script>
+  <script src="compliance-maker.js"></script>
+</body>
+</html>

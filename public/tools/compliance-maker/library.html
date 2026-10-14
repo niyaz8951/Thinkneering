@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Compliance library - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<script src="../../assets/js/xlsx-lite.js"></script>
+<script src="xlsx-writer.js"></script>
+<script src="cm-highlight.js"></script>
+<style>
+  .scope { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+  .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .stat b { display: block; font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 13px; color: var(--text-soft); }
+  .bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+  .lib .meta { font-size: 12px; color: var(--text-soft); margin-top: 4px; }
+  .lib tr.sect .src { font-weight: 400; font-size: 12px; color: var(--text-soft); margin-left: 10px; }
+  .lib td.who { font-size: 13px; }
+  .lib .pa { margin-top: 8px; display: grid; gap: 6px; }
+  .lib .pa-item { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 13px; overflow-wrap: anywhere; }
+  .lib .pa-item.wait { background: var(--warn-bg); }
+  .lib .pa-item .row { margin-top: 6px; }
+  .lib .state.ok { color: var(--ok); } .lib .state.err { color: var(--danger); }
+  .lib td.end .btn { margin-top: 4px; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px; text-align: center; cursor: pointer; }
+  .drop:hover, .drop.over { border-color: var(--brand); background: var(--surface-2); }
+  .result { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  @media (max-width: 600px) { .stats { grid-template-columns: 1fr; } }
+  .mode-seg { flex: 0 0 auto; } .mode-seg .tab { min-width: 64px; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page wide">
+  <div class="page-head">
+    <p class="small"><a href="./">&larr; Compliance Maker</a></p>
+    <h1>Compliance review</h1>
+    <p>The master compliance library. Every clause converted by anyone lands here once, under its Part and section, in the order of the specification it came from. Fill in Compliance and Remarks, and the next conversion that contains the same clause gets them automatically. Answers users filled in their projects are shown under the clause with their name.</p>
+  </div>
+
+  <div class="card stack">
+    <div class="scope">
+      <label class="field"><span>Product</span><select class="input" id="product"></select></label>
+      <label class="field"><span>Factory</span><select class="input" id="factory"></select></label>
+    </div>
+    <div class="stats" id="stats" hidden>
+      <div class="stat"><b id="sAll">0</b><span>unique lines</span></div>
+      <div class="stat"><b id="sOpen">0</b><span>to answer</span></div>
+      <div class="stat"><b id="sDone">0</b><span>answered</span><div class="bar"><i id="sBar"></i></div></div>
+      <div class="stat"><b id="sReview">0</b><span>filled by users, to review</span></div>
+    </div>
+  </div>
+
+  <div id="work" hidden style="margin-top:20px">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="lines" aria-selected="true">Lines</button>
+      <button class="tab" role="tab" data-tab="upload" aria-selected="false">Upload filled compliance</button>
+      <button class="tab" role="tab" data-tab="runs" aria-selected="false">Conversion history</button>
+    </div>
+
+    <!-- LINES -->
+    <section id="tab-lines" class="stack">
+      <!-- the work bar: stays under the top bar, slides away while reading down, comes back on the way up -->
+      <div class="workbar" id="workbar">
+        <select class="input" id="fStatus" aria-label="Show">
+          <option value="open">To answer</option><option value="answered">Answered</option><option value="review">Filled by users, to review</option><option value="all">All lines</option>
+        </select>
+        <select class="input" id="fPart" aria-label="Part of the specification"><option value="">All parts</option></select>
+        <select class="input" id="fTopic" aria-label="Topic"><option value="">All topics</option></select>
+        <select class="input" id="fClientType" aria-label="Client type"><option value="">All client types</option></select>
+        <select class="input" id="fClient" aria-label="Client name"><option value="">All clients</option></select>
+        <input class="input grow" id="fSearch" type="search" placeholder="Search clause text" aria-label="Search clause text">
+        <button class="btn" type="button" id="btnFocus">Focus mode</button>
+        <div class="tabs mode-seg" id="modeSeg" role="group" aria-label="Read or edit"><button type="button" class="tab" data-mode="read" aria-selected="true">Read</button><button type="button" class="tab" data-mode="edit" aria-selected="false">Edit</button></div>
+        <button class="btn ghost" type="button" id="btnExport">Download library (Excel)</button>
+      </div>
+      <div class="table-wrap sheet-wrap">
+        <table class="table sheet lib">
+          <thead><tr><th style="width:80px">Sr</th><th>Specifications</th><th style="width:170px">Compliance</th><th style="width:21%">Remarks</th><th style="width:18%">Internal Comments</th><th style="width:108px">Filled by</th><th style="width:104px"></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span class="small muted" id="pageInfo"></span>
+        <span class="row"><button class="btn ghost sm" type="button" id="prev">Previous</button><button class="btn ghost sm" type="button" id="next">Next</button></span>
+      </div>
+      <p class="small muted" id="modeNote">Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification, in the Internal Comments column.</p>
+      <datalist id="answers">
+        <option value="Comply"></option><option value="Not Comply"></option><option value="Comply with Remarks"></option>
+        <option value="Noted"></option><option value="Not Applicable"></option><option value="In Contractor's Scope"></option>
+      </datalist>
+    </section>
+
+    <!-- UPLOAD -->
+    <section id="tab-upload" class="stack" hidden>
+      <div class="card stack">
+        <h2>Upload a filled compliance</h2>
+        <p class="muted">Use an Excel file with the columns <b>Sr</b>, <b>Specifications</b>, <b>Compliance</b>, <b>Remarks</b> and <b>Internal Comments</b>, the same for every product: a PART row, then each section with its number in Sr, then its clauses. <a href="sample-compliance-upload.xlsx" download>Download the sample file</a>. A sheet downloaded from the Compliance Maker or from this library and filled in works too. Rows with an answer are added to the library for <b id="upScope"></b>; each clause is kept once. A clause that already has an answer in the library gets this file's answer instead; the preview says how many before you add.</p>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose an Excel file or drop one here">
+          <b>Choose an .xlsx file or drop it here</b>
+          <div class="small muted">Nothing is saved until you press Add to library.</div>
+        </div>
+        <input type="file" id="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <div id="upMsg" class="notice" hidden></div>
+        <div id="upPreview" class="stack" hidden>
+          <div class="result">
+            <div class="stat"><b id="pRows">0</b><span>rows read</span></div>
+            <div class="stat"><b id="pAns">0</b><span>with an answer or a comment</span></div>
+            <div class="stat"><b id="pSkip">0</b><span>empty (ignored)</span></div>
+          </div>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Sr</th><th>Specification</th><th>Compliance</th><th>Remarks</th><th>Internal Comments</th></tr></thead><tbody id="pRowsBody"></tbody></table></div>
+          <p class="small muted" id="pMore"></p>
+          <div id="pReplace" class="notice" role="status" hidden></div>
+          <div class="row"><button class="btn" type="button" id="btnImport">Add to library</button><button class="btn ghost" type="button" id="btnCancel">Cancel</button></div>
+        </div>
+        <div id="upResult" class="stack" hidden>
+          <div class="notice ok" id="upResultMsg"></div>
+          <div class="result">
+            <div class="stat"><b id="rAdded">0</b><span>new lines</span></div>
+            <div class="stat"><b id="rUpdated">0</b><span>open lines answered</span></div>
+            <div class="stat"><b id="rKept">0</b><span>existing answers replaced</span></div>
+            <div class="stat"><b id="rSame">0</b><span>already the same</span></div>
+            <div class="stat"><b id="rSkipped">0</b><span>rows skipped</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RUNS -->
+    <section id="tab-runs" class="stack" hidden>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>When</th><th>Who</th><th>Product</th><th>Factory</th><th>Source</th><th>Rows</th><th>Unique lines</th><th>Filled from library</th></tr></thead>
+          <tbody id="runRows"></tbody>
+        </table>
+      </div>
+      <p class="small muted" id="runInfo"></p>
+    </section>
+  </div>
+</main>
+<script src="cm-focus.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var el = Hub.el, PAGE = 100;
+  var products = [], offset = 0, total = 0, pending = null, searchTimer, shownLines = [], editing = false;
+
+  function fail(err) { Hub.toast(err && err.message ? err.message : String(err), true); }
+  function factoryId() { return $("factory").value; }
+  function scopeName() {
+    var p = products.filter(function (x) { return x.id === $("product").value; })[0];
+    var f = p && p.factories.filter(function (x) { return x.id === factoryId(); })[0];
+    return p && f ? p.name + " / " + f.name : "";
+  }
+  function fmt(iso) { if (!iso) return ""; var d = new Date(iso); return isNaN(d) ? "" : Hub.date(iso, true); }
+
+  // ---------- scope ----------
+  function fillFactories() {
+    var p = products.filter(function (x) { return x.id === $("product").value; })[0], s = $("factory");
+    s.textContent = ""; s.appendChild(el("option", { value: "", text: p ? "Choose a factory" : "Choose a product first" }));
+    (p ? p.factories : []).forEach(function (f) { s.appendChild(el("option", { value: f.id, text: f.name })); });
+    s.disabled = !p;
+  }
+  function scopeChanged() {
+    var on = !!factoryId();
+    $("work").hidden = !on; $("stats").hidden = !on;
+    $("upScope").textContent = scopeName();
+    resetUpload();
+    $("fPart").value = ""; $("fTopic").value = ""; $("fClientType").value = ""; $("fClient").value = "";
+    if (on) { offset = 0; loadLines(); }
+  }
+  $("product").addEventListener("change", function () { fillFactories(); scopeChanged(); });
+  $("factory").addEventListener("change", scopeChanged);
+
+  // ---------- lines ----------
+  function setCounts(c) {
+    $("sAll").textContent = c.all; $("sOpen").textContent = c.open; $("sDone").textContent = c.answered; $("sReview").textContent = c.review || 0;
+    $("sBar").style.width = (c.all ? Math.round(c.answered / c.all * 100) : 0) + "%";
+  }
+  /* In Edit a line is first drawn as text and gets its boxes when it comes near the window (Hub.lazyRows). */
+  var lazy = Hub.lazyRows(function (tr) { return lineRow(tr._line, true); });
+  function lineRow(l, boxes) {
+    var comp = el("input", { "class": "input", list: "answers", value: l.compliance || "", maxlength: "200", "aria-label": "Compliance" });
+    var rem = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Remarks" }); rem.value = l.remarks || ""; Hub.autoGrow(rem);
+    var note = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Internal Comments" }); note.value = l.comments || ""; Hub.autoGrow(note);
+    // Enter in Compliance goes to the next line, so a run of answers is typed without the mouse
+    comp.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      var nx = row.nextElementSibling;
+      while (nx && !(nx.classList.contains("line") && (nx._lazy || nx.querySelector("input")))) nx = nx.nextElementSibling;
+      if (nx && nx._lazy) nx = lazy.now(nx);
+      if (nx) nx.querySelector("input").focus(); else comp.blur();
+    });
+    var state = el("span", { "class": "state", "aria-live": "polite" });
+    var saved = { c: l.compliance || "", r: l.remarks || "", n: l.comments || "" };
+    var busy = null;                                    // one save at a time; resolves true when the answer is stored
+    function save() {
+      if (busy) return lastSave = busy.then(save);
+      var c = comp.value.trim(), r = rem.value.trim(), n = note.value.trim();
+      if (c === saved.c && r === saved.r && n === saved.n) return Promise.resolve(true);
+      state.textContent = "Saving..."; state.className = "state";
+      return lastSave = busy = Api.cmAdminSaveAnswer(Hub.token(), l.id, c, r, n).then(function () {
+        busy = null;
+        var was = !!(saved.c || saved.r), now = !!(c || r);
+        saved = { c: c, r: r, n: n }; state.textContent = "Saved"; state.className = "state ok";
+        if (was !== now) {       // keep the three counters right without reloading the page of lines
+          var open = +$("sOpen").textContent + (now ? -1 : 1), done = +$("sDone").textContent + (now ? 1 : -1);
+          setCounts({ all: +$("sAll").textContent, open: open, answered: done, review: +$("sReview").textContent });
+        }
+        return true;
+      }, function (err) { busy = null; state.textContent = "Not saved"; state.className = "state err"; fail(err); return false; });
+    }
+    comp.addEventListener("change", save); rem.addEventListener("change", save); note.addEventListener("change", save);
+    var del = el("button", { "class": "btn danger sm", type: "button", text: "Delete", title: "Remove this line from the library",
+      onclick: function () {
+        Hub.confirm("Use this for junk lines only. The clause and its answer leave the library for every user.", { title: "Delete this line?", ok: "Delete", danger: true }).then(function (yes) {
+          if (yes) Api.cmAdminDeleteLine(Hub.token(), l.id).then(function () { Hub.toast("Line deleted"); loadLines(); }, fail);
+        });
+      } });
+    var meta = "Seen in " + l.times_seen + (l.times_seen === 1 ? " conversion" : " conversions") +
+      (l.answered_at && (l.compliance || l.remarks) ? " · answered " + fmt(l.answered_at) + (l.answered_by ? " by " + l.answered_by : "") + (l.answer_source === "upload" ? " (upload)" : "") : "");
+    var text = el("div", {}, CMHighlight.runs(l.spec_text).map(function (r) {
+      return r.style ? el("span", { "class": "hl-" + r.style, text: r.text }) : r.text;
+    }));
+    var kind = l.row_type === "letter" && /^[A-Z]/.test(l.sr || "") ? "letter" : l.row_type === "number" ? "number" : "";
+    // Answers users filled in their projects for this clause: who, which project and client, and
+    // a button to take a waiting one into the library (or leave it in its project only).
+    var who = [], users = el("div", { "class": "pa" });
+    if (l.answered_by && (l.compliance || l.remarks)) who.push(l.answered_by);
+    (l.project_answers || []).forEach(function (a) {
+      if (who.indexOf(a.by) < 0) who.push(a.by);
+      var wait = a.review === "pending";
+      function decide(decision, btn) {
+        btn.disabled = true;
+        Api.prReviewDecide(Hub.token(), { run: a.run, seq: a.seq, decision: decision, lineId: l.id }).then(function () {
+          Hub.toast(decision === "approve" ? "Taken into the library." : "Left in its project only."); loadLines();
+        }, function (err) { btn.disabled = false; fail(err); });
+      }
+      users.appendChild(el("div", { "class": "pa-item" + (wait ? " wait" : "") }, [
+        el("div", {}, [el("b", { text: a.by }), " · " + a.project + " · " + a.client + " (" + a.client_type + ")" + (a.at ? " · " + fmt(a.at) : "")]),
+        el("div", { text: (a.compliance || "(no compliance)") + (a.remarks ? " - " + a.remarks : "") }),
+        wait && !editing ? el("div", { "class": "meta", text: "Waiting for a decision. Switch to Edit to take it or turn it down." }) :
+        wait ? el("div", { "class": "row" }, [
+          // a clause that already has a library answer keeps it: the user's answer can only be turned down, or typed in by hand
+          (l.compliance || l.remarks) ? el("span", { "class": "meta", text: "The library already has an answer. It is kept." })
+            : el("button", { "class": "btn sm", type: "button", text: "Use this answer", onclick: function (e) { decide("approve", e.currentTarget); } }),
+          el("button", { "class": "btn ghost sm", type: "button", text: "Do not take", onclick: function (e) { decide("reject", e.currentTarget); } })])
+             : el("div", { "class": "meta", text: a.review === "approved" ? "Taken into the library" : a.review === "rejected" ? "Not taken, project only" : "Same as the library" })
+      ]));
+    });
+    var first = [el("td", { "class": "sr " + kind, text: l.sr || "" }),
+      el("td", { "class": "spec" }, [text, el("div", { "class": "meta", text: meta }), users.firstChild ? users : null])];
+    // read: plain text, so the page can be searched (Ctrl+F) and read like the document
+    if (!editing || (!boxes && lazy.on)) {
+      var plain = el("tr", { "class": "line" }, first.concat([
+        el("td", { "class": "read", "data-label": "Compliance", text: l.compliance || "" }), el("td", { "class": "read", "data-label": "Remarks", text: l.remarks || "" }),
+        el("td", { "class": "note", "data-label": "Internal Comments", text: l.comments || "" }),
+        el("td", { "class": "who", "data-label": "Filled by", text: who.join(", ") }),
+        el("td", { "class": "end" })
+      ]));
+      if (editing) { plain._line = l; lazy.watch(plain); }
+      return plain;
+    }
+    var row = el("tr", { "class": "line edit" }, first.concat([
+      el("td", { "data-label": "Compliance" }, [comp]), el("td", { "data-label": "Remarks" }, [rem]), el("td", { "data-label": "Internal Comments" }, [note]),
+      el("td", { "class": "who", "data-label": "Filled by", text: who.join(", ") }),
+      el("td", { "class": "end" }, [state, del])       // status above Delete, inside the column: nothing leaves the window
+    ]));
+    return row;
+  }
+  function loadLines() {
+    if (!factoryId()) return;
+    var req = factoryId() + "|" + offset + "|" + $("fPart").value + "|" + $("fTopic").value + "|" + $("fClientType").value + "|" + $("fClient").value + "|" + $("fStatus").value;
+    loadLines.last = req;
+    Api.cmAdminLines(Hub.token(), { factoryId: factoryId(), status: $("fStatus").value, search: $("fSearch").value.replace(/\s+/g, " ").trim(), limit: PAGE, offset: offset,
+                                     part: $("fPart").value, topic: $("fTopic").value, clientType: $("fClientType").value, clientName: $("fClient").value }).then(function (res) {
+      if (loadLines.last !== req) return;
+      shownLines = res.lines; total = res.total; setCounts(res.counts); fillGroups(res.groups || []); fillClients(res.client_types || [], res.client_names || []);
+      var body = $("rows"); body.textContent = ""; lazy.stop();
+      if (!res.lines.length) {
+        var msg = res.counts.all === 0 ? "No lines yet for this factory. They appear here after the first conversion or upload."
+                : $("fClientType").value || $("fClient").value ? "No lines here for this client."
+                : $("fPart").value || $("fTopic").value ? "No lines here for this part and topic."
+                : $("fStatus").value === "review" ? "No answer from a user is waiting for this factory."
+                : $("fSearch").value ? "No lines match that search."
+                : $("fStatus").value === "open" ? "Nothing left to answer for this factory." : "No lines here.";
+        body.appendChild(el("tr", {}, [el("td", { colspan: "7", "class": "muted", style: "padding:28px;text-align:center", text: msg })]));
+      }
+      layout(res.lines).forEach(function (it) {
+        if (it.kind === "part") body.appendChild(el("tr", { "class": "part" }, [el("td"), el("td", { colspan: "6", text: it.text })]));
+        else if (it.kind === "section") body.appendChild(el("tr", { "class": "sect" }, [
+          el("td", { "class": "sr", text: it.sr }),
+          el("td", { colspan: "6" }, [it.text, el("span", { "class": "src", text: [it.topic, it.source ? "from " + it.source : ""].filter(Boolean).join(" · ") })])]));
+        else body.appendChild(lineRow(it.line));
+      });
+      $("pageInfo").textContent = total ? "Showing " + (offset + 1) + " to " + Math.min(offset + PAGE, total) + " of " + total : "";
+      $("prev").disabled = offset === 0; $("next").disabled = offset + PAGE >= total;
+    }, fail);
+  }
+  // Part and topic filters: filled from what this factory's library holds, with the lines still to answer.
+  var PARTS = { 1: "Part 1 General", 2: "Part 2 Products", 3: "Part 3 Execution" };
+  function partName(p) { return !p ? "Part not known" : PARTS[p] || "Part " + p; }
+  /* Lines come from the database in reading order. Put a PART row where the part changes and a
+     section row where the section, or the specification it came from, changes. The same list
+     feeds the screen and the Excel download, so both read the same. */
+  function layout(lines) {
+    var out = [], part = null, block = null;
+    lines.forEach(function (l) {
+      if (l.part !== part) { part = l.part; block = null; out.push({ kind: "part", part: partName(l.part), text: partName(l.part).toUpperCase().replace(/^(PART \d+) /, "$1 - ") }); }
+      var b = (l.section || "").toLowerCase() + "|" + (l.home_run || "") + "|" + (l.section_sr || "");
+      if (b !== block) {
+        block = b;
+        out.push({ kind: "section", part: partName(l.part), topic: l.topic || "", section: l.section || "", sr: l.section_sr || "",
+                   text: l.section || "(no section heading)", source: l.file_name || "" });
+      }
+      out.push({ kind: "line", line: l, part: partName(l.part), topic: l.topic || "", section: l.section || "", sr: l.sr || "", type: l.row_type || "",
+                 spec: l.spec_text, compliance: l.compliance || "", remarks: l.remarks || "", comments: l.comments || "" });
+    });
+    return out;
+  }
+  function fillGroups(groups) {
+    function fill(sel, first, items) {
+      var keep = sel.value;
+      sel.textContent = ""; sel.appendChild(el("option", { value: "", text: first }));
+      items.forEach(function (it) { sel.appendChild(el("option", { value: it.value, text: it.text })); });
+      sel.value = keep; if (sel.value !== keep) sel.value = "";
+    }
+    var parts = {}, topics = {}, partSel = $("fPart").value;
+    groups.forEach(function (g) {
+      var p = parts[g.part] || (parts[g.part] = { all: 0, open: 0 }); p.all += g.all; p.open += g.open;
+      if (partSel !== "" && String(g.part) !== partSel) return;       // topics of the chosen part only
+      var k = g.topic || "";
+      var t = topics[k] || (topics[k] = { all: 0, open: 0 }); t.all += g.all; t.open += g.open;
+    });
+    function tail(c) { return " (" + c.open + " to answer of " + c.all + ")"; }
+    fill($("fPart"), "All parts", Object.keys(parts).sort(function (a, b) { return (a === "0") - (b === "0") || a - b; })
+      .map(function (k) { return { value: k, text: partName(+k) + tail(parts[k]) }; }));
+    fill($("fTopic"), "All topics", Object.keys(topics).filter(Boolean).sort()
+      .map(function (k) { return { value: k, text: k + tail(topics[k]) }; }));
+  }
+  // Client type and client name: the clients of the projects that used this factory.
+  function fillClients(types, names) {
+    [[$("fClientType"), "All client types", types], [$("fClient"), "All clients", names]].forEach(function (x) {
+      var keep = x[0].value; x[0].textContent = ""; x[0].appendChild(el("option", { value: "", text: x[1] }));
+      x[2].forEach(function (v) { x[0].appendChild(el("option", { value: v, text: v })); });
+      x[0].value = keep; if (x[0].value !== keep) x[0].value = "";
+    });
+  }
+  $("fClientType").addEventListener("change", function () { $("fClient").value = ""; offset = 0; loadLines(); });
+  $("fClient").addEventListener("change", function () { offset = 0; loadLines(); });
+  $("fPart").addEventListener("change", function () { $("fTopic").value = ""; offset = 0; loadLines(); });
+  $("fTopic").addEventListener("change", function () { offset = 0; loadLines(); });
+  $("fStatus").addEventListener("change", function () { offset = 0; loadLines(); });
+  $("fSearch").addEventListener("input", function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { offset = 0; loadLines(); }, 300); });
+  $("prev").addEventListener("click", function () { offset = Math.max(0, offset - PAGE); loadLines(); window.scrollTo(0, 0); });
+  $("next").addEventListener("click", function () { offset += PAGE; loadLines(); window.scrollTo(0, 0); });
+
+  /* Full screen, one clause at a time (cm-focus.js), over the lines of this page and filters. */
+  $("btnFocus").addEventListener("click", function () {
+    var items = layout(shownLines).filter(function (it) { return it.kind === "line"; }).map(function (it) {
+      var l = it.line;
+      return { line: l, part: it.part, section: (l.section_sr ? l.section_sr + " " : "") + (l.section || ""), sr: l.sr || "", spec: l.spec_text,
+               compliance: l.compliance || "", remarks: l.remarks || "", comments: l.comments || "",
+               info: l.answered_by && (l.compliance || l.remarks) ? "Answered by " + l.answered_by : "",
+               others: (l.project_answers || []).map(function (a) { return a.by + " · " + a.project + " · " + a.client + ": " + (a.compliance || "(no compliance)") + (a.remarks ? " - " + a.remarks : ""); }) };
+    });
+    var first = 0; for (var k = 0; k < items.length; k++) if (!items[k].compliance && !items[k].remarks) { first = k; break; }
+    CMFocus.open({ title: scopeName() + " library", items: items, start: first,
+      choices: ["Comply", "Comply with Remarks", "Noted", "Not Comply", "Not Applicable", "In Contractor's Scope"],
+      save: function (it, v) {
+        return Api.cmAdminSaveAnswer(Hub.token(), it.line.id, v.compliance, v.remarks, v.comments).then(function () {
+          it.compliance = v.compliance; it.remarks = v.remarks; it.comments = v.comments; return {};
+        });
+      },
+      editing: editing, onMode: function (on) { setMode(on, true); },      // one mode for the page and the pane
+      onClose: loadLines });
+  });
+
+  // Edit on: every line shows its boxes, Delete and the buttons on users' answers. Edit off: the page reads like the document.
+  function setMode(on, quiet) {
+    editing = !!on;
+    [].forEach.call($("modeSeg").children, function (b) { b.setAttribute("aria-selected", String((b.getAttribute("data-mode") === "edit") === editing)); });
+    $("modeNote").textContent = editing ? MODE_EDIT : MODE_READ;
+    if (!quiet) settled().then(loadLines, loadLines);   // a box that was just left is saved before the lines are read again
+  }
+  var lastSave = Promise.resolve();
+  function settled() { var p = lastSave; return p.then(function () { return p === lastSave ? null : settled(); }); }   // every save that is under way or queued
+  $("modeSeg").addEventListener("click", function (e) { var b = e.target.closest(".tab"); if (b) setMode(b.getAttribute("data-mode") === "edit"); });
+  var MODE_READ = "Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification, in the Internal Comments column.";
+  var MODE_EDIT = "Edit is on. Answers save by themselves when you leave a box. Clearing Compliance and Remarks puts the line back under \"To answer\". Internal Comments show to users beside the clause.";
+
+  function download(blob, name) {
+    var url = URL.createObjectURL(blob), a = el("a", { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  $("btnExport").addEventListener("click", function () {
+    Api.cmAdminExport(Hub.token(), factoryId()).then(function (res) {
+      if (!res.lines.length) { Hub.toast("There are no lines to download yet."); return; }
+      download(xlsxWriter.buildLibrary(layout(res.lines), CMHighlight.runs), "compliance-library-" + factoryId() + ".xlsx");
+    }, fail);
+  });
+
+  // ---------- upload ----------
+  function show(box, text, kind) { box.textContent = text; box.className = "notice " + (kind || "error"); box.hidden = !text; }
+  function resetUpload() { pending = null; $("upPreview").hidden = true; $("upResult").hidden = true; show($("upMsg"), ""); $("file").value = ""; }
+  /* Find the header row (Sr / Specifications / Compliance / Remarks / Internal Comments; Sr and
+     Internal Comments may be missing) and read the clauses under it. PART rows and section rows
+     are not clauses: they give each clause its Part, section and section number, so a new clause
+     lands in the right place of the library. */
+  function readSheet(rows) {
+    var head = -1, cs = -1, cc = -1, cr = -1, ci = -1, cn = -1;
+    for (var i = 0; i < Math.min(rows.length, 40) && head < 0; i++) {
+      var s = -1, c = -1, r = -1, k2 = -1, n = -1;
+      rows[i].forEach(function (v, k) {
+        v = String(v == null ? "" : v).trim().toLowerCase();
+        if (s < 0 && /^specifications?$/.test(v)) s = k;
+        else if (c < 0 && /^compliance$/.test(v)) c = k;
+        else if (r < 0 && /^remarks?$/.test(v)) r = k;
+        else if (k2 < 0 && /^internal comments?$/.test(v)) k2 = k;
+        else if (n < 0 && /^sr\.?( ?no\.?)?$/.test(v)) n = k;
+      });
+      if (s >= 0 && c >= 0) { head = i; cs = s; cc = c; cr = r; ci = k2; cn = n; }
+    }
+    if (head < 0) throw new Error("This sheet has no Specifications and Compliance column headings. Use the sample file, or a sheet downloaded from the Compliance Maker.");
+    function cell(row, k) { return k >= 0 ? String(row[k] == null ? "" : row[k]).trim() : ""; }
+    var out = [], part = 0, section = "", sectionSr = "";
+    rows.slice(head + 1).forEach(function (row) {
+      var spec = cell(row, cs), sr = cell(row, cn), c = cell(row, cc), r = cell(row, cr), note = cell(row, ci);
+      if (!spec) return;
+      var pm = /^PART\s+([0-9]|I{1,3})\b/i.exec(spec);
+      if (pm && !c && !r) { part = { I: 1, II: 2, III: 3 }[pm[1].toUpperCase()] || +pm[1] || 0; section = ""; sectionSr = ""; return; }
+      if (/^\d+(\.\d+)+\.?$/.test(sr) && !c && !r && !note) { section = spec.slice(0, 120); sectionSr = sr.replace(/\.$/, ""); return; }
+      var label = sr.replace(/[.)]\s*$/, "");
+      out.push({ spec: spec, compliance: c, remarks: r, comments: note, sr: label,
+                 type: /^[A-Za-z]{1,2}$/.test(label) ? "letter" : /^\d+$/.test(label) ? "number" : "text", part: part, section: section, section_sr: sectionSr });
+    });
+    return out;
+  }
+  function takeFile(file) {
+    resetUpload(); if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { show($("upMsg"), "Please choose an .xlsx file. Older .xls files need to be saved as .xlsx first."); return; }
+    HubXlsx.read(file).then(function (rows) {
+      var all = readSheet(rows), ans = all.filter(function (r) { return r.compliance || r.remarks || r.comments; });
+      if (!ans.length) { show($("upMsg"), "No filled rows were found. Fill in Compliance, Remarks or Internal Comments for at least one row."); return; }
+      pending = { fileName: file.name, rows: ans, read: all.length };
+      $("pRows").textContent = all.length; $("pAns").textContent = ans.length; $("pSkip").textContent = all.length - ans.length;
+      var body = $("pRowsBody"); body.textContent = "";
+      ans.slice(0, 8).forEach(function (r) { body.appendChild(el("tr", {}, [el("td", { text: r.sr }), el("td", { text: r.spec }), el("td", { text: r.compliance }), el("td", { text: r.remarks }), el("td", { text: r.comments })])); });
+      $("pMore").textContent = ans.length > 8 ? "First 8 of " + ans.length + " filled rows shown." : "";
+      $("upPreview").hidden = false;
+      countReplaced(pending);
+    })["catch"](function (err) { show($("upMsg"), err && err.message ? err.message : String(err)); });
+  }
+  /* Before Add to library: how many answers already in the library this file will replace.
+     Same rule as the import: one clause is one line (letters and digits only, lower case),
+     the last filled row of the file wins, clauses under 8 characters are skipped. */
+  function norm(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+  function countReplaced(p) {
+    var box = $("pReplace"); box.hidden = true;
+    Api.cmAdminExport(Hub.token(), factoryId()).then(function (res) {
+      if (pending !== p) return;                       // cancelled or another file chosen meanwhile
+      var have = {}, mine = {}, fresh = 0, same = 0, repl = 0;
+      (res.lines || []).forEach(function (l) { if (l.compliance || l.remarks) have[norm(l.spec_text)] = l; });
+      p.rows.forEach(function (r) { var k = norm(r.spec); if (k.length >= 8 && (r.compliance || r.remarks)) mine[k] = r; });
+      Object.keys(mine).forEach(function (k) {
+        var old = have[k], r = mine[k];
+        if (!old) fresh++;
+        else if ((old.compliance || "") === r.compliance && (old.remarks || "") === r.remarks) same++;
+        else repl++;
+      });
+      box.textContent = repl ? repl + (repl === 1 ? " clause already has a different answer in the library. This file's answer will replace it" : " clauses already have a different answer in the library. This file's answers will replace them") +
+                               ". " + fresh + " new answers, " + same + " already the same."
+                             : "No existing answer will be replaced. " + fresh + " new answers, " + same + " already the same.";
+      box.className = "notice " + (repl ? "warn" : "ok"); box.hidden = false;   // an uploaded file replaces existing answers: say how many before Add
+    }, function (err) {
+      if (pending !== p) return;
+      box.textContent = "Could not check which answers this file replaces: " + (err && err.message ? err.message : err);
+      box.className = "notice warn"; box.hidden = false;
+    });
+  }
+  $("drop").addEventListener("click", function () { $("file").click(); });
+  $("drop").addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+  $("drop").addEventListener("dragover", function (e) { e.preventDefault(); $("drop").classList.add("over"); });
+  $("drop").addEventListener("dragleave", function () { $("drop").classList.remove("over"); });
+  $("drop").addEventListener("drop", function (e) { e.preventDefault(); $("drop").classList.remove("over"); takeFile(e.dataTransfer.files[0]); });
+  $("file").addEventListener("change", function (e) { takeFile(e.target.files[0]); });
+  $("btnCancel").addEventListener("click", resetUpload);
+  $("btnImport").addEventListener("click", function () {
+    if (!pending) return;
+    var btn = $("btnImport"); btn.disabled = true;
+    Api.cmAdminImport(Hub.token(), { factoryId: factoryId(), fileName: pending.fileName, rows: pending.rows }).then(function (res) {
+      btn.disabled = false; var name = pending.fileName, ignored = pending.read - pending.rows.length; resetUpload();
+      $("upResultMsg").textContent = name + " added to the library for " + scopeName() + ".";
+      $("rAdded").textContent = res.added; $("rUpdated").textContent = res.updated; $("rKept").textContent = res.replaced || 0; $("rSame").textContent = res.unchanged; $("rSkipped").textContent = res.skipped + ignored;
+      $("upResult").hidden = false; offset = 0; loadLines();
+    }, function (err) { btn.disabled = false; show($("upMsg"), err.message); });
+  });
+
+  // ---------- runs ----------
+  function loadRuns() {
+    Api.cmAdminRuns(Hub.token(), { limit: 100 }).then(function (res) {
+      var body = $("runRows"); body.textContent = "";
+      if (!res.runs.length) body.appendChild(el("tr", {}, [el("td", { colspan: "8", "class": "muted", text: "No conversions yet." })]));
+      res.runs.forEach(function (r) {
+        var up = r.kind === "library-upload";
+        body.appendChild(el("tr", {}, [
+          el("td", { style: "white-space:nowrap", text: fmt(r.created_at) }), el("td", { text: r.user }),
+          el("td", { text: r.product }), el("td", { text: r.factory }),
+          el("td", {}, [el("span", { "class": "badge" + (up ? " brand" : ""), text: up ? "Library upload" : (r.source === "pdf" ? "PDF" : "Pasted text") }), r.file_name ? " " + r.file_name : ""]),
+          el("td", { text: String(r.line_count) }), el("td", { text: String(r.unique_count) }),
+          el("td", { text: up ? "-" : String(r.matched_count) })
+        ]));
+      });
+      $("runInfo").textContent = res.total > res.runs.length ? "Latest " + res.runs.length + " of " + res.total + " shown." : "";
+    }, fail);
+  }
+
+  // ---------- tabs ----------
+  [].forEach.call(document.querySelectorAll(".tab[data-tab]"), function (tab) {
+    tab.addEventListener("click", function () {
+      [].forEach.call(document.querySelectorAll(".tab[data-tab]"), function (t) {
+        t.setAttribute("aria-selected", t === tab ? "true" : "false");
+        $("tab-" + t.getAttribute("data-tab")).hidden = t !== tab;
+      });
+      if (tab.getAttribute("data-tab") === "runs") loadRuns();
+    });
+  });
+
+  Hub.requireLogin({ edit: "compliance-maker" }).then(function () { Hub.autoHide($("workbar")); return CMHighlight.load(); })
+    .then(function () { return Api.cmOptions(Hub.token()); }).then(function (res) {
+    products = res.products || [];
+    var s = $("product"); s.appendChild(el("option", { value: "", text: "Choose a product" }));
+    products.forEach(function (p) { s.appendChild(el("option", { value: p.id, text: p.name })); });
+    fillFactories();
+  }, fail);
+})();
+</script>
+</body>
+</html>

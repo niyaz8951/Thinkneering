@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in - DAME Tools Hub</title>
+<link rel="icon" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/css/theme.css">
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/hub.js"></script>
+</head>
+<body>
+<div id="demoBar" class="demo-bar" hidden>Demo mode: no database connected. Try admin / admin12345</div>
+<main class="auth">
+  <div class="auth-theme" id="themeSlot"></div>
+  <div class="card auth-card">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="siteName">DAME Tools Hub</span></div>
+
+    <!-- sign in -->
+    <form id="loginForm" class="stack" autocomplete="on">
+      <div>
+        <h1>Sign in</h1>
+        <p class="muted small">Use the username and password approved by your admin.</p>
+      </div>
+      <div id="loginMsg" class="notice" hidden></div>
+      <label class="field"><span>Username</span>
+        <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Password</span>
+        <input class="input" name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn" type="submit" style="width:100%">Sign in</button>
+      <p class="small muted" style="text-align:center">No account yet? <a href="#request" id="toRequest">Request access</a></p>
+      <p class="small muted" style="text-align:center">Forgot your password? Ask your admin to reset it.</p>
+    </form>
+
+    <!-- request access -->
+    <form id="requestForm" class="stack" hidden autocomplete="off">
+      <div>
+        <h1>Request access</h1>
+        <p class="muted small">Your admin approves each request before you can sign in.</p>
+      </div>
+      <div id="requestMsg" class="notice" hidden></div>
+      <label class="field"><span>Full name</span>
+        <input class="input" name="fullName" required maxlength="60"></label>
+      <label class="field"><span>Team</span>
+        <input class="input" name="teamNote" maxlength="80" placeholder="e.g. Sales, SBU"></label>
+      <label class="field"><span>Choose a username</span>
+        <input class="input" name="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="30" pattern="[A-Za-z0-9._\-]{3,30}">
+        <div class="hint">3 to 30 characters: letters, numbers, dot, dash or underscore.</div></label>
+      <label class="field"><span>Choose a password</span>
+        <input class="input" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="72">
+        <div class="hint">At least 8 characters.</div></label>
+      <label class="field"><span>Repeat password</span>
+        <input class="input" name="password2" type="password" autocomplete="new-password" required></label>
+      <button class="btn" type="submit" style="width:100%">Send request</button>
+      <p class="small muted" style="text-align:center"><a href="#" id="toLogin">Back to sign in</a></p>
+    </form>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var loginForm = $("loginForm"), requestForm = $("requestForm");
+  $("siteName").textContent = (window.HUB_CONFIG || {}).SITE_NAME || "Tools Hub";
+  $("themeSlot").appendChild(Hub.themeButton()); Hub.applyTheme(Hub.currentTheme());
+  $("demoBar").hidden = !Api.isDemo;
+
+  function show(box, text, kind) { box.textContent = text; box.className = "notice " + (kind || "error"); box.hidden = !text; }
+  function busy(form, on) { var b = form.querySelector("button[type=submit]"); b.disabled = on; }
+  function view(name) {
+    loginForm.hidden = name !== "login"; requestForm.hidden = name !== "request";
+    (name === "login" ? loginForm : requestForm).querySelector("input").focus();
+  }
+  $("toRequest").addEventListener("click", function (e) { e.preventDefault(); view("request"); });
+  $("toLogin").addEventListener("click", function (e) { e.preventDefault(); view("login"); });
+
+  // already signed in? go straight to the dashboard
+  if (Hub.token()) { Api.me(Hub.token()).then(function () { Hub.go("dashboard.html"); }, function (err) { if (err && err.message === "SESSION_EXPIRED") Hub.setToken(null); }); }
+  var carried = Hub.takeMessage(); if (carried) show($("loginMsg"), carried);
+
+  loginForm.addEventListener("submit", function (e) {
+    e.preventDefault(); show($("loginMsg"), ""); busy(loginForm, true);
+    Api.login(loginForm.username.value, loginForm.password.value).then(function (res) {
+      Hub.setToken(res.token); Hub.go("dashboard.html");
+    }, function (err) { busy(loginForm, false); loginForm.password.value = ""; show($("loginMsg"), err.message); });
+  });
+
+  requestForm.addEventListener("submit", function (e) {
+    e.preventDefault(); show($("requestMsg"), "");
+    if (requestForm.password.value !== requestForm.password2.value) { show($("requestMsg"), "The two passwords do not match."); return; }
+    if (!/\S/.test(requestForm.password.value)) { show($("requestMsg"), "Password cannot be only spaces."); return; }
+    busy(requestForm, true);
+    Api.register({ username: requestForm.username.value, fullName: requestForm.fullName.value,
+                   teamNote: requestForm.teamNote.value, password: requestForm.password.value }).then(function () {
+      busy(requestForm, false); requestForm.reset(); view("login");
+      show($("loginMsg"), "Request sent. You can sign in once an admin approves it.", "ok");
+    }, function (err) { busy(requestForm, false); show($("requestMsg"), err.message); });
+  });
+})();
+</script>
+</body>
+</html>

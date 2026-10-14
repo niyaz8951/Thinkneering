@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>My profile - DAME Tools Hub</title>
+<link rel="icon" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/css/theme.css">
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/hub.js"></script>
+<style>
+  .profile-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .profile-id { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .profile-id .avatar { box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px var(--border); }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
+  .facts dt { color: var(--text-soft); }
+  .facts dd { margin: 0; }
+  .facts .badge { margin: 0 4px 4px 0; }
+  .meter { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+  .meter span { display: block; height: 100%; width: 0; background: var(--danger); transition: width .2s, background .2s; }
+  @media (max-width: 760px) { .profile-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small"><a href="dashboard.html">&larr; Dashboard</a></p>
+    <h1>My profile</h1>
+  </div>
+
+  <div class="profile-grid">
+    <!-- details -->
+    <form id="detailsForm" class="card stack" novalidate>
+      <h2>Your details</h2>
+      <div class="profile-id">
+        <span id="avatarSlot"></span>
+        <div>
+          <div class="row">
+            <label class="btn ghost sm" for="avatarFile">Change picture</label>
+            <button class="btn ghost sm" type="button" id="avatarRemove" hidden>Remove</button>
+          </div>
+          <input id="avatarFile" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only"
+                 style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden">
+          <div class="hint">JPG, PNG or WebP. It is cropped to a square.</div>
+        </div>
+      </div>
+      <label class="field"><span>Name</span>
+        <input class="input" name="fullName" required minlength="2" maxlength="60" autocomplete="name"></label>
+      <div id="detailsMsg" class="notice" hidden></div>
+      <div class="row"><button class="btn" type="submit" id="detailsSave" disabled>Save changes</button></div>
+
+      <dl class="facts" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--border)">
+        <dt>Username</dt><dd id="fUser"></dd>
+        <dt>Role</dt><dd id="fRole"></dd>
+        <dt>Your tools</dt><dd id="fAccess"></dd>
+        <dt>Member since</dt><dd id="fSince"></dd>
+        <dt>Last sign-in</dt><dd id="fLast"></dd>
+      </dl>
+    </form>
+
+    <!-- password -->
+    <form id="passwordForm" class="card stack" novalidate>
+      <h2 id="password">Change password</h2>
+      <label class="field"><span>Current password</span>
+        <input class="input" name="current" type="password" autocomplete="current-password" required></label>
+      <label class="field"><span>New password</span>
+        <input class="input" name="next" type="password" autocomplete="new-password" required minlength="8" maxlength="72">
+        <div class="meter" aria-hidden="true"><span id="meterBar"></span></div>
+        <div class="hint" id="meterText">At least 8 characters.</div></label>
+      <label class="field"><span>Repeat new password</span>
+        <input class="input" name="repeat" type="password" autocomplete="new-password" required></label>
+      <label class="check"><input type="checkbox" id="showPw"> Show passwords</label>
+      <div id="passwordMsg" class="notice" hidden></div>
+      <div class="row"><button class="btn" type="submit">Update password</button></div>
+      <p class="small muted">Changing your password signs you out on your other devices.</p>
+    </form>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var el = Hub.el, profile, pendingAvatar;      // pendingAvatar: undefined = unchanged, "" = remove, "data:..." = new
+  var details = $("detailsForm"), pw = $("passwordForm");
+
+  function show(box, text, kind) { box.textContent = text; box.className = "notice " + (kind || "error"); box.hidden = !text; }
+  function fmtDate(iso, withTime) {
+    if (!iso) return "-";
+    var d = new Date(iso); if (isNaN(d)) return "-";
+    var opt = { day: "numeric", month: "short", year: "numeric" };
+    if (withTime) { opt.hour = "2-digit"; opt.minute = "2-digit"; }
+    return d.toLocaleString(undefined, opt);
+  }
+  function currentAvatar() { return pendingAvatar === undefined ? (profile.user.avatar || "") : pendingAvatar; }
+  function dirty() { return pendingAvatar !== undefined || details.fullName.value.trim() !== profile.user.full_name; }
+
+  function paint() {
+    var u = profile.user, slot = $("avatarSlot");
+    slot.textContent = "";
+    slot.appendChild(Hub.avatar({ full_name: details.fullName.value || u.full_name, username: u.username, avatar: currentAvatar() }, 84));
+    $("avatarRemove").hidden = !currentAvatar();
+    $("detailsSave").disabled = !dirty();
+  }
+  function fill() {
+    var u = profile.user;
+    details.fullName.value = u.full_name;
+    $("fUser").textContent = u.username;
+    $("fRole").textContent = Hub.roleLabel(u.role);
+    $("fSince").textContent = fmtDate(u.created_at);
+    $("fLast").textContent = fmtDate(u.last_login_at, true);
+    var acc = $("fAccess"); acc.textContent = "";
+    profile.categories.forEach(function (c) { acc.appendChild(el("span", { "class": "badge", text: c.name })); });
+    // tools whose library or mapping this person may edit
+    var editNames = [];
+    profile.categories.forEach(function (c) { c.tools.forEach(function (t) { if (t.can_edit) editNames.push(t.name); }); });
+    if (editNames.length && u.role === "user") acc.appendChild(el("div", { "class": "small muted", style: "margin-top:6px", text: "Can edit: " + editNames.join(", ") }));
+    pendingAvatar = undefined; paint();
+  }
+
+  // ---------- picture: crop to a centred square and shrink in the browser ----------
+  function toSquare(file) {
+    return new Promise(function (resolve, reject) {
+      if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { reject(new Error("Please choose a JPG, PNG or WebP picture.")); return; }
+      if (file.size > 15 * 1024 * 1024) { reject(new Error("That picture is too large. Choose one under 15 MB.")); return; }
+      var img = new Image(), src = URL.createObjectURL(file);
+      img.onload = function () {
+        var side = Math.min(img.naturalWidth, img.naturalHeight), out = 160;
+        var canvas = document.createElement("canvas"); canvas.width = canvas.height = out;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, out, out);          // flatten transparency
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out);
+        URL.revokeObjectURL(src);
+        var q = 0.86, data = canvas.toDataURL("image/jpeg", q);
+        while (data.length > 55000 && q > 0.4) { q -= 0.12; data = canvas.toDataURL("image/jpeg", q); }
+        resolve(data);
+      };
+      img.onerror = function () { URL.revokeObjectURL(src); reject(new Error("That file could not be read as a picture.")); };
+      img.src = src;
+    });
+  }
+  $("avatarFile").addEventListener("change", function (e) {
+    var file = e.target.files[0]; e.target.value = ""; if (!file) return;
+    show($("detailsMsg"), "");
+    toSquare(file).then(function (data) { pendingAvatar = data; paint(); }, function (err) { show($("detailsMsg"), err.message); });
+  });
+  $("avatarRemove").addEventListener("click", function () { pendingAvatar = ""; paint(); });
+  details.fullName.addEventListener("input", paint);
+
+  details.addEventListener("submit", function (e) {
+    e.preventDefault(); show($("detailsMsg"), "");
+    var name = details.fullName.value.trim();
+    if (name.length < 2) { show($("detailsMsg"), "Please enter your name."); details.fullName.focus(); return; }
+    $("detailsSave").disabled = true;
+    Api.updateProfile(Hub.token(), { fullName: name, avatar: currentAvatar() }).then(function (res) {
+      profile = { user: res.user, categories: res.categories };
+      Hub.renderTopbar(profile); fill(); Hub.toast("Profile saved");
+    }, function (err) { $("detailsSave").disabled = false; show($("detailsMsg"), err.message); });
+  });
+
+  // ---------- password ----------
+  function strength(p) {
+    var s = 0;
+    if (p.length >= 8) s++; if (p.length >= 12) s++;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+    if (/\d/.test(p)) s++; if (/[^A-Za-z0-9]/.test(p)) s++;
+    return p.length < 8 ? 0 : Math.min(s, 4);
+  }
+  pw.next.addEventListener("input", function () {
+    var p = pw.next.value, s = strength(p);
+    var labels = ["At least 8 characters.", "Weak. Add length, numbers or symbols.", "Fair.", "Good.", "Strong."];
+    var colours = ["var(--danger)", "var(--danger)", "var(--warn)", "var(--ok)", "var(--ok)"];
+    $("meterBar").style.width = (p ? Math.max(s, 1) * 25 : 0) + "%"; $("meterBar").style.background = colours[s];
+    $("meterText").textContent = p ? labels[s] : labels[0];
+  });
+  $("showPw").addEventListener("change", function (e) {
+    ["current", "next", "repeat"].forEach(function (n) { pw[n].type = e.target.checked ? "text" : "password"; });
+  });
+  pw.addEventListener("submit", function (e) {
+    e.preventDefault(); show($("passwordMsg"), "");
+    if (!pw.current.value) { show($("passwordMsg"), "Enter your current password."); pw.current.focus(); return; }
+    if (pw.next.value.length < 8) { show($("passwordMsg"), "The new password must be at least 8 characters."); pw.next.focus(); return; }
+    if (pw.next.value !== pw.repeat.value) { show($("passwordMsg"), "The two new passwords do not match."); pw.repeat.focus(); return; }
+    if (pw.next.value === pw.current.value) { show($("passwordMsg"), "The new password is the same as the current one."); pw.next.focus(); return; }
+    var btn = pw.querySelector("button[type=submit]"); btn.disabled = true;
+    Api.changePassword(Hub.token(), pw.current.value, pw.next.value).then(function () {
+      btn.disabled = false; pw.reset(); pw.next.dispatchEvent(new Event("input"));
+      show($("passwordMsg"), "Password updated.", "ok");
+    }, function (err) { btn.disabled = false; show($("passwordMsg"), err.message); });
+  });
+
+  window.addEventListener("beforeunload", function (e) { if (profile && dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+  Hub.requireLogin().then(function (p) {
+    profile = p; fill();
+    if (location.hash === "#password") { pw.current.focus(); pw.scrollIntoView({ block: "start" }); }
+  });
+})();
+</script>
+</body>
+</html>

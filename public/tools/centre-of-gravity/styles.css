@@ -1,0 +1,281 @@
+/* Centre of gravity calculator — tool-specific styles only.
+   Layout, panels, buttons, fields, tables, chips, notices, stats and the
+   segmented control all come from global.css. Nothing here hardcodes a colour,
+   font or spacing value; every rule below exists because global.css has no
+   equivalent. */
+
+.cog-panel { margin-top: var(--space-4); }
+
+/* `hidden` is a user-agent rule and loses to any author rule that sets
+   `display`, so the empty states below need this guard. */
+[hidden] { display: none !important; }
+
+.cog-toolbar select { max-width: 260px; }
+
+/* Pushes the file actions to the right of the preset picker on wide screens
+   and does nothing once the toolbar wraps. */
+.cog-toolbar__gap { flex: 1 1 var(--space-3); }
+
+.cog-hint { margin-bottom: var(--space-3); max-width: 68ch; }
+
+.cog-fields {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+/* .field + .field adds a top margin; inside a grid the gap already spaces them. */
+.cog-fields .field + .field { margin-top: 0; }
+
+.cog-fields--options { margin-top: var(--space-4); align-items: start; }
+
+.cog-envelope,
+.cog-generator {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+
+.cog-envelope legend,
+.cog-generator legend {
+  padding-inline: var(--space-2);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.cog-generator { margin-bottom: var(--space-4); }
+.cog-generate { margin-top: var(--space-3); }
+
+.cog-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.cog-subhead {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+/* ------------------------------------------------------------ tables */
+
+/* Ten columns of numbers do not need to be full width each; keeping the inputs
+   and the cell padding narrow is what lets the whole blocks row fit a 1366px
+   screen without scrolling sideways. */
+.cog-parts input[type='number'],
+.cog-supports input[type='number'] {
+  min-width: 70px;
+  width: 100%;
+  padding-inline: var(--space-2);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.cog-parts input[type='number']::-webkit-outer-spin-button,
+.cog-parts input[type='number']::-webkit-inner-spin-button,
+.cog-supports input[type='number']::-webkit-outer-spin-button,
+.cog-supports input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.cog-parts input[type='text'] { min-width: 120px; width: 100%; }
+table.data.cog-parts td.cog-cell-name { width: 20%; }
+
+table.data.cog-parts td,
+table.data.cog-supports td { padding-block: var(--space-1); vertical-align: top; }
+table.data.cog-parts th,
+table.data.cog-parts td { padding-inline: var(--space-1); }
+table.data.cog-parts th:first-child,
+table.data.cog-parts td:first-child { padding-left: var(--space-3); }
+table.data.cog-parts th:last-child,
+table.data.cog-parts td:last-child { padding-right: var(--space-2); }
+.cog-parts th span[data-unit] { font-weight: 400; }
+table.data.cog-parts td.cog-cell-include,
+table.data td.cog-row-actions { vertical-align: middle; }
+
+.cog-row-actions { white-space: nowrap; text-align: right; }
+.cog-row-actions .btn { padding-inline: var(--space-2); min-width: 32px; }
+
+/* A short message under the box it is about. */
+.cog-msg {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--color-danger);
+  text-align: left;
+  white-space: normal;
+}
+input[aria-invalid='true'] { border-color: var(--color-danger); }
+
+.cog-undo { margin-top: var(--space-2); }
+.cog-undo .btn { margin-left: var(--space-2); }
+
+/* Phone width: each row becomes a small card with the heading over each box,
+   so every figure can be reached without scrolling the table sideways. */
+@media (max-width: 640px) {
+  .cog-parts thead,
+  .cog-supports thead { display: none; }
+  .cog-parts, .cog-parts tbody,
+  .cog-supports, .cog-supports tbody { display: block; }
+  .cog-parts tr,
+  .cog-supports tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .cog-parts tr:last-child,
+  .cog-supports tr:last-child { border-bottom: 0; }
+  table.data.cog-parts td,
+  table.data.cog-supports td { display: block; padding: 0; border: 0; min-width: 0; }
+  .cog-parts td[data-label]::before,
+  .cog-supports td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    text-align: left;
+  }
+  .cog-parts input[type='number'],
+  .cog-supports input[type='number'],
+  .cog-parts input[type='text'],
+  .cog-supports input[type='text'] { min-width: 0; }
+  table.data.cog-parts td.cog-cell-name { width: auto; }
+  .cog-parts .cog-cell-include { grid-column: 1; align-self: center; }
+  .cog-parts .cog-cell-name { grid-column: 2 / -1; }
+  .cog-supports .cog-cell-name { grid-column: 1 / -1; }
+  .cog-parts .cog-row-actions { grid-column: 2 / -1; align-self: end; }
+  .cog-supports .cog-row-actions { align-self: end; }
+}
+
+/* An excluded row is still editable, so it dims rather than greys out. */
+.cog-parts tr[data-off='true'] { opacity: 0.5; }
+
+.cog-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.cog-include { display: flex; align-items: center; }
+
+/* ------------------------------------------------------------ viewer */
+
+.cog-viewer {
+  margin-top: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.cog-viewer__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+}
+
+.cog-viewer__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.cog-viewer__toggles .check {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  align-items: center;
+}
+
+.cog-viewer__toggles .check input { margin-top: 0; }
+
+.cog-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 280px;
+  max-height: 68vh;
+}
+
+.cog-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Without this the browser scrolls the page instead of passing the drag to
+     the orbit handler on touch devices. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.cog-canvas canvas:active { cursor: grabbing; }
+
+.cog-canvas canvas:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.cog-viewer__help {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ------------------------------------------------------------ results */
+
+.cog-notices { margin-top: var(--space-4); display: block; }
+.cog-notices ul { margin: 0; padding-left: var(--space-4); }
+.cog-notices li + li { margin-top: var(--space-1); }
+
+.cog-stability { max-width: 68ch; }
+
+.cog-notes {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-muted);
+  max-width: 72ch;
+}
+
+.cog-notes li + li { margin-top: var(--space-2); }
+
+/* ------------------------------------------------------------ print */
+
+@media print {
+  /* Shell items that have no place on paper. */
+  .demo-bar, .topbar, #topbar, .toast, .skip-link, .hub-back { display: none !important; }
+
+  .cog-toolbar,
+  .cog-actions,
+  .cog-generator,
+  .cog-undo,
+  .cog-row-actions,
+  .cog-viewer__bar,
+  .cog-viewer__help { display: none !important; }
+
+  .cog-panel { box-shadow: none; break-inside: avoid; }
+  .cog-canvas { max-height: none; }
+
+  /* Every column of the blocks and supports tables on the page, portrait or
+     landscape: no scrolling box, tight cells, boxes without their frame. */
+  .table-wrap { overflow: visible; }
+  .cog-parts, .cog-supports { table-layout: fixed; width: 100%; font-size: 0.75rem; }
+  .cog-parts th, .cog-parts td,
+  .cog-supports th, .cog-supports td { padding: 2px 3px; overflow-wrap: anywhere; }
+  .cog-parts th:first-child, .cog-parts td:first-child { width: 28px; padding-left: 3px; }
+  .cog-parts th:nth-child(2), .cog-parts td:nth-child(2) { width: 24%; }
+  .cog-parts th:last-child, .cog-supports th:last-child { display: none; }
+  .cog-parts input[type='number'], .cog-supports input[type='number'],
+  .cog-parts input[type='text'], .cog-supports input[type='text'] {
+    min-width: 0; width: 100%; padding: 0; border: 0; background: none; font-size: 0.75rem;
+  }
+}

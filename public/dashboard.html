@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Dashboard - DAME Tools Hub</title>
+<link rel="icon" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/css/theme.css">
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/hub.js"></script>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <!-- view 1: team tiles -->
+  <section id="homeView">
+    <div class="page-head">
+      <h1 id="hello">Dashboard</h1>
+      <p>Pick a tile to open its tools.</p>
+    </div>
+    <div class="grid" id="tiles"></div>
+  </section>
+
+  <!-- view 2: one team's tools (tiles are hidden while this is open) -->
+  <section id="toolsView" hidden>
+    <div class="page-head">
+      <h1 id="toolsTitle"></h1>
+      <p id="toolsSub"></p>
+    </div>
+    <div class="grid" id="tools"></div>
+  </section>
+</main>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, profile;
+  var CAT_ICON = { general: Hub.ICON.grid, sales: Hub.ICON.chart, sbu: Hub.ICON.wrench };
+  var TOOL_ICON = { "compliance-maker": Hub.ICON.checklist, "datasheet-notes": Hub.ICON.table, "product-options": Hub.ICON.tree,
+                    "coil-data-extractor": Hub.ICON.coil, "container-calculator": Hub.ICON.box, "centre-of-gravity": Hub.ICON.target,
+                    "psychrometric-chart": Hub.ICON.curve, "standards": Hub.ICON.book, "projects": Hub.ICON.folder, "maps": Hub.ICON.tree };
+
+  // Tools that are opened from inside a project (Compliance Maker, Datasheet Notes) have no tile
+  // of their own when the tile has Projects: they are reached through a project.
+  function tiles(c) {
+    var hasProjects = c.tools.some(function (t) { return t.id === "projects" && t.status === "live"; });
+    return c.tools.filter(function (t) { return !(hasProjects && t.project_tool); });
+  }
+
+  function selected() { return decodeURIComponent(location.hash.slice(1)); }
+
+  // Only tiles the user can open are shown. The database does not send the others at all.
+  function renderTiles() {
+    var host = document.getElementById("tiles"); host.textContent = "";
+    profile.categories.filter(function (c) { return c.allowed; }).forEach(function (c) {
+      var list = tiles(c), live = list.filter(function (t) { return t.status === "live"; }).length;
+      var soon = list.length - live;
+      var meta = list.length === 0 ? "No tools yet"
+               : live + (live === 1 ? " tool" : " tools") + (soon ? ", " + soon + " coming soon" : "");
+      host.appendChild(el("button", { type: "button", "class": "tile", onclick: function () { location.hash = c.id; } }, [
+        el("span", { "class": "tile-icon", "aria-hidden": "true", html: CAT_ICON[c.id] || Hub.ICON.grid }),
+        el("h3", { text: c.name }),
+        el("p", { text: c.description }),
+        el("span", { "class": "meta", text: meta })
+      ]));
+    });
+  }
+
+  // only: the user has this one tile, so its tools are the dashboard
+  function renderTools(c, only) {
+    Hub.setBack(only ? null : "Dashboard", back);
+    document.getElementById("toolsTitle").textContent = only ? document.getElementById("hello").textContent : c.name;
+    document.getElementById("toolsSub").textContent = c.description;
+    document.title = (only ? "Dashboard" : c.name) + " - DAME Tools Hub";
+    var host = document.getElementById("tools"); host.textContent = "";
+    if (!c.tools.length) {
+      host.appendChild(el("div", { "class": "empty", style: "grid-column:1/-1", text: "No tools have been added to " + c.name + " yet." }));
+      return;
+    }
+    tiles(c).forEach(function (t) {
+      var isLive = t.status === "live" && t.path;
+      host.appendChild(el(isLive ? "a" : "div", {
+        "class": "tile" + (isLive ? "" : " disabled"), href: isLive ? Hub.url(t.path) : null
+      }, [
+        el("span", { "class": "tile-icon", "aria-hidden": "true", html: TOOL_ICON[t.id] || Hub.ICON.doc }),
+        isLive ? null : el("span", { "class": "badge warn", text: "Coming soon" }),
+        el("h3", { text: t.name }),
+        el("p", { text: t.description })
+      ]));
+    });
+  }
+
+  // One view at a time: the tiles, or the tools of the tile that was clicked.
+  // A user with a single tile gets its tools straight away.
+  function render() {
+    var open = profile.categories.filter(function (x) { return x.allowed; }), only = open.length === 1;
+    var c = only ? open[0] : open.filter(function (x) { return x.id === selected(); })[0];
+    document.getElementById("homeView").hidden = !!c;
+    document.getElementById("toolsView").hidden = !c;
+    if (c) renderTools(c, only); else { document.title = "Dashboard - DAME Tools Hub"; Hub.setBack(null); renderTiles(); }
+    window.scrollTo(0, 0);
+  }
+
+  function back() {
+    history.pushState(null, "", location.pathname + location.search);   // clear the #team part
+    render();
+  }
+
+  Hub.requireLogin().then(function (p) {
+    profile = p;
+    document.getElementById("hello").textContent = "Welcome, " + p.user.full_name.split(" ")[0];
+    render();
+    window.addEventListener("hashchange", render);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+/* ============================================================
+   DAME Tools Hub - shared theme (components)
+   Every native page and new tool loads this file. Colours, the
+   top bar and the toast live in shell.css, imported below.
+   Do not hard-code colours in a tool: use the variables.
+   ============================================================ */
+@import url("shell.css");
+
+h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: -.022em; line-height: 1.15; }
+h2 { font-size: 20px; font-weight: 650; letter-spacing: -.014em; }
+h3 { font-size: 16px; font-weight: 650; letter-spacing: -.006em; }
+p  { margin: 0; }
+a  { color: var(--link); }
+.muted { color: var(--text-soft); }
+.small { font-size: 13px; }
+
+:focus-visible { outline: none; box-shadow: var(--focus); border-radius: 8px; }
+
+/* ---------- layout ---------- */
+.page { max-width: 1120px; margin: 0 auto; padding: 36px calc(20px + env(safe-area-inset-right, 0px)) calc(72px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px)); }
+.page-head { margin-bottom: 26px; }
+.page-head p { color: var(--text-soft); margin-top: 6px; font-size: 16px; max-width: 70ch; }
+.page-head p.small, .page-head p.hint { font-size: 13px; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.stack > * + * { margin-top: 14px; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 0 18px;
+  font: inherit; font-weight: 600; font-size: 14px; letter-spacing: -.003em;
+  border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: var(--brand); color: var(--on-brand);
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: background .2s var(--ease), border-color .2s var(--ease), transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:hover { background: var(--brand-strong); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
+.btn.ghost:hover { background: var(--surface-2); }
+.btn.danger { background: var(--surface); color: var(--danger); border-color: var(--border); }
+.btn.danger:hover { background: var(--danger-bg); }
+.btn.sm { min-height: 34px; padding: 0 13px; font-size: 13px; border-radius: 9px; }
+.btn.icon { width: 38px; padding: 0; }
+.btn svg { width: 18px; height: 18px; }
+
+/* ---------- forms ---------- */
+.field { display: block; }
+.field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.input, select.input, textarea.input {
+  width: 100%; min-height: 42px; padding: 9px 12px;
+  font: inherit; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.input::placeholder { color: color-mix(in srgb, var(--text-soft) 75%, transparent); }
+.input:hover:not(:disabled):not(:focus) { border-color: color-mix(in srgb, var(--text-soft) 55%, var(--border)); }
+.input:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus); }
+.input:disabled { opacity: .6; }
+.hint { font-size: 12px; color: var(--text-soft); margin-top: 4px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--brand); }
+
+/* ---------- cards, tiles ---------- */
+.card {
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px;
+}
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+
+.tile {
+  position: relative; display: flex; flex-direction: column; gap: 8px;
+  min-height: 150px; padding: 20px; text-align: left;
+  font: inherit; color: var(--text); text-decoration: none;
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 18px; box-shadow: var(--shadow);
+  cursor: pointer; transition: transform .25s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease);
+}
+.tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); border-color: color-mix(in srgb, var(--brand) 45%, transparent); }
+.tile:active { transform: scale(.985); }
+.tile h3 { font-size: 17px; }
+.tile.active { border-color: var(--brand); box-shadow: var(--shadow), inset 0 -3px 0 var(--brand); }
+.tile-icon {
+  width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface)); color: var(--brand);
+}
+.tile-icon svg { width: 22px; height: 22px; }
+.tile p { color: var(--text-soft); font-size: 14px; }
+.tile .meta { margin-top: auto; font-size: 13px; color: var(--text-soft); }
+.tile.locked { cursor: not-allowed; opacity: .7; }
+.tile.locked:hover { transform: none; border-color: var(--border); }
+.tile.locked .tile-icon { color: var(--text-soft); }
+.tile.disabled { cursor: default; }
+.tile.disabled:hover { transform: none; border-color: var(--border); }
+
+/* ---------- badges, notices ---------- */
+.badge {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+  border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--surface-2); color: var(--text-soft);
+}
+.badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+.badge.warn   { background: var(--warn-bg);   color: var(--warn); }
+.badge.danger { background: var(--danger-bg); color: var(--danger); }
+.badge.brand  { background: var(--brand);     color: var(--on-brand); }
+.tile .badge { position: absolute; top: 18px; right: 18px; }
+
+.notice {
+  padding: 11px 14px; border-radius: 12px; font-size: 14px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.notice.error { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.notice.ok    { background: var(--ok-bg);     color: var(--ok);     border-color: transparent; }
+.notice.warn  { background: var(--warn-bg);   color: var(--warn);   border-color: transparent; }
+
+.empty { padding: 40px 20px; text-align: center; color: var(--text-soft); font-size: 15px;
+         border: 1px dashed var(--border); border-radius: var(--radius); }
+
+/* ---------- tabs ---------- */
+/* a segmented control: the chosen tab is a raised chip on a soft track; it scrolls sideways when it must */
+.tabs {
+  display: flex; width: fit-content; max-width: 100%; gap: 2px; padding: 3px; margin-bottom: 20px;
+  background: color-mix(in srgb, var(--text-soft) 14%, var(--bg)); border-radius: 12px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font: inherit; font-weight: 600; font-size: 14px; color: var(--text-soft); white-space: nowrap;
+  background: none; border: 0; border-radius: 9px; min-height: 34px;
+  padding: 0 14px; cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); background: var(--surface); box-shadow: 0 0 0 .5px color-mix(in srgb, var(--border) 80%, transparent), 0 1px 3px rgba(11,42,74,.12); }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 14px; background: var(--surface); }
+table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, .table td { padding: 10px 12px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.table th { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); white-space: nowrap; }
+.table tr:last-child td { border-bottom: 0; }
+.table select.input { min-height: 34px; padding: 4px 8px; width: auto; }
+.table .user-cell { min-width: 210px; }   /* Admin > Users: room for a full name on one line */
+
+/* ---------- reading sheet: a long table that flows with the page (a specification, the library) ----------
+   No scroll box: the window scrolls. The work bar (filters, Read / Edit) sticks under the top bar and both
+   slide away while scrolling down (Hub.autoHide); the column names stay in view. Below 860px every row
+   becomes a block with its labels, so nothing scrolls sideways. */
+.page.wide { max-width: 1560px; }
+.workbar {
+  position: sticky; top: var(--hub-top, 59px); z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 0 -10px 14px; padding: 10px;
+  background: var(--surface);          /* solid: text passing under it must not show through */
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: var(--radius); box-shadow: 0 6px 18px -12px var(--scrim);
+  transition: transform .28s var(--ease);
+}
+html.hub-away .workbar { transform: translateY(calc(-100% - var(--hub-top, 59px) - 8px)); }
+.workbar .input { width: auto; min-height: 38px; padding-top: 6px; padding-bottom: 6px; }
+.workbar .grow { flex: 1 1 200px; min-width: 0; }
+.workbar .btn { min-height: 38px; }
+.workbar .count { font-size: 13px; color: var(--text-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.table-wrap.sheet-wrap { overflow: visible; border-radius: 14px; }
+table.sheet { table-layout: fixed; font-size: 15px; }
+.sheet thead th { position: sticky; top: var(--hub-stick, 0px); z-index: 20; transition: top .28s var(--ease); }
+.sheet thead th:first-child { border-top-left-radius: 13px; } .sheet thead th:last-child { border-top-right-radius: 13px; }
+.sheet td { vertical-align: top; padding: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+/* reads like the specification: dark PART row, blue section row, clause label in Sr, the word highlights */
+.sheet tr.part td { background: var(--text); color: var(--bg); font-weight: 700; letter-spacing: .02em; }
+.sheet tr.sect td { background: color-mix(in srgb, var(--brand-sky) 38%, var(--surface)); font-weight: 650; }
+.sheet td.sr { text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: normal; white-space: nowrap; }
+.sheet tr.sect td.sr { color: var(--link); }
+.sheet td.sr.letter { color: var(--warn); } .sheet td.sr.number { color: var(--ok); }
+.sheet .hl-red { color: var(--danger); } .sheet .hl-redbold { color: var(--danger); font-weight: 700; }
+.sheet .hl-underline { text-decoration: underline; } .sheet .hl-colon { color: var(--warn); font-weight: 700; }
+.sheet td.read { white-space: pre-line; }
+.sheet td.note { white-space: pre-line; font-size: 14px; font-style: italic; color: var(--text-soft); }
+@media (min-width: 861px) { .sheet tbody tr.line:focus-within > td { background: color-mix(in srgb, var(--brand) 6%, var(--surface)); } }
+.sheet td .input { width: 100%; min-height: 38px; padding: 7px 10px; font-size: 15px; }
+.sheet textarea.input { resize: none; overflow: hidden; line-height: 1.45; }
+.sheet td.end { font-size: 12px; color: var(--text-soft); white-space: normal; }
+.sheet td.end .state { display: block; min-height: 18px; }
+@media (max-width: 860px) {
+  .workbar { margin: 0 -6px 12px; padding: 8px; gap: 8px; }
+  .workbar .input { flex: 1 1 130px; min-width: 0; }
+  .sheet thead { display: none; }
+  table.sheet, .sheet tbody { display: block; width: 100%; }
+  .sheet tr { display: grid; grid-template-columns: minmax(40px, max-content) minmax(0, 1fr); column-gap: 8px; row-gap: 8px; padding: 12px; border-bottom: 1px solid var(--border); }
+  .sheet tr:last-child { border-bottom: 0; }
+  .sheet td { display: block; grid-column: 2; padding: 0; border: 0; }
+  .sheet tr.part { background: var(--text); } .sheet tr.sect { background: color-mix(in srgb, var(--brand-sky) 38%, var(--surface)); }
+  .sheet tr.part td, .sheet tr.sect td { background: none; }
+  .sheet td:first-child { grid-column: 1; grid-row: 1; }
+  .sheet td:empty:not(:first-child) { display: none; }
+  .sheet td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); margin-bottom: 2px; font-style: normal; }
+  .sheet td .input { font-size: 16px; min-height: 44px; }
+  .sheet tr:first-child { border-radius: 13px 13px 0 0; }
+}
+
+/* ---------- login page ---------- */
+.auth {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+  background:
+    radial-gradient(900px 500px at 85% -10%, color-mix(in srgb, var(--brand-sky) 28%, transparent), transparent 70%),
+    radial-gradient(700px 500px at -10% 110%, color-mix(in srgb, var(--brand) 22%, transparent), transparent 70%),
+    var(--bg);
+}
+.auth-card { width: 100%; max-width: 400px; padding: 28px; }
+.auth-card .brand { margin-bottom: 18px; font-size: 18px; }
+.auth-theme { position: fixed; top: 14px; right: 14px; }
+
+@media (max-width: 600px) {
+  .page { padding: 20px 14px 48px; }
+  h1 { font-size: 22px; }
+}
+
+
+/* ---------- phone ---------- */
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  h1 { font-size: 28px; }
+  .page { padding-top: 24px; }
+  /* fingers need 44px; 16px text in a field stops the phone zooming in on it */
+  .btn { min-height: 44px; font-size: 15px; }
+  .btn.sm { min-height: 38px; font-size: 14px; }
+  .input, select.input, textarea.input { min-height: 46px; font-size: 16px; }
+  .card { padding: 18px; }
+  .grid { grid-template-columns: 1fr; }
+  /* a tile becomes a row: icon on the left, name and text beside it, so more tiles fit on a screen */
+  .tile { min-height: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 2px; padding: 16px; align-items: start; }
+  .tile .tile-icon { grid-row: 1 / span 3; }
+  .tile > :not(.tile-icon):not(.badge) { grid-column: 2; }
+  .tile .meta { margin-top: 4px; }
+}

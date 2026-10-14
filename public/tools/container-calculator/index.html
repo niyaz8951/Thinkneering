@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/css/shell.css">
+  <link rel="stylesheet" href="../../assets/css/legacy-tools.css">
+  <link rel="stylesheet" href="styles.css">
+  <title>Container &amp; trailer calculator - DAME Tools Hub</title>
+  <meta name="description" content="Work out how many containers or trailers a shipment needs. Open a packing list or type it in, get a load plan, stowage drawings and a PDF report.">
+  <script src="../../assets/js/config.js"></script>
+  <script src="../../assets/js/api.js"></script>
+  <script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header id="topbar"></header>
+  <script>Hub.requireLogin({ tool: "container-calculator" });</script>
+
+  <main id="main" class="wrap">
+    <p class="hub-back"><a href="../../dashboard.html#general">&larr; General</a></p>
+
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Container &amp; trailer calculator</h1>
+      <p>Enter your packed dimensions, pick a vehicle, and get the number of containers or trailers you actually need — with a load plan, stowage drawings and a PDF report. Everything runs in your browser; nothing leaves your computer.</p>
+    </div>
+
+    <!-- 1 · Project and vehicle -->
+    <section class="panel" aria-labelledby="setup-title">
+      <div class="panel__head"><h2 id="setup-title">Project and vehicle</h2></div>
+
+      <div class="cc-fields">
+        <div class="field">
+          <label for="project">Project name</label>
+          <input id="project" type="text" placeholder="e.g. KJ158 — RSG 13 LB" autocomplete="off">
+          <p class="hint">Used as the PDF file name.</p>
+          <p class="hint cc-warn" id="project-warn" role="status" hidden></p>
+        </div>
+        <div class="field">
+          <label for="vehicle">Vehicle</label>
+          <select id="vehicle"></select>
+          <p class="hint" id="vehicle-hint"></p>
+        </div>
+        <div class="field">
+          <label for="cost">Cost per vehicle <span class="muted">optional</span></label>
+          <input id="cost" type="number" min="0" step="1" inputmode="decimal" placeholder="e.g. 2800" aria-describedby="cost-hint cost-err">
+          <p class="hint" id="cost-hint">Leave empty for no freight estimate.</p>
+          <p class="cc-err" id="cost-err" role="alert" hidden></p>
+        </div>
+        <div class="field">
+          <label for="currency">Currency <span class="muted">optional</span></label>
+          <input id="currency" type="text" maxlength="8" placeholder="e.g. USD" autocomplete="off">
+          <p class="hint">Shown with the freight estimate on screen and in the PDF.</p>
+        </div>
+      </div>
+
+      <div class="cc-fields" id="custom-dims" hidden>
+        <div class="field">
+          <label for="c-length">Internal length (m)</label>
+          <input id="c-length" type="number" min="0.1" step="0.001" inputmode="decimal" value="12">
+          <p class="cc-err" id="c-length-err" role="alert" hidden></p>
+        </div>
+        <div class="field">
+          <label for="c-width">Internal width (m)</label>
+          <input id="c-width" type="number" min="0.1" step="0.001" inputmode="decimal" value="2.4">
+          <p class="cc-err" id="c-width-err" role="alert" hidden></p>
+        </div>
+        <div class="field">
+          <label for="c-height">Internal height (m)</label>
+          <input id="c-height" type="number" min="0.1" step="0.001" inputmode="decimal" value="3.3">
+          <p class="cc-err" id="c-height-err" role="alert" hidden></p>
+        </div>
+        <div class="field">
+          <label for="c-payload">Max payload (kg)</label>
+          <input id="c-payload" type="number" min="1" step="1" inputmode="numeric" value="24000">
+          <p class="cc-err" id="c-payload-err" role="alert" hidden></p>
+        </div>
+      </div>
+
+      <fieldset class="cc-rules">
+        <legend>Loading rules</legend>
+        <label class="check">
+          <input type="checkbox" id="opt-stack" checked>
+          <span>Allow stacking<em>Items may sit on top of others</em></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-tilt">
+          <span>Allow turning on side<em id="opt-tilt-note">Lets the packer rotate items in all axes</em></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-pallet">
+          <span>Cargo is palletised<em>Puts items on pallets before packing. Nothing is turned on its side</em></span>
+        </label>
+        <div class="field">
+          <label for="opt-gap">Clearance between items (mm)</label>
+          <input id="opt-gap" type="number" min="0" max="500" step="5" inputmode="numeric" value="100" aria-describedby="opt-gap-hint opt-gap-err">
+          <p class="hint" id="opt-gap-hint">Gap kept between items, 0 to 500 mm. Items may touch the walls.</p>
+          <p class="cc-err" id="opt-gap-err" role="alert" hidden></p>
+        </div>
+      </fieldset>
+
+      <!-- Shown only when "Cargo is palletised" is ticked. -->
+      <fieldset class="cc-rules" id="pallet-fields" hidden>
+        <legend>Pallet</legend>
+        <div class="field cc-pallet-pick">
+          <span class="cc-pallet-pick__label" id="pallet-pick-label">Pallet types available</span>
+          <div class="cc-pallet-list" id="pallet-list" role="group" aria-labelledby="pallet-pick-label"></div>
+          <p class="hint">Tick every pallet you can actually source. Each item goes on the
+            <strong>smallest</strong> ticked pallet it fits on; bigger ones are used only for
+            items that will not fit a smaller deck.</p>
+          <p class="hint" id="pallet-hint"></p>
+        </div>
+        <div class="field">
+          <label for="pallet-clearance">Handling clearance (mm)</label>
+          <input id="pallet-clearance" type="number" min="0" max="300" step="5" inputmode="numeric" value="100">
+          <p class="hint">Space a forklift needs around each pallet. SEMA guidance is 75–100 mm.</p>
+        </div>
+        <div class="field">
+          <label for="pallet-load-h">Max load height (mm)</label>
+          <input id="pallet-load-h" type="number" min="50" step="10" inputmode="numeric" value="1800">
+          <p class="hint">Goods height above the deck. Caps how many layers are stacked.</p>
+        </div>
+        <div class="field">
+          <label for="pallet-load-kg">Load limit override (kg)</label>
+          <input id="pallet-load-kg" type="number" min="0" step="10" inputmode="numeric" value="0">
+          <p class="hint">Leave at 0 to use each pallet's own safe working load.</p>
+        </div>
+        <div class="field cc-pallet-custom" id="pallet-custom" hidden>
+          <label for="pallet-l">Deck length (mm)</label>
+          <input id="pallet-l" type="number" min="100" step="1" inputmode="numeric" value="1200">
+          <label for="pallet-w">Deck width (mm)</label>
+          <input id="pallet-w" type="number" min="100" step="1" inputmode="numeric" value="800">
+          <label for="pallet-h">Deck height (mm)</label>
+          <input id="pallet-h" type="number" min="10" step="1" inputmode="numeric" value="144">
+          <label for="pallet-kg">Pallet weight (kg)</label>
+          <input id="pallet-kg" type="number" min="0" step="0.5" inputmode="decimal" value="25">
+          <label for="pallet-swl">Safe working load (kg)</label>
+          <input id="pallet-swl" type="number" min="1" step="50" inputmode="numeric" value="1500">
+        </div>
+        <p class="hint cc-pallet-note" id="pallet-note"></p>
+      </fieldset>
+    </section>
+
+    <!-- 2 · Cargo -->
+    <section class="panel cc-panel" aria-labelledby="cargo-title">
+      <div class="panel__head">
+        <h2 id="cargo-title">Cargo list</h2>
+        <p class="cc-count" id="cargo-count" aria-live="polite">No items yet</p>
+      </div>
+
+      <div class="toolbar" role="group" aria-label="Cargo list actions">
+        <button type="button" class="btn btn--primary" id="add-row">Add row</button>
+        <button type="button" class="btn btn--ghost" id="upload-btn">Open filled sheet</button>
+        <button type="button" class="btn btn--ghost" id="template-btn">Download input sheet</button>
+        <button type="button" class="btn btn--ghost" id="cargo-xlsx-btn" disabled>Download cargo list</button>
+        <button type="button" class="btn btn--ghost" id="sample-btn">Load example</button>
+        <button type="button" class="btn btn--quiet" id="clear-btn">Clear all</button>
+        <input type="file" id="file-input" accept=".xlsx,.csv,.tsv,.txt" hidden>
+      </div>
+
+      <!-- Nothing is packed until this is pressed. The packing search is
+           synchronous and grows with the piece count, so a large list must
+           never start on its own — not on a keystroke, and not on page load.
+           The button carries the piece count so the cost is visible before
+           it is paid. -->
+      <div class="toolbar cc-run" role="group" aria-label="Calculation">
+        <button type="button" class="btn btn--primary" id="run-btn" disabled>Calculate</button>
+        <span class="cc-run__note" id="run-note" role="status" aria-live="polite"></span>
+      </div>
+
+      <!-- Shown only while a pack is running. The packing itself happens in a
+           worker, so this bar keeps painting and Cancel stays clickable. -->
+      <div class="cc-progress" id="progress" hidden>
+        <div class="cc-progress__row">
+          <div class="meter" role="progressbar" id="progress-bar"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+               aria-labelledby="progress-text"><span id="progress-fill"></span></div>
+          <span class="cc-progress__pct" id="progress-pct">0%</span>
+          <button type="button" class="btn btn--ghost btn--sm" id="cancel-btn">Cancel</button>
+        </div>
+        <p class="cc-progress__text" id="progress-text" role="status" aria-live="polite">Starting…</p>
+      </div>
+
+      <div class="cc-units">
+        <span id="unit-label" class="muted">Dimensions entered in</span>
+        <div class="segmented" role="group" aria-labelledby="unit-label">
+          <button type="button" data-unit="m" aria-pressed="true">metres</button>
+          <button type="button" data-unit="mm" aria-pressed="false">millimetres</button>
+        </div>
+      </div>
+
+      <div class="table-wrap" id="cargo-table-wrap">
+        <table class="data cc-cargo">
+          <caption class="sr-only">Cargo items — packed dimensions and gross weight</caption>
+          <thead>
+            <tr>
+              <th scope="col">Tag</th>
+              <th scope="col" class="num" id="th-l">Length</th>
+              <th scope="col" class="num" id="th-w">Width</th>
+              <th scope="col" class="num" id="th-h">Height</th>
+              <th scope="col" class="num">Gross wt (kg)</th>
+              <th scope="col" class="num">Qty</th>
+              <th scope="col">Stackable</th>
+              <th scope="col"><span class="sr-only">Remove</span></th>
+            </tr>
+          </thead>
+          <tbody id="cargo-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="empty-state">
+        Add a row, load the example, or open a sheet with columns
+        <strong>Tag, Length, Width, Height, Gross Weight</strong>.
+      </p>
+
+      <div class="notice cc-notice" id="import-notice" hidden role="status"></div>
+    </section>
+
+    <!-- 3 · Results -->
+    <section class="panel cc-panel" aria-labelledby="results-title">
+      <div class="panel__head">
+        <h2 id="results-title">Loading plan</h2>
+        <div class="cc-actions">
+          <button type="button" class="btn btn--ghost" id="xlsx-btn" disabled>Download packing list</button>
+          <button type="button" class="btn btn--primary" id="pdf-btn" disabled>Download PDF report</button>
+        </div>
+      </div>
+      <p class="hint cc-download-note" id="download-note" role="status" hidden></p>
+      <div id="results" aria-live="polite">
+        <p class="empty">Add cargo, then press Calculate.</p>
+      </div>
+    </section>
+
+    <!-- 4 · Notes -->
+    <section class="panel cc-panel" aria-labelledby="notes-title">
+      <div class="panel__head"><h2 id="notes-title">How the numbers are worked out</h2></div>
+      <ul class="cc-notes">
+        <li>Enter <strong>packed</strong> sizes — crate, skid and protection included, not the bare equipment.</li>
+        <li>Vehicle figures are <strong>internal usable</strong> dimensions. Door openings are smaller than the box, so check the tallest item against the door height before you book.</li>
+        <li>The packer places large items first and fills from the nose backwards. It is a fast heuristic, not a proof of the theoretical minimum — treat the answer as a solid working estimate to confirm with your forwarder.</li>
+        <li>Clearance is the gap kept between neighbouring items along the length and width. It is not kept to the walls, and not between stacked tiers. Sizes in the piece list are the sizes you entered; positions include the clearance.</li>
+        <li>Centre of gravity is reported as a percentage of the vehicle length from the nose. The 45–55% band is a rule of thumb for an evenly loaded vehicle, not a figure from a standard; outside it, check axle loads and lashing with your forwarder.</li>
+        <li>The PDF report prints Latin letters only. Other scripts in a project name or tag print as “[non-Latin text]” there; the Excel files keep them as typed.</li>
+        <li>A list of more than 5,000 pieces is not calculated: split it into shipments first.</li>
+        <li>Everything runs in your browser. Files you open are read locally and never sent anywhere.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <script src="../../assets/js/legacy-tools.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

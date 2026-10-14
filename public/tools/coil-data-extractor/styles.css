@@ -1,0 +1,91 @@
+/* Coil Data Extractor — tool-scoped styles only.
+   Anything reusable belongs in global.css. The dropzone and file list follow
+   the Parts List Extractor's so the two file tools look like one family. */
+
+.cd-drop {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  cursor: pointer;
+  background: var(--color-surface);
+  transition: border-color .15s, background-color .15s;
+}
+.cd-drop:hover,
+.cd-drop.is-dragover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-tint);
+}
+.cd-drop__icon { color: var(--color-primary); margin-bottom: var(--space-2); display: inline-flex; }
+.cd-drop__title { font-family: var(--font-heading); font-weight: 600; margin-bottom: var(--space-1); }
+.cd-drop__hint { color: var(--color-text-muted); font-size: 0.8125rem; margin: 0; }
+
+.cd-files { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.cd-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface);
+}
+.cd-file__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;   /* quotation file names are long and rarely spaced */
+  font-size: 0.875rem;
+}
+.cd-file__kind {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  flex: none;
+}
+
+.cd-run {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.cd-run__note { font-size: 0.8125rem; color: var(--color-text-muted); }
+
+/* Extract is the only control that starts work, so it is sized to be found —
+   the same treatment the Parts List Extractor gives its run button. */
+#run-btn { font-size: 1.0625rem; padding: var(--space-3) var(--space-5); }
+
+/* global.css gives .panel no outer margin, so consecutive panels would touch;
+   Compliance Maker spaces its panels the same way. */
+main > .panel + .panel { margin-top: var(--space-4); }
+
+#result-stats { margin-bottom: var(--space-4); }
+.cd-subhead { font-size: 1rem; margin: var(--space-4) 0 var(--space-2); }
+
+/* The preview has as many columns as the quotation has fields (40 or more),
+   so cells never wrap: the table scrolls sideways inside .table-wrap and
+   each row stays one line, which is how it will read in Excel. */
+.cd-preview { font-size: 0.8125rem; }
+.cd-preview th, .cd-preview td { white-space: nowrap; }
+.cd-preview td.num { text-align: right; }
+.cd-preview-wrap { max-height: 480px; overflow: auto; }
+
+.cd-log { font-size: 0.8125rem; }
+.cd-log td:nth-child(2) { font-family: var(--font-mono); text-align: right; }
+/* A tint plus a coloured edge on the first cell: the tint alone all but
+   vanishes on the night surface. */
+.cd-log tr.is-bad td { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
+.cd-log tr.is-warn td { background: color-mix(in srgb, var(--color-warning) 16%, transparent); }
+.cd-log tr.is-bad td:first-child { box-shadow: inset 4px 0 0 var(--color-danger); }
+.cd-log tr.is-warn td:first-child { box-shadow: inset 4px 0 0 var(--color-warning); }
+.cd-log tr.is-bad td:last-child { font-weight: 600; }
+
+/* .panel__head puts the title and its buttons on one row; at 375px the two
+   buttons no longer fit beside "Result", so the head stacks. */
+@media (max-width: 560px) {
+  .cd-file .btn--sm { min-height: 40px; }
+  .panel__head { flex-direction: column; align-items: stretch; }
+  .panel__head .toolbar { margin-bottom: 0; }
+}
+
+.cd-tips .muted + .muted { margin-top: var(--space-2); }

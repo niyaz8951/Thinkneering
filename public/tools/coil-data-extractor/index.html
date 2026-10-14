@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/css/shell.css">
+  <link rel="stylesheet" href="../../assets/css/legacy-tools.css">
+  <link rel="stylesheet" href="styles.css">
+  <title>Coil Data Extractor - DAME Tools Hub</title>
+  <meta name="description" content="Turn coil selection quotations in Word or PDF into one Excel table — one row per coil, every physical, air, fluid and pricing field as a column. Runs entirely in your browser.">
+  <script src="../../assets/js/config.js"></script>
+  <script src="../../assets/js/api.js"></script>
+  <script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header id="topbar"></header>
+  <script>Hub.requireLogin({ tool: "coil-data-extractor" });</script>
+
+  <main id="main" class="wrap">
+    <p class="hub-back"><a href="../../dashboard.html#general">&larr; General</a></p>
+    <div class="page-head">
+      <p class="eyebrow">Tools</p>
+      <h1>Coil Data Extractor</h1>
+      <p class="page-head__lede">Coil selection quotations in, one Excel table out</p>
+      <p>Drop in coil selection quotations as Word or PDF. Every coil block — reference,
+         physical, air, fluid and pricing data — becomes one row, and every field the
+         quotation prints becomes a column with its unit. Mix as many files as you like.
+         Everything runs in your browser — nothing is uploaded.</p>
+    </div>
+
+    <!-- 1 — Quotations -->
+    <section class="panel" aria-labelledby="step-files">
+      <div class="panel__head"><h2 id="step-files">Quotations</h2></div>
+
+      <div id="dropzone" class="cd-drop" tabindex="0" role="button"
+           aria-label="Choose Word or PDF quotations, or drop them here">
+        <span class="cd-drop__icon" data-icon="coil"></span>
+        <p class="cd-drop__title">Choose quotations or drop them here</p>
+        <p class="cd-drop__hint">.docx and .pdf · text-based PDFs only, no scans · add as many as you like</p>
+      </div>
+      <input type="file" id="file-input" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple class="sr-only" tabindex="-1" aria-hidden="true">
+
+      <ul class="cd-files" id="file-list"></ul>
+      <p class="hint" id="file-note">No quotations chosen yet.</p>
+    </section>
+
+    <!-- 2 — Options -->
+    <section class="panel" aria-labelledby="step-options">
+      <div class="panel__head"><h2 id="step-options">Options</h2></div>
+      <label class="check">
+        <input type="checkbox" id="opt-imperial">
+        <span>Add imperial columns<em>Btu/hr, cfm, °F, ins… beside each metric column. Off keeps the table to SI units.</em></span>
+      </label>
+
+      <div class="toolbar cd-run" role="group" aria-label="Extraction">
+        <button type="button" class="btn btn--primary" id="run-btn" disabled>Extract</button>
+        <span class="cd-run__note" id="run-note" role="status" aria-live="polite">Add at least one quotation.</span>
+      </div>
+    </section>
+
+    <!-- 3 — Result -->
+    <section class="panel" id="result-panel" aria-labelledby="step-result" hidden>
+      <div class="panel__head">
+        <h2 id="step-result">Result</h2>
+        <div class="toolbar">
+          <button type="button" class="btn btn--primary" id="download-btn">Download Excel</button>
+          <button type="button" class="btn btn--ghost" id="clear-btn">Clear</button>
+        </div>
+      </div>
+
+      <div class="stat-grid" id="result-stats"></div>
+
+      <h3 class="cd-subhead" id="preview-title">Coils</h3>
+      <div class="table-wrap cd-preview-wrap" tabindex="0" role="region" aria-labelledby="preview-title">
+        <table class="data cd-preview">
+          <thead id="preview-head"></thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="preview-note"></p>
+
+      <h3 class="cd-subhead" id="log-title">Files</h3>
+      <div class="table-wrap">
+        <table class="data cd-log" aria-labelledby="log-title">
+          <thead><tr><th>File</th><th>Coils</th><th>Status</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel cd-tips" aria-labelledby="tips">
+      <div class="panel__head"><h2 id="tips">What comes out</h2></div>
+      <p class="muted"><strong>Coils</strong> has one row per coil: source file, where it
+        was found, item number, reference tag and coil type, then every labelled field in
+        the order the quotation prints it — finned height and length, fin spacing, rows,
+        circuits, connections, capacities, air flow, face velocity, temperatures, pressure
+        drops, medium and flow — then the coil code, quantity, the certification note and
+        the quotation header (customer, reference, date, WinCoil version). Numbers are
+        written as numbers, so they sum and filter in Excel. “~” and “-” (not applicable)
+        are left blank. <strong>Extraction_Log</strong> lists every file and what was found
+        in it.</p>
+      <p class="muted">Built for WinCoil quotations. A
+        field that appears in only some files still gets its column; coils without it are
+        left blank. Old .doc files need saving as .docx first, and a scanned PDF has no text
+        to read — this tool does not use OCR.</p>
+    </section>
+  </main>
+
+
+  <!-- PDF text extraction: the same pinned pdf.js build Compliance Maker loads,
+       so the browser cache serves it to both tools. -->
+  <script src="../../assets/vendor/pdfjs/pdf.min.js"></script>
+  <script src="../../assets/js/legacy-tools.js"></script>
+  <script src="coil-parse.js"></script>
+  <script src="xlsx-out.js"></script>
+  <script src="coil-data-extractor.js"></script>
+</body>
+</html>
