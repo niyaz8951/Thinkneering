@@ -1,9 +1,9 @@
-# Thinkneering
-# One Worker serving both static assets and API
+# Thinkneering Hub - one Worker: the static site (public/) and the API (worker/src).
+# No account id or zone id here: they come from `wrangler login` (or the Workers Builds connection).
+# Secrets (`wrangler secret put` or the dashboard): SESSION_SECRET, AI_GATEWAY_TOKEN.
 
-name = "thinkneering"
+name = "thinkneering-hub"
 main = "worker/src/index.ts"
-
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -16,7 +16,7 @@ run_worker_first = ["/api/*", "/"]
 
 [vars]
 ENV_NAME = "local"
-AI_GATEWAY_ID = "thinkneering"
+AI_GATEWAY_ID = "hub"
 
 [[d1_databases]]
 binding = "DB"
@@ -41,24 +41,19 @@ crons = ["*/5 * * * *", "30 2 * * *"]
 [observability]
 enabled = true
 
-# =========================================================
-# STAGING
-# =========================================================
-
+# ---------- staging: its own database, bucket and index ----------
 [env.staging]
-name = "thinkneering-staging"
-routes = [
-  { pattern = "staging.tools.thinkneering.com", custom_domain = true }
-]
+name = "thinkneering-hub-staging"
+routes = [{ pattern = "staging.tools.thinkneering.com", custom_domain = true }]
 
 [env.staging.vars]
 ENV_NAME = "staging"
-AI_GATEWAY_ID = "thinkneering"
+AI_GATEWAY_ID = "hub"
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db-staging"
-database_id = "replace-with-the-staging-database-id"
+database_id = "replace-with-the-staging-database-id-when-staging-is-created"
 migrations_dir = "db/migrations"
 
 [[env.staging.r2_buckets]]
@@ -75,19 +70,14 @@ binding = "AI"
 [env.staging.triggers]
 crons = ["*/5 * * * *", "30 2 * * *"]
 
-# =========================================================
-# PRODUCTION
-# =========================================================
-
+# ---------- production ----------
 [env.production]
-name = "thinkneering"
-routes = [
-  { pattern = "tools.thinkneering.com", custom_domain = true }
-]
+name = "thinkneering-hub"
+routes = [{ pattern = "tools.thinkneering.com", custom_domain = true }]
 
 [env.production.vars]
 ENV_NAME = "production"
-AI_GATEWAY_ID = "thinkneering"
+AI_GATEWAY_ID = "hub"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -109,16 +99,15 @@ binding = "AI"
 [env.production.triggers]
 crons = ["*/5 * * * *", "30 2 * * *"]
 
-# =========================================================
-# LOCAL
-# =========================================================
-
+# ---------- local, offline: no AI and no Vectorize binding, so `wrangler dev --env local` runs without a
+# Cloudflare login (AI review then says it is not available here). `npm run dev` uses the top-level
+# bindings, where AI calls go to Workers AI through your login.
 [env.local]
-name = "thinkneering-local"
+name = "thinkneering-hub-local"
 
 [env.local.vars]
 ENV_NAME = "local"
-AI_GATEWAY_ID = "thinkneering"
+AI_GATEWAY_ID = "hub"
 AI_FAKE = "1"
 
 [[env.local.d1_databases]]
