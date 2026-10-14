@@ -13,10 +13,10 @@ const out = process.argv.filter((a, k) => k > 1 && !a.startsWith("--") && proces
 mkdirSync(out, { recursive: true });
 const w = (args, opts = {}) => execFileSync("npx", ["wrangler", ...args], { encoding: "utf8", stdio: "pipe", maxBuffer: 1 << 30, ...opts });
 
-w(["d1", "export", "hub-db", where, ...envArgs, "--output", join(out, "hub-db.sql")]);
-const tables = JSON.parse(w(["d1", "execute", "hub-db", where, ...envArgs, "--json", "--command", "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'd1_%'"]))[0].results.map((r) => r.name);
+w(["d1", "export", "DB", where, ...envArgs, "--output", join(out, "hub-db.sql")]);
+const tables = JSON.parse(w(["d1", "execute", "DB", where, ...envArgs, "--json", "--command", "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'd1_%'"]))[0].results.map((r) => r.name);
 for (const t of tables) {
-  const rows = JSON.parse(w(["d1", "execute", "hub-db", where, ...envArgs, "--json", "--command", `SELECT * FROM ${t}`]))[0].results;
+  const rows = JSON.parse(w(["d1", "execute", "DB", where, ...envArgs, "--json", "--command", `SELECT * FROM ${t}`]))[0].results;
   writeFileSync(join(out, t + ".json"), JSON.stringify(rows));
   console.log(`${t}: ${rows.length}`);
 }

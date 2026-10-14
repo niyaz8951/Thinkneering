@@ -109,11 +109,11 @@ sqlFile(["INSERT INTO ai_jobs (kind, ref_id) SELECT 'clause', id FROM cm_lines;"
 
 // 8. run it
 console.log(`\nWriting ${files.length} SQL files to D1 (${where}${envArgs.length ? " " + envArgs[1] : ""}) ...`);
-for (const f of files) { wrangler(["d1", "execute", "hub-db", where, ...envArgs, "--file", f]); process.stdout.write("."); }
+for (const f of files) { wrangler(["d1", "execute", "DB", where, ...envArgs, "--file", f]); process.stdout.write("."); }
 console.log(`\nUploading ${r2.length} files to R2 ...`);
 for (const [key, f, ct] of r2) { wrangler(["r2", "object", "put", `hub-files/${key}`, "--file", f, "--content-type", ct, ...(where === "--local" ? ["--local"] : ["--remote"]), ...envArgs]); process.stdout.write("."); }
 console.log("\nDone. Compare the counts with " + join(dir, "_counts.json") + ":");
 for (const t of ["app_users", "cm_lines", "cm_run_lines", "cm_runs", "pr_projects", "pr_notes", "mp_maps", "mp_nodes", "mp_images", "po_values", "dn_map"]) {
-  const out = wrangler(["d1", "execute", "hub-db", where, ...envArgs, "--json", "--command", `SELECT count(*) AS n FROM ${t}`]);
+  const out = wrangler(["d1", "execute", "DB", where, ...envArgs, "--json", "--command", `SELECT count(*) AS n FROM ${t}`]);
   console.log(`  ${t}: ${JSON.parse(out)[0].results[0].n}`);
 }

@@ -20,8 +20,8 @@ AI_GATEWAY_ID = "hub"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "hub-db"
-database_id = "replace-with-the-production-database-id"
+database_name = "thinkneering-db"
+database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
 migrations_dir = "db/migrations"
 
 [[r2_buckets]]
@@ -52,8 +52,8 @@ AI_GATEWAY_ID = "hub"
 
 [[env.staging.d1_databases]]
 binding = "DB"
-database_name = "hub-db-staging"
-database_id = "replace-with-the-staging-database-id"
+database_name = "thinkneering-db-staging"
+database_id = "replace-with-the-staging-database-id-when-staging-is-created"
 migrations_dir = "db/migrations"
 
 [[env.staging.r2_buckets]]
@@ -81,8 +81,8 @@ AI_GATEWAY_ID = "hub"
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "hub-db"
-database_id = "replace-with-the-production-database-id"
+database_name = "thinkneering-db"
+database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
 migrations_dir = "db/migrations"
 
 [[env.production.r2_buckets]]

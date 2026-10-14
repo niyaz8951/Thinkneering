@@ -21,7 +21,7 @@ function wrangler(args, opts = {}) {
   return execFileSync("npx", ["wrangler", ...args], { stdio: opts.quiet ? "pipe" : "inherit", encoding: "utf8" });
 }
 function sql(command) {
-  const out = wrangler(["d1", "execute", "hub-db", "--local", "--json", "--command", command], { quiet: true });
+  const out = wrangler(["d1", "execute", "DB", "--local", "--json", "--command", command], { quiet: true });
   return JSON.parse(out);
 }
 
@@ -29,7 +29,7 @@ if (fresh) {
   rmSync(".wrangler/state/v3/d1", { recursive: true, force: true });
   console.log("Local database wiped.");
 }
-wrangler(["d1", "migrations", "apply", "hub-db", "--local"]);
+wrangler(["d1", "migrations", "apply", "DB", "--local"]);
 
 const n = sql("SELECT count(*) AS n FROM app_users")[0].results[0].n;
 if (n > 0) {

@@ -9,8 +9,8 @@ one Worker project, one domain. No command here needs the code to change.
 npm install
 npx wrangler login
 # the resources, with the names used in wrangler.toml
-npx wrangler d1 create hub-db                      # production  -> paste database_id into [env.production.d1_databases]
-npx wrangler d1 create hub-db-staging              # staging     -> [env.staging.d1_databases]
+npx wrangler d1 create thinkneering-db             # production  -> paste database_id into [env.production.d1_databases] (done 14 Oct 2026: 829bac8e-...)
+npx wrangler d1 create thinkneering-db-staging     # staging     -> [env.staging.d1_databases] (later)
 npx wrangler r2 bucket create hub-files
 npx wrangler r2 bucket create hub-files-staging
 npx wrangler vectorize create hub-vectors --dimensions=1024 --metric=cosine
@@ -24,7 +24,7 @@ npx wrangler vectorize create-metadata-index hub-vectors-staging --property-name
 npx wrangler secret put SESSION_SECRET --env production      # any long random string
 npx wrangler secret put AI_GATEWAY_TOKEN --env production    # only when the gateway is set to authenticated
 # tables, then the code
-npx wrangler d1 migrations apply hub-db --remote --env production
+npx wrangler d1 migrations apply DB --remote --env production
 npx wrangler deploy --env production
 ```
 
@@ -35,11 +35,11 @@ Workers > the Worker > Settings > Domains & Routes. Until then the `workers.dev`
 **The first super user** (no website path exists on purpose; `app_register` only makes pending users):
 
 ```
-npx wrangler d1 execute hub-db --remote --env production --command "SELECT count(*) AS n FROM app_users"
+npx wrangler d1 execute DB --remote --env production --command "SELECT count(*) AS n FROM app_users"
 ```
 If it is 0, make the account through the website's "Request access", then promote it:
 ```
-npx wrangler d1 execute hub-db --remote --env production --command \
+npx wrangler d1 execute DB --remote --env production --command \
   "UPDATE app_users SET role = 'superuser', status = 'approved', approved_at = datetime('now') WHERE username = 'your.username'"
 ```
 (With the import from the DAME site the super user comes across as he was; this step is for an empty database.)
@@ -48,7 +48,7 @@ npx wrangler d1 execute hub-db --remote --env production --command \
 
 - GitHub: `niyaz8951/thinkneering-hub`, connected to Workers Builds. Branch `main` deploys production, `staging`
   deploys staging. Build command `npm ci`; deploy command
-  `npx wrangler d1 migrations apply hub-db --remote --env production && npx wrangler deploy --env production`
+  `npx wrangler d1 migrations apply DB --remote --env production && npx wrangler deploy --env production`
   (staging: `--env staging`). Migrations run first, so a page never meets a table that is not there.
 - From a laptop: `npm run deploy` (production) or `npm run deploy:staging`.
 - A new migration = a new file `db/migrations/000N_name.sql`; never edit an applied one. Update `scripts/dev-seed.mjs`
@@ -72,9 +72,9 @@ Never point a local command at production unless the command says `--remote`.
 - **On-demand export of everything:** `node scripts/export-d1.mjs --env production` -> `hub-db.sql`, one JSON per
   table, and the list of R2 keys. R2 objects: `npx wrangler r2 object get hub-files/<key> --remote --env production`.
 - **Restore a point in time (D1 Time Travel):**
-  `npx wrangler d1 time-travel info hub-db --env production` then
-  `npx wrangler d1 time-travel restore hub-db --env production --timestamp=2026-10-14T20:00:00Z`.
-- **Restore from a backup folder:** `npx wrangler d1 execute hub-db --remote --env production --file hub-db.sql`
+  `npx wrangler d1 time-travel info DB --env production` then
+  `npx wrangler d1 time-travel restore DB --env production --timestamp=2026-10-14T20:00:00Z`.
+- **Restore from a backup folder:** `npx wrangler d1 execute DB --remote --env production --file hub-db.sql`
   (from `export-d1`), or load the JSON files with `scripts/import-d1.mjs` after renaming the folder's files to the
   table names (they already are).
 - **Vectorize** is never backed up: `node scripts/reindex.mjs --env production` queues every clause and the cron
@@ -84,7 +84,7 @@ Never point a local command at production unless the command says `--remote`.
 
 1. `npx wrangler login` on the new account; create D1, R2, Vectorize, the AI Gateway "hub" with the same names (section 1).
 2. Put the new `database_id`s in `wrangler.toml`; nothing else in the code names an account.
-3. `npx wrangler d1 migrations apply hub-db --remote --env production`, then load the latest export
+3. `npx wrangler d1 migrations apply DB --remote --env production`, then load the latest export
    (`scripts/import-d1.mjs <folder> --env production`) or `d1 execute --file hub-db.sql`.
 4. R2: `npx wrangler r2 object put` for every key listed in `r2-keys.txt` (or an `rclone` sync between the two
    accounts' S3 endpoints).
