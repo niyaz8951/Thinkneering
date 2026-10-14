@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Projects - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .pr-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pr-form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .pr-filters { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-items: end; }
+  .pr-table td { vertical-align: top; }
+  .pr-table tbody tr { cursor: pointer; }
+  .pr-table tbody tr:hover td { background: var(--surface-2); }
+  .pr-name { font-weight: 650; color: var(--brand); text-decoration: none; }
+  .pr-name:hover { text-decoration: underline; }
+  .pr-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pr-sum { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .pr-sum h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); margin-bottom: 6px; }
+  .pr-sum li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .pr-sum ul { list-style: none; margin: 0; padding: 0; }
+  .pr-sum li:last-child { border-bottom: 0; }
+  @media (max-width: 640px) {
+    /* the history list becomes one card per project */
+    .pr-table thead { display: none; }
+    .pr-table, .pr-table tbody, .pr-table tr, .pr-table td { display: block; width: 100%; }
+    .pr-table td { border: 0; padding: 2px 14px; }
+    .pr-table tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .pr-table tr:last-child { border-bottom: 0; }
+    .pr-table td[data-label]:not(:empty)::before { content: attr(data-label) ": "; color: var(--text-soft); font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head pr-head">
+    <div>
+      <p class="small"><a href="../../dashboard.html#general">&larr; General</a></p>
+      <h1>Projects</h1>
+      <p id="pr-intro">Every specification and datasheet is saved in a project. You see the projects you created and the ones shared with you.</p>
+    </div>
+    <div class="row">
+      <a class="btn ghost" id="pr-review" href="../compliance-maker/library.html?from=projects" hidden>Compliance review</a>
+      <a class="btn ghost" id="pr-options" href="../product-options/index.html?from=projects" hidden>Product Options</a>
+      <button type="button" class="btn" id="pr-add">Add New Project</button>
+    </div>
+  </div>
+
+  <div class="stack">
+    <form class="card stack" id="pr-new" hidden novalidate>
+      <h2>New project</h2>
+      <div class="pr-form">
+        <label class="field"><span>Project name</span><input class="input" name="name" maxlength="120" autocomplete="off" required></label>
+        <label class="field"><span>Client type</span><select class="input" name="clientType" required></select></label>
+        <label class="field"><span>Client name</span><input class="input" name="clientName" maxlength="120" autocomplete="off" required></label>
+        <label class="field"><span>Region</span><select class="input" name="region" required></select></label>
+      </div>
+      <div class="notice error" id="pr-new-msg" role="alert" hidden></div>
+      <div class="row">
+        <button type="submit" class="btn" id="pr-create">Create project</button>
+        <button type="button" class="btn ghost" id="pr-cancel">Cancel</button>
+        <span class="small muted">All four fields are needed.</span>
+      </div>
+    </form>
+
+    <section class="card stack" id="pr-summary" hidden aria-labelledby="h-sum">
+      <h2 id="h-sum">All projects at a glance</h2>
+      <div class="pr-sum" id="pr-sum"></div>
+    </section>
+
+    <section class="card stack" aria-labelledby="h-list">
+      <div class="pr-head">
+        <h2 id="h-list">Project history</h2>
+        <button type="button" class="btn ghost sm" id="pr-download" hidden>Download list (Excel)</button>
+      </div>
+      <div class="pr-filters" id="pr-filters" hidden>
+        <label class="field"><span>Find</span><input class="input" id="f-q" type="search" placeholder="Project or client" autocomplete="off"></label>
+        <label class="field"><span>Region</span><select class="input" id="f-region"></select></label>
+        <label class="field"><span>Client type</span><select class="input" id="f-type"></select></label>
+        <label class="field" id="f-by-wrap" hidden><span>Created by</span><select class="input" id="f-by"></select></label>
+      </div>
+      <p class="small muted" id="pr-count" role="status"></p>
+      <div class="notice error" id="pr-error" role="alert" hidden></div>
+      <div class="empty" id="pr-loading">Loading projects…</div>
+      <div class="empty" id="pr-empty" hidden></div>
+      <div class="table-wrap" id="pr-wrap" hidden>
+        <table class="table pr-table">
+          <thead><tr><th>Project</th><th>Client</th><th>Region</th><th>Saved</th><th id="th-by" hidden>Created by</th><th>Last activity</th></tr></thead>
+          <tbody id="pr-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="pr-xlsx.js"></script>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, $ = function (id) { return document.getElementById(id); };
+  var form = $("pr-new"), projects = [], all = false;
+
+  function when(iso) { var d = new Date(iso); return isNaN(d) ? "" : Hub.date(iso); }
+  function fill(select, values, first) {
+    select.textContent = ""; select.appendChild(el("option", { value: "", text: first }));
+    values.forEach(function (v) { select.appendChild(el("option", { value: v, text: v })); });
+  }
+  function uniq(key) { var seen = {}; projects.forEach(function (p) { seen[p[key]] = 1; }); return Object.keys(seen).sort(); }
+
+  /* ---------- new project ---------- */
+  function openForm(open) {
+    form.hidden = !open; $("pr-new-msg").hidden = true;
+    if (open) { form.elements.name.focus(); form.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+  }
+  $("pr-add").addEventListener("click", function () { openForm(form.hidden); });
+  $("pr-cancel").addEventListener("click", function () { form.reset(); openForm(false); });
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var f = form.elements, msg = $("pr-new-msg");
+    var d = { name: f.name.value.trim(), clientType: f.clientType.value, clientName: f.clientName.value.trim(), region: f.region.value };
+    var miss = !d.name ? ["Project name", f.name] : !d.clientType ? ["Client type", f.clientType] : !d.clientName ? ["Client name", f.clientName] : !d.region ? ["Region", f.region] : null;
+    if (miss) { msg.textContent = miss[0] + " is needed."; msg.hidden = false; miss[1].focus(); return; }
+    msg.hidden = true; $("pr-create").disabled = true;
+    Api.prSave(Hub.token(), d).then(function (res) {
+      window.location.href = "project.html?id=" + encodeURIComponent(res.id);
+    }, function (err) { msg.textContent = err.message; msg.hidden = false; $("pr-create").disabled = false; });
+  });
+
+  /* ---------- history ---------- */
+  function shown() {
+    var q = $("f-q").value.trim().toLowerCase(), r = $("f-region").value, t = $("f-type").value, by = $("f-by").value;
+    return projects.filter(function (p) {
+      return (!q || (p.name + " " + p.client_name).toLowerCase().indexOf(q) >= 0) && (!r || p.region === r) && (!t || p.client_type === t) && (!by || p.created_by === by);
+    });
+  }
+  function render() {
+    var list = shown(), body = $("pr-body"); body.textContent = "";
+    list.forEach(function (p) {
+      var href = "project.html?id=" + encodeURIComponent(p.id);
+      var counts = el("div", { "class": "pr-counts" }, [
+        p.compliance ? el("span", { "class": "badge", text: p.compliance + (p.compliance === 1 ? " compliance sheet" : " compliance sheets") }) : null,
+        p.notes ? el("span", { "class": "badge", text: p.notes + (p.notes === 1 ? " datasheet table" : " datasheet tables") }) : null,
+        p.pending ? el("span", { "class": "badge warn", text: p.pending + " in review" }) : null,
+        !p.compliance && !p.notes ? el("span", { "class": "small muted", text: "Nothing saved yet" }) : null
+      ]);
+      var tr = el("tr", {}, [
+        el("td", {}, [el("a", { "class": "pr-name", href: href, text: p.name }),
+          p.shared_with_me ? el("div", {}, [el("span", { "class": "badge brand", text: "Shared with you" })]) : p.members ? el("div", { "class": "small muted", text: "Shared with " + p.members + (p.members === 1 ? " person" : " people") }) : null]),
+        el("td", {}, [el("div", { text: p.client_name }), el("div", { "class": "small muted", text: p.client_type })]),
+        el("td", { "data-label": "Region", text: p.region }),
+        el("td", {}, [counts]),
+        el("td", { "data-label": "Created by", text: p.created_by, hidden: !all }),
+        el("td", { "data-label": "Last activity", "class": "small muted", text: when(p.last_at) })
+      ]);
+      tr.addEventListener("click", function (e) { if (!e.target.closest("a")) window.location.href = href; });
+      body.appendChild(tr);
+    });
+    $("pr-wrap").hidden = !list.length;
+    var empty = $("pr-empty"); empty.hidden = !!list.length;
+    empty.textContent = projects.length ? "No project matches these filters." : "No projects yet. Press Add New Project to start the first one.";
+    $("pr-count").textContent = projects.length ? list.length + " of " + projects.length + (projects.length === 1 ? " project" : " projects") + (all ? ", from all users" : "") : "";
+    $("pr-filters").hidden = projects.length < 2;
+    $("pr-download").hidden = !all || !projects.length;
+  }
+  ["f-q", "f-region", "f-type", "f-by"].forEach(function (id) { $(id).addEventListener(id === "f-q" ? "input" : "change", render); });
+
+  $("pr-download").addEventListener("click", function () {
+    var rows = [["Project", "Client type", "Client name", "Region", "Created by", "Created", "Compliance sheets", "Datasheet tables", "Answers in review", "Last activity"]];
+    shown().forEach(function (p) { rows.push([p.name, p.client_type, p.client_name, p.region, p.created_by, when(p.created_at), p.compliance, p.notes, p.pending, when(p.last_at)]); });
+    PRXlsx.save(PRXlsx.build([{ name: "Projects", widths: [36, 20, 30, 18, 22, 14, 12, 12, 12, 14], rows: rows }]), "DAME projects.xlsx");
+    Hub.toast("Excel downloaded.");
+  });
+
+  function summary(s) {
+    var host = $("pr-sum"); host.textContent = "";
+    [["By region", s.by_region], ["By client type", s.by_client_type], ["By product", s.by_product]].forEach(function (g) {
+      host.appendChild(el("div", {}, [el("h3", { text: g[0] }),
+        (g[1] || []).length ? el("ul", {}, g[1].map(function (x) { return el("li", {}, [el("span", { text: x.name }), el("b", { text: String(x.n) })]); }))
+                            : el("p", { "class": "small muted", text: "Nothing yet." })]));
+    });
+    $("pr-summary").hidden = !s.projects;
+  }
+
+  Hub.requireLogin({ tool: "projects" }).then(function (profile) {
+    var t = Hub.token();
+    if (Hub.canEdit(profile, "compliance-maker") || Hub.isAdmin(profile.user)) $("pr-review").hidden = false;
+    if (profile.categories.some(function (c) { return c.allowed && c.tools.some(function (x) { return x.id === "product-options" && x.status === "live"; }); })) $("pr-options").hidden = false;
+    Api.prOptions(t).then(function (o) {
+      fill(form.elements.clientType, o.client_types || [], "Choose a client type");
+      fill(form.elements.region, o.regions || [], "Choose a region");
+    }, function (err) { $("pr-new-msg").textContent = "Could not load the client types and regions: " + err.message; $("pr-new-msg").hidden = false; });
+    Api.prList(t).then(function (res) {
+      projects = res.projects || []; all = !!res.all;
+      $("pr-loading").hidden = true;
+      if (all) $("pr-intro").textContent = "Projects of every user. Open one to see its compliance sheets, datasheet tables and history.";
+      $("th-by").hidden = !all; $("f-by-wrap").hidden = !all;
+      fill($("f-region"), uniq("region"), "All regions"); fill($("f-type"), uniq("client_type"), "All client types"); fill($("f-by"), uniq("created_by"), "Everyone");
+      render();
+      if (Hub.param("new") === "1" || !projects.length) openForm(true);
+    }, function (err) {
+      $("pr-loading").hidden = true; $("pr-error").hidden = false;
+      $("pr-error").textContent = "Could not load the projects: " + err.message + " Refresh the page to try again.";
+    });
+    if (Hub.isAdmin(profile.user)) Api.prAdminSummary(t).then(summary, function () { /* the list still works */ });
+  });
+})();
+</script>
+</body>
+</html>

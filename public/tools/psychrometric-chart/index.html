@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Psychrometric chart — DAME Tools Hub</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="../../assets/favicon.svg">
+  <meta name="description" content="Plot as many air states as you need on an ASHRAE psychrometric chart, join them into a process, and get properties, coil loads, sensible heat ratio and apparatus dew point.">
+  <link rel="stylesheet" href="../../assets/css/shell.css">
+  <link rel="stylesheet" href="../../assets/css/legacy-tools.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="../../assets/js/config.js"></script>
+  <script src="../../assets/js/api.js"></script>
+  <script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header id="topbar"></header>
+  <script>window.psyProfile = Hub.requireLogin({ tool: "psychrometric-chart" });</script>
+
+  <main id="main" class="wrap" data-tool="psychrometric-chart">
+
+    <div class="page-head">
+      <p class="eyebrow"><a class="psy-back" href="../../dashboard.html#general">&#8592; General tools</a></p>
+      <h1>Psychrometric chart</h1>
+      <p class="page-head__lede">Plot the air, join the dots, read the duty.</p>
+      <p>Enter as many air states as your system has — outdoor, mixed, off-coil, supply, room —
+        and each one is plotted and joined to the next. You get every property of each state,
+        what each step does to the air, the sensible and latent split, and the apparatus dew
+        point and bypass factor a cooling coil would need. Properties follow the ASHRAE
+        Handbook&nbsp;— Fundamentals, Chapter&nbsp;1, including the water-vapour enhancement
+        factor, so the figures match ASHRAE Table&nbsp;2 and Chart&nbsp;No.&nbsp;1.</p>
+    </div>
+
+    <div class="toolbar psy-toolbar">
+      <label class="sr-only" for="example">Worked example</label>
+      <select id="example">
+        <option value="">Load a worked example&hellip;</option>
+        <option value="ahu-mix">AHU with mixed air — Dubai summer</option>
+        <option value="fresh-air">100% fresh air unit — Riyadh</option>
+        <option value="winter">Winter heating and humidification</option>
+        <option value="evap">Direct evaporative cooling</option>
+        <option value="recovery">Heat recovery wheel then coil</option>
+      </select>
+
+      <div class="segmented" role="group" aria-label="Unit system">
+        <button type="button" data-unit-btn="si" aria-pressed="true">SI</button>
+        <button type="button" data-unit-btn="ip" aria-pressed="false">IP</button>
+      </div>
+
+      <span class="psy-toolbar__gap" aria-hidden="true"></span>
+
+      <button type="button" class="btn btn--ghost" id="btn-csv">Download CSV</button>
+      <button type="button" class="btn btn--ghost" id="btn-png">Save chart image</button>
+      <button type="button" class="btn btn--ghost" id="btn-print">Print</button>
+    </div>
+
+    <p class="hint psy-example-note" id="example-note" hidden></p>
+
+    <!-- 1 · Air states -->
+    <section class="panel psy-panel" aria-labelledby="points-title">
+      <div class="panel__head">
+        <h2 id="points-title">Air states</h2>
+        <div class="psy-actions">
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-pick" aria-pressed="false">Pick from chart</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-clear">Start again</button>
+          <button type="button" class="btn btn--primary btn--sm" id="btn-add">Add state</button>
+        </div>
+      </div>
+
+      <p class="hint psy-hint">One row per condition, in the order the air passes through them.
+        Each row needs a dry-bulb temperature and any one other measure. Airflow is optional —
+        give it and the step leaving that state is costed as a load; leave it blank and you still
+        get every property and the sensible heat ratio.</p>
+
+      <div class="table-wrap">
+        <table class="data psy-points">
+          <caption class="sr-only">Air states in process order</caption>
+          <thead>
+            <tr>
+              <th scope="col">State</th>
+              <th scope="col" class="num">Dry bulb <span id="db-unit-head">&#176;C</span></th>
+              <th scope="col">Second measure</th>
+              <th scope="col" class="num">Value</th>
+              <th scope="col" class="num">Airflow out <span id="flow-unit-head">m&#179;/h</span></th>
+              <th scope="col" aria-label="Row actions"></th>
+            </tr>
+          </thead>
+          <tbody id="points-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="points-empty" hidden>No states yet. Add one, or load a worked example above.</p>
+
+      <div class="notice notice--danger psy-errors" id="input-errors" role="status" hidden></div>
+
+      <div class="psy-mix" id="mix-wrap" hidden>
+        <div class="field">
+          <label for="mix-a">Mix two states</label>
+          <div class="psy-mix__row">
+            <select id="mix-a" aria-label="First state to mix"></select>
+            <span class="psy-mix__plus" aria-hidden="true">+</span>
+            <select id="mix-b" aria-label="Second state to mix"></select>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-mix">Add mixed state</button>
+          </div>
+          <p class="hint">Adiabatic mixing weighted by dry-air mass flow (ASHRAE eq. 45/46).
+            Uses each state's airflow from the table; the mixed row gets the combined airflow.
+            The step into a mixed row is shown as mixing, with no coil load.</p>
+          <p class="hint psy-mix__msg" id="mix-msg" role="status"></p>
+        </div>
+      </div>
+
+      <div class="psy-fields">
+        <div class="field">
+          <label for="pressure-mode">Barometric pressure from</label>
+          <select id="pressure-mode">
+            <option value="altitude">Site altitude</option>
+            <option value="absolute">A measured pressure</option>
+          </select>
+          <p class="hint">Now using <strong id="derived-pressure">101.33 kPa</strong>.</p>
+        </div>
+        <div class="field" id="alt-field">
+          <label for="altitude">Altitude <span class="muted" id="alt-unit">m</span></label>
+          <input id="altitude" type="number" step="any" inputmode="decimal" value="0" aria-describedby="altitude-msg">
+          <p class="psy-msg" id="altitude-msg" role="alert" hidden></p>
+          <p class="hint">Riyadh sits at 612&nbsp;m (2,008&nbsp;ft), which is about 7% more moisture at the same relative humidity.</p>
+        </div>
+        <div class="field" id="press-field" hidden>
+          <label for="pressure">Pressure <span class="muted" id="press-unit">kPa</span></label>
+          <input id="pressure" type="number" step="any" inputmode="decimal" value="101.325" aria-describedby="pressure-msg">
+          <p class="psy-msg" id="pressure-msg" role="alert" hidden></p>
+        </div>
+        <div class="field">
+          <label for="flow-unit">Airflow unit</label>
+          <select id="flow-unit">
+            <option value="m3h">m&#179;/h</option>
+            <option value="ls">L/s</option>
+            <option value="cfm">CFM</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · Chart -->
+    <section class="panel psy-panel" aria-labelledby="chart-title">
+      <div class="panel__head">
+        <h2 id="chart-title">Chart</h2>
+        <div class="field psy-range">
+          <label class="sr-only" for="range-mode">Chart range</label>
+          <select id="range-mode">
+            <option value="auto">Fit to the points</option>
+            <option value="normal">Normal temperature (0 to 50 °C)</option>
+            <option value="gulf">High ambient (10 to 55 °C)</option>
+            <option value="low">Low temperature (-30 to 20 °C)</option>
+            <option value="wide">Wide (-10 to 60 °C)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="psy-chart-scroll">
+        <svg id="psy-svg" class="psy-chart" viewBox="0 0 940 580" role="img"
+             aria-label="Psychrometric chart"></svg>
+      </div>
+
+      <div class="psy-readout" id="psy-readout" role="status" aria-live="off" hidden></div>
+
+      <fieldset class="psy-layers">
+        <legend>Show on the chart</legend>
+        <label class="check"><input type="checkbox" id="layer-rh" checked><span>Relative humidity</span></label>
+        <label class="check"><input type="checkbox" id="layer-wetBulb" checked><span>Wet bulb</span></label>
+        <label class="check"><input type="checkbox" id="layer-enthalpy" checked><span>Enthalpy</span></label>
+        <label class="check"><input type="checkbox" id="layer-volume"><span>Specific volume</span></label>
+        <label class="check"><input type="checkbox" id="layer-comfort"><span>Comfort zone</span></label>
+        <label class="check"><input type="checkbox" id="layer-protractor" checked><span>SHR protractor</span></label>
+        <label class="check"><input type="checkbox" id="opt-adp" checked><span>Apparatus dew point</span></label>
+        <label class="check"><input type="checkbox" id="opt-legs" checked><span>Sensible / latent legs</span></label>
+      </fieldset>
+
+      <p class="hint psy-chart-help">Move the pointer over the chart to read the air at that
+        spot. Every figure shown on the chart is also in the tables below, so nothing here
+        depends on being able to see it.</p>
+    </section>
+
+    <!-- 3 · Properties -->
+    <section class="panel psy-panel" aria-labelledby="states-title">
+      <div class="panel__head"><h2 id="states-title">Properties of each state</h2></div>
+      <div class="table-wrap" id="states-wrap" hidden>
+        <table class="data psy-states">
+          <caption class="sr-only">Psychrometric properties, one column per air state</caption>
+          <thead id="states-head"></thead>
+          <tbody id="states-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4 · Processes -->
+    <section class="panel psy-panel" aria-labelledby="segments-title">
+      <div class="panel__head"><h2 id="segments-title">What each step does</h2></div>
+
+      <div class="table-wrap" id="segments-wrap" hidden>
+        <table class="data psy-segments">
+          <caption class="sr-only">Each process step between consecutive states</caption>
+          <thead>
+            <tr>
+              <th scope="col">Step</th>
+              <th scope="col">Process</th>
+              <th scope="col" class="num" id="seg-dt-head">&#916;t</th>
+              <th scope="col" class="num" id="seg-dw-head">&#916;W</th>
+              <th scope="col" class="num" id="seg-total-head">Total</th>
+              <th scope="col" class="num" id="seg-sens-head">Sensible</th>
+              <th scope="col" class="num" id="seg-lat-head">Latent</th>
+              <th scope="col" class="num">SHR</th>
+            </tr>
+          </thead>
+          <tbody id="segments-body"></tbody>
+        </table>
+      </div>
+
+      <p class="empty" id="segments-empty">Add a second state to see what happens between them.</p>
+
+      <div class="psy-detail" id="segment-detail" hidden>
+        <h3 id="detail-title">&nbsp;</h3>
+        <p class="psy-detail__note" id="detail-note">&nbsp;</p>
+        <div class="stat-grid" id="detail-stats"></div>
+        <div class="notice notice--warning psy-detail__notes" id="detail-notes-wrap" hidden>
+          <ul id="detail-notes"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 · Notes -->
+    <section class="panel psy-panel" aria-labelledby="notes-title">
+      <div class="panel__head"><h2 id="notes-title">How the numbers are worked out</h2></div>
+      <ul class="psy-notes">
+        <li>Saturation pressure of pure water is the Hyland and Wexler correlation given as
+          equations 5 and 6 of ASHRAE Fundamentals chapter 1 — equation 5 over ice below 0&nbsp;°C,
+          equation 6 over liquid water above it.</li>
+        <li>The <strong>water-vapour enhancement factor</strong> <code>f</code> (Greenspan's fit of
+          the Hyland–Wexler real-gas formulation, about 1.004 at sea level) multiplies that
+          saturation pressure wherever it is used — saturation humidity ratio, relative humidity,
+          dew point and wet bulb. This is what ASHRAE uses to compute Table&nbsp;2 and to draw
+          Chart&nbsp;No.&nbsp;1; the plain perfect-gas equations leave it out and read 0.4 to 0.6%
+          low on humidity ratio, which is the gap between the earlier version of this tool and the
+          printed chart. Checked against Table&nbsp;2 from -20 to 50&nbsp;°C: humidity ratio agrees to
+          within 0.03%, enthalpy to within 0.1%.</li>
+        <li>Humidity ratio, relative humidity, enthalpy and specific volume follow equations 20,
+          24, 30 and 26. Wet bulb uses equations 33 and 35, the Handbook relation, rather than the
+          psychrometer approximation that most quick tools carry — below about 30% relative
+          humidity the two disagree by more than a gram per kilogram.</li>
+        <li>Dew point and wet bulb are found by bisecting the defining relation rather than from a
+          fitted polynomial, so they carry no fit error and cannot fail to converge.</li>
+        <li>Density is the density of the moist air mixture, <code>(1+W)/v</code>. Specific volume
+          is stated per kilogram of <em>dry air</em>, so reporting <code>1/v</code> as density
+          reads about 2% low at 35&nbsp;°C and 60% relative humidity.</li>
+        <li>Barometric pressure follows the standard atmosphere, equation 3. Altitude is not
+          cosmetic: at Riyadh's 612&nbsp;m the same relative humidity carries about 7% more
+          moisture than at sea level, which moves every coil load on the page. The chart is
+          redrawn for the pressure in use and says so in its caption.</li>
+        <li>Airflow is taken as the volume flow <em>at the state it leaves</em>, which is where a
+          fan or a flow station measures it, so the dry air mass flow is <code>V/v</code> at that
+          state. Total load is the enthalpy change, sensible uses the moist air specific heat
+          <code>1.006&nbsp;+&nbsp;1.86W</code> at the mean humidity ratio, and latent is the
+          remainder — so sensible and latent always add up to total.</li>
+        <li>Mixing follows equations 45 and 46: humidity ratio and enthalpy are mass-averaged on
+          dry air, and the mixed dry bulb follows from those. A mixed row is a stored figure:
+          if its two sources are changed afterwards the page says so, and it is mixed again
+          to update it. The step into a mixed row is drawn dashed from both sources and
+          carries no load.</li>
+        <li>The sensible heat ratio is left blank when the total load is close to zero
+          (evaporative cooling), where the ratio would be a very large number with no meaning.</li>
+        <li>In IP the same SI equations are used and the figures are converted for display:
+          °F, gr/lb, Btu/lb (zero at 0&nbsp;°F dry air), ft³/lb, in.Hg, MBH and cfm.</li>
+        <li>The apparatus dew point is where the process line, extended past the leaving state,
+          meets the saturation curve; the bypass factor is
+          <code>(t₂&nbsp;−&nbsp;t_adp)&nbsp;/&nbsp;(t₁&nbsp;−&nbsp;t_adp)</code>. When the line
+          never reaches saturation there is no apparatus dew point, and the tool says so rather
+          than inventing one — that result means a single coil cannot produce that leaving
+          condition from that entering condition.</li>
+        <li>The comfort zone overlay is indicative only. ASHRAE Standard 55 depends on air speed,
+          clothing, metabolic rate and radiant temperature, none of which a chart can know, so
+          treat the shaded band as orientation rather than a compliance check.</li>
+        <li>Your states are kept in this browser only, under your user name, and are restored the
+          next time you open the page. Nothing from this tool is saved to the hub database.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <script src="../../assets/js/legacy-tools.js"></script>
+  <script src="psychro.js"></script>
+  <script src="chart.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Specification and datasheet - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .cp-facts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .cp-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .cp-bar .field { flex: 1 1 220px; }
+  .cp-wrap { max-height: 74vh; overflow: auto; }
+  .cp { table-layout: fixed; }
+  .cp thead th { position: sticky; top: 0; z-index: 2; white-space: normal; }
+  .cp th.unit { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+  .cp td { vertical-align: top; overflow-wrap: anywhere; padding: 9px 12px; }
+  .cp tr.sec td { background: var(--surface-2); font-weight: 650; border-top: 2px solid var(--border); }
+  .cp tr.sub td { font-size: 12px; font-weight: 650; color: var(--text-soft); padding-left: 22px; border-bottom: 0; padding-bottom: 2px; }
+  .cp td.comp, .cp thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+  .cp thead th:first-child { z-index: 3; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .cp td.comp { padding-left: 22px; }
+  .cp-row { font: inherit; font-weight: 600; text-align: left; color: var(--brand); background: none; border: 0; padding: 0; cursor: pointer; }
+  .cp-row:hover { text-decoration: underline; }
+  .cp td.spec { white-space: pre-line; line-height: 1.45; }
+  .cp td.spec.none, .cp td.val.none { color: var(--text-soft); }
+  .cp td.val { font-weight: 600; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page" style="max-width:1280px">
+  <div class="empty" id="cp-loading">Putting the specification beside the datasheet…</div>
+  <div class="notice error" id="cp-error" role="alert" hidden></div>
+
+  <div id="cp-main" hidden>
+    <div class="page-head cp-head">
+      <div>
+        <h1 id="cp-title">Specification and datasheet</h1>
+        <p>What the specification asks for, beside what each unit has, row by row. You judge whether it complies.</p>
+        <div class="cp-facts" id="cp-facts"></div>
+      </div>
+      <div class="row"><button type="button" class="btn" id="cp-download">Download Excel</button></div>
+    </div>
+
+    <section class="card stack">
+      <div class="cp-bar">
+        <label class="field"><span>Find</span><input class="input" id="cp-q" type="search" placeholder="Component, requirement or value" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" id="cp-only"> Only rows the specification asks about</label>
+      </div>
+      <p class="small muted" id="cp-count" role="status"></p>
+      <div class="notice warn" id="cp-note" hidden></div>
+      <div class="empty" id="cp-empty" hidden>No row matches.</div>
+      <div class="table-wrap cp-wrap" id="cp-wrap" tabindex="0" role="region" aria-label="Specification beside datasheet">
+        <table class="table cp" id="cp-table">
+          <colgroup id="cp-cols"></colgroup>
+          <thead><tr id="cp-head-row"></tr></thead>
+          <tbody id="cp-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">A requirement is found by the keywords an editor set for the row in the row mapping, not by meaning: read each clause before you rely on it. An empty requirement means no keyword matched, not that the specification is silent. Press a row name to see what the factory has offered for it.</p>
+    </section>
+  </div>
+</main>
+
+<script src="../compliance-maker/cm-rows.js"></script>
+<script src="pr-xlsx.js"></script>
+<script src="pr-options.js"></script>
+<script src="pr-match.js"></script>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, $ = function (id) { return document.getElementById(id); };
+  var projectId = Hub.param("project"), productId = Hub.param("product");
+  var project = null, productName = "", columns = [], table = [], factory = "", narrow = window.matchMedia("(max-width: 640px)");
+
+  function low(s) { return String(s == null ? "" : s).toLowerCase().replace(/\s+/g, " ").trim(); }
+  var sec = PROptions.sectionName;
+
+  function hasValue(r) { return PRMatch.hasValue(r); }
+
+  function shown() {
+    var q = low($("cp-q").value), only = $("cp-only").checked;
+    return table.filter(function (r) {
+      if (r.kind === "sub") return true;                             // dropped below when nothing follows it
+      if (!r.found && !hasValue(r)) return false;                    // nothing on either side: not worth a line
+      if (only && !r.found) return false;
+      return !q || low(r.section + " " + r.component + " " + r.spec + " " + r.cells.join(" ")).indexOf(q) >= 0;
+    });
+  }
+
+  function draw() {
+    var rows = shown(), unitW = columns.length > 6 ? 160 : 200, lead = narrow.matches ? [130, 260] : [220, 420];
+    var cols = $("cp-cols"), head = $("cp-head-row"); cols.textContent = ""; head.textContent = "";
+    lead.concat(columns.map(function () { return unitW; })).forEach(function (w) { cols.appendChild(el("col", { style: "width:" + w + "px" })); });
+    ["Section / component", "Specification asks"].concat(columns).forEach(function (t, i) { head.appendChild(el("th", { text: t, "class": i >= 2 ? "unit" : null })); });
+    $("cp-table").style.minWidth = (lead[0] + lead[1] + unitW * columns.length) + "px";
+
+    var frag = document.createDocumentFragment(), secName = null, sub = null, n = 0;
+    rows.forEach(function (r) {
+      if (r.kind === "sub") { sub = r; return; }
+      if (r.section !== secName) { secName = r.section; sub = sub && sub.section === r.section ? sub : null; frag.appendChild(el("tr", { "class": "sec" }, [el("td", { colspan: String(2 + columns.length), text: r.section })])); }
+      if (sub && sub.section === r.section) { frag.appendChild(el("tr", { "class": "sub" }, [el("td", { colspan: String(2 + columns.length), text: sub.component })])); }
+      sub = null;
+      var name = el("button", { type: "button", "class": "cp-row", text: r.component, title: "What the factory offers for this row", onclick: function () {
+        PROptions.open({ productId: productId, product: productName, factory: factory, key: r.key, section: r.section, component: r.component, values: r.cells });
+      } });
+      frag.appendChild(el("tr", {}, [el("td", { "class": "comp" }, [name]), el("td", { "class": "spec" + (r.spec ? "" : " none"), text: r.spec || "Not found in the specification" })]
+        .concat(r.cells.map(function (v) { return el("td", { "class": "val" + (v && v !== "-" ? "" : " none"), text: v || "-" }); }))));
+      n++;
+    });
+    $("cp-body").textContent = ""; $("cp-body").appendChild(frag);
+    $("cp-wrap").hidden = !n; $("cp-empty").hidden = !!n;
+    var all = table.filter(function (r) { return r.kind === "row"; }), asked = all.filter(function (r) { return r.found; }).length, both = all.filter(function (r) { return r.found && hasValue(r); }).length;
+    $("cp-count").textContent = asked + " rows the specification asks about, " + both + " of them with a datasheet value. " + n + " shown.";
+  }
+  var timer;
+  $("cp-q").addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(draw, 200); });
+  $("cp-only").addEventListener("change", draw);
+  if (narrow.addEventListener) narrow.addEventListener("change", function () { if (table.length) draw(); });
+
+  $("cp-download").addEventListener("click", function () {
+    var rows = [["Section", "Component", "Specification asks"].concat(columns, ["Remarks"])], secRows = [], last = null;
+    shown().forEach(function (r) {
+      if (r.kind === "sub") return;
+      if (r.section !== last) { last = r.section; secRows.push(rows.length); rows.push([r.section, "", ""].concat(columns.map(function () { return ""; }), [""])); }
+      rows.push(["", r.component, r.spec].concat(r.cells.map(function (v) { return v || "-"; }), [""]));
+    });
+    PRXlsx.save(PRXlsx.build([{ name: "Spec vs datasheet", widths: [24, 30, 70].concat(columns.map(function () { return 26; }), [30]), rows: rows, sect: secRows }]),
+      project.name + " - " + productName + " - specification and datasheet.xlsx");
+    Hub.toast("Excel downloaded.");
+  });
+
+  Hub.requireLogin({ tool: "projects" }).then(function () {
+    Hub.setBack("Projects", "index.html");
+    if (!projectId || !productId) throw new Error("No project or product was chosen.");
+    return Api.prGet(Hub.token(), projectId);
+  }).then(function (res) {
+    project = res.project;
+    Hub.setBack(project.name, "project.html?id=" + encodeURIComponent(projectId));
+    return PRMatch.load({ projectId: projectId, productId: productId, detail: res }).then(function (m) {
+      productName = m.product;
+      if (!m.runs.length || !m.notes.length) throw new Error("This needs a specification and a datasheet of the same product in the project. " + (!m.runs.length ? "Add the " + productName + " specification first." : "Read the " + productName + " datasheet first."));
+      columns = m.columns; table = m.table; factory = m.factory;
+      document.title = productName + ": specification and datasheet - " + project.name;
+      $("cp-title").textContent = productName + ": specification and datasheet";
+      var facts = $("cp-facts");
+      [project.name, m.runs.length + (m.runs.length === 1 ? " specification" : " specifications"), columns.length + (columns.length === 1 ? " unit" : " units"), factory ? factory + " factory" : ""]
+        .filter(Boolean).forEach(function (x) { facts.appendChild(el("span", { "class": "badge", text: x })); });
+      var found = table.filter(function (r) { return r.found; }).length;
+      if (!m.keyed) { $("cp-note").hidden = false; $("cp-note").textContent = "No row of the " + productName + " mapping has keywords yet, so no requirement can be found. An editor adds them in Product Options > Row mapping."; }
+      $("cp-only").checked = found > 0; $("cp-only").disabled = !found;
+      $("cp-loading").hidden = true; $("cp-main").hidden = false;
+      draw();
+    });
+  }).then(null, function (err) {
+    $("cp-loading").hidden = true; $("cp-error").hidden = false;
+    $("cp-error").textContent = ((err && err.message) || err) + " Go back to the project.";
+  });
+})();
+</script>
+</body>
+</html>

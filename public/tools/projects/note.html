@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Datasheet notes - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .nt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .nt-facts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .nt-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .nt-bar .field { flex: 1 1 220px; }
+  .nt-wrap { max-height: 74vh; overflow: auto; }
+  .nt { table-layout: fixed; }
+  .nt thead th { position: sticky; top: 0; z-index: 2; }
+  .nt th.unit { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+  .nt td { vertical-align: top; overflow-wrap: anywhere; padding: 8px 12px; }
+  .nt td.sec { font-weight: 650; }
+  .nt-row { font: inherit; text-align: left; color: var(--brand); background: none; border: 0; padding: 0; cursor: pointer; }
+  .nt-row:hover { text-decoration: underline; }
+  .nt tr.first td { border-top: 2px solid var(--border); }
+  .nt tr.sub td { background: var(--surface-2); font-weight: 650; }
+  /* Section and Component stay in view when the table scrolls sideways */
+  .nt th:nth-child(1), .nt td:nth-child(1) { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+  .nt th:nth-child(2), .nt td:nth-child(2) { position: sticky; left: var(--nt-c1, 170px); z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+  .nt thead th:nth-child(1), .nt thead th:nth-child(2) { z-index: 3; background: var(--surface-2); }
+  .nt tr.sub td:nth-child(1), .nt tr.sub td:nth-child(2) { background: var(--surface-2); }
+  /* cells that differ from the first unit, same colours as the Datasheet Notes tool */
+  .nt td.diff { font-weight: 600; }
+  .nt td.d1 { background: var(--warn-bg); }
+  .nt td.d2 { background: color-mix(in srgb, var(--brand) 26%, var(--surface)); }
+  .nt td.d3 { background: var(--ok-bg); }
+  .nt td.d4 { background: var(--danger-bg); }
+  .nt td.d5 { background: color-mix(in srgb, var(--brand-sky) 50%, var(--surface)); }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="empty" id="nt-loading">Loading the table…</div>
+  <div class="notice error" id="nt-error" role="alert" hidden></div>
+
+  <div id="nt-main" hidden>
+    <div class="page-head nt-head">
+      <div>
+        <h1 id="nt-name"></h1>
+        <p>The table read from the datasheet, as it was saved in the project.</p>
+        <div class="nt-facts" id="nt-facts"></div>
+      </div>
+      <div class="row"><button type="button" class="btn" id="nt-download">Download Excel</button></div>
+    </div>
+
+    <section class="card stack">
+      <div class="nt-bar">
+        <label class="field"><span>Find</span><input class="input" id="nt-q" type="search" placeholder="Section, component or value" autocomplete="off"></label>
+        <label class="check" id="nt-only-wrap" hidden><input type="checkbox" id="nt-only"> Only rows that differ</label>
+      </div>
+      <p class="small muted" id="nt-diff" hidden></p>
+      <div class="empty" id="nt-empty" hidden>No row matches.</div>
+      <div class="table-wrap nt-wrap" id="nt-wrap" tabindex="0" role="region" aria-label="Datasheet table">
+        <table class="table nt" id="nt-table">
+          <colgroup id="nt-cols"></colgroup>
+          <thead><tr id="nt-head-row"></tr></thead>
+          <tbody id="nt-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">Rows and wording follow the row mapping at the time the datasheet was read. To change a value, read the datasheet again from the project. Press a row name to see what the factory has offered for it.</p>
+    </section>
+  </div>
+</main>
+
+<script src="../datasheet-notes/ds-xlsx.js"></script>
+<script src="pr-xlsx.js"></script>
+<script src="pr-options.js"></script>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, $ = function (id) { return document.getElementById(id); };
+  var id = Hub.param("id"), note = null, narrow = window.matchMedia("(max-width: 560px)");
+
+  function when(iso) { var d = new Date(iso); return isNaN(d) ? "" : Hub.date(iso); }
+  function bare(name) { return String(name || "").split(", ").map(function (n) { return n.replace(/\.[A-Za-z0-9]{1,5}$/, ""); }).join(", ") || "Datasheet"; }
+  function differs(r) { return !!(r.marks && r.marks.some(Boolean)); }
+
+  /* A row name opens what the factory has offered for that row (pr-options.js). */
+  function rowName(r, section) {
+    return el("button", { type: "button", "class": "nt-row", text: r.component, title: "What the factory offers for this row", onclick: function () {
+      PROptions.open({ product: note.product, factory: PROptions.factoryOf(note.rows), key: r.key, section: section, component: r.component, values: r.cells });
+    } });
+  }
+
+  function draw() {
+    var q = $("nt-q").value.trim().toLowerCase(), only = $("nt-only").checked, units = note.columns.length;
+    var unitW = units === 1 ? 320 : units > 12 ? 160 : 220, lead = narrow.matches ? [92, 116] : [170, 210];
+    var cols = $("nt-cols"), head = $("nt-head-row"); cols.textContent = ""; head.textContent = "";
+    lead.concat(note.columns.map(function () { return unitW; })).forEach(function (w) { cols.appendChild(el("col", { style: "width:" + w + "px" })); });
+    ["Section", "Component"].concat(note.columns).forEach(function (t, i) { head.appendChild(el("th", { text: t, "class": i >= 2 ? "unit" : null })); });
+    $("nt-table").style.minWidth = (lead[0] + lead[1] + unitW * units) + "px";
+    $("nt-wrap").style.setProperty("--nt-c1", lead[0] + "px");
+
+    // headings (section name, sub-heading) move to the first row that is kept
+    var frag = document.createDocumentFragment(), sec = "", secDone = true, sub = null, n = 0;
+    note.rows.forEach(function (r) {
+      if (r.section) { sec = r.section; secDone = false; sub = null; }
+      if (r.kind === "sub") { sub = r; return; }
+      if (only && !differs(r)) return;
+      if (q && (sec + " " + r.component + " " + (r.cells || []).join(" ")).toLowerCase().indexOf(q) < 0) return;
+      if (sub) {
+        frag.appendChild(el("tr", { "class": "sub" + (secDone ? "" : " first") }, [el("td", { "class": "sec", text: secDone ? "" : sec }), el("td", { text: sub.component })]
+          .concat(note.columns.map(function () { return el("td"); }))));
+        secDone = true; sub = null;
+      }
+      frag.appendChild(el("tr", { "class": secDone ? null : "first" }, [el("td", { "class": "sec", text: secDone ? "" : sec }), el("td", {}, [rowName(r, sec)])]
+        .concat((r.cells || []).map(function (v, u) {
+          var mk = r.marks ? r.marks[u] : 0;
+          return el("td", { text: v, "class": mk ? "diff d" + ((mk - 1) % 5 + 1) : null, title: mk ? "Differs from " + note.columns[0] : null });
+        }))));
+      secDone = true; n++;
+    });
+    $("nt-body").textContent = ""; $("nt-body").appendChild(frag);
+    $("nt-wrap").hidden = !n; $("nt-empty").hidden = !!n;
+  }
+
+  var timer;
+  $("nt-q").addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(draw, 200); });
+  $("nt-only").addEventListener("change", draw);
+  if (narrow.addEventListener) narrow.addEventListener("change", function () { if (note) draw(); });
+
+  $("nt-download").addEventListener("click", function () {
+    var name = note.columns.length === 1 ? note.columns[0] : note.project + " - " + note.columns.length + " units";
+    PRXlsx.save(DSXlsx.build({ columns: note.columns, rows: note.rows }, "Datasheet Notes"), name + " - Datasheet Notes.xlsx");
+    Hub.toast("Excel downloaded.");
+  });
+
+  Hub.requireLogin({ tool: "projects" }).then(function () {
+    Hub.setBack("Projects", "index.html");
+    if (!id) throw new Error("No table was chosen.");
+    return Api.prNoteGet(Hub.token(), id);
+  }).then(function (res) {
+    note = res;
+    if (note.project_id) Hub.setBack(note.project, "project.html?id=" + encodeURIComponent(note.project_id));
+    var units = note.columns.length, rows = note.rows.filter(function (r) { return r.kind !== "sub"; }), diff = rows.filter(differs).length;
+    document.title = bare(note.file_names) + " - DAME Tools Hub";
+    $("nt-name").textContent = bare(note.file_names);
+    var facts = $("nt-facts");
+    [note.project, note.product, units + (units === 1 ? " unit" : " units"), rows.length + " rows", "Read by " + note.user + ", " + when(note.created_at)]
+      .filter(Boolean).forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
+    $("nt-only-wrap").hidden = !diff;
+    if (units > 1) { $("nt-diff").hidden = false; $("nt-diff").textContent = note.columns[0] + " is the reference. " + (diff ? diff + (diff === 1 ? " row differs" : " rows differ") + " from it; those cells are highlighted." : "All units match it."); }
+    $("nt-loading").hidden = true; $("nt-main").hidden = false;
+    draw();
+  }, function (err) {
+    $("nt-loading").hidden = true; $("nt-error").hidden = false;
+    $("nt-error").textContent = ((err && err.message) || err) + " Go back to Projects and open it from the project page.";
+  });
+})();
+</script>
+</body>
+</html>

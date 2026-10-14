@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Row mapping - Product Options - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .dm-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .dm-bar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .dm-bar .field { flex: 1 1 200px; }
+  .dm-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .dm-help { margin: 6px 0 0; padding-left: 18px; }
+  .dm-help li + li { margin-top: 3px; }
+  .dm-help code { font: inherit; font-weight: 650; padding: 0 3px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); }
+  .dm-wrap { max-height: 70vh; overflow: auto; }
+  .dm-table { table-layout: fixed; min-width: 1280px; }
+  .dm-keys { resize: vertical; min-height: 36px; line-height: 1.35; font-family: inherit; }
+  .dm-table thead th { position: sticky; top: 0; z-index: 2; }
+  .dm-table th:nth-child(1) { width: 64px; } .dm-table th:nth-child(2) { width: 17%; }
+  .dm-table th:nth-child(3) { width: 12%; }  .dm-table th:nth-child(4) { width: 10%; }
+  .dm-table th:nth-child(6) { width: 15%; } .dm-table th:nth-child(7) { width: 20%; }
+  .dm-table td { vertical-align: top; padding: 8px 12px; overflow-wrap: anywhere; }
+  .dm-table td .input { min-height: 36px; padding: 6px 10px; font-size: 14px; }
+  .dm-table tr.group td { background: var(--surface-2); font-weight: 650; border-top: 2px solid var(--border); }
+  .dm-group { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .dm-group .muted { font-weight: 400; }
+  .dm-table tr.off td:not(:first-child) { opacity: .55; }
+  .dm-name { font-weight: 600; }
+  .dm-sample { display: block; margin-top: 2px; font-size: 12px; color: var(--text-soft); }
+  .dm-check { display: inline-flex; padding: 8px 4px; cursor: pointer; }
+  .dm-check input { width: 18px; height: 18px; accent-color: var(--brand); }
+  .dm-save {
+    position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin: 0 -20px -20px; padding: 12px 20px; background: var(--surface);
+    border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius);
+  }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small"><a href="index.html" id="dm-back">&larr; Product Options</a></p>
+    <h1>Row mapping</h1>
+    <p>Which datasheet rows are used and what each row says. One mapping per product: it is the same for every factory and every user, in Datasheet Notes, in the Product Options tree and in the project pages.</p>
+  </div>
+
+  <div class="stack">
+    <section class="card stack" aria-labelledby="h-scope">
+      <h2 id="h-scope">Product</h2>
+      <div class="dm-grid">
+        <label class="field"><span>Product</span>
+          <select class="input" id="dm-product" disabled><option value="">Loading…</option></select></label>
+      </div>
+      <p class="hint" id="dm-scope-hint" role="status">Choose a product to see its mapping.</p>
+    </section>
+
+    <section class="card stack" id="dm-panel" aria-labelledby="h-rows" hidden>
+      <h2 id="h-rows">Rows</h2>
+
+      <div class="notice">
+        <strong>How a row is filled</strong>
+        <ul class="dm-help">
+          <li>Untick <strong>Show</strong> to leave a row out of the Datasheet Notes table and of the Product Options tree.</li>
+          <li>Leave <strong>Response</strong> empty to print the datasheet value as it is.</li>
+          <li>Type a sentence to print the same standard response every time.</li>
+          <li><strong>Remove text</strong> takes text out of the datasheet value: <em>+ PE</em> turns
+              <em>380V/3Ph/60Hz + PE</em> into <em>380V/3Ph/60Hz</em>. Separate several texts with <code>;</code>.</li>
+          <li>Put <code>$</code> or <code>*</code> where the datasheet value should go:
+              <em>Panel thickness is $ Thermal break</em> prints <em>Panel thickness is 62 mm Thermal break</em>.</li>
+          <li><strong>Spec keywords</strong> are used by the Compliance Maker to find this row's clause in a specification.
+              Separate entries with <code>;</code>. An entry finds a clause when every word of it starts a word of the clause:
+              <em>fin spac</em> finds "fins shall be spaced". Empty means the row is not searched for.</li>
+          <li><strong>Name in Excel</strong> changes what is printed in the Component column. Empty keeps the datasheet name.</li>
+        </ul>
+      </div>
+
+      <div class="dm-bar">
+        <div>
+          <button type="button" class="btn ghost" id="dm-load">Load rows from a datasheet</button>
+          <input type="file" id="dm-file" class="dm-file" accept=".pdf,application/pdf" tabindex="-1" aria-hidden="true">
+        </div>
+        <label class="field"><span>Find a row</span>
+          <input class="input" id="dm-search" type="search" placeholder="e.g. filter class" autocomplete="off"></label>
+        <label class="field"><span>Rows that are not in this list yet</span>
+          <select class="input" id="dm-unmapped">
+            <option value="show">Show with the datasheet value</option>
+            <option value="hide">Leave out</option>
+          </select></label>
+      </div>
+      <p class="hint" id="dm-status" role="status" aria-live="polite"></p>
+      <div class="notice error" id="dm-error" hidden></div>
+
+      <div class="empty" id="dm-empty" hidden>No rows are mapped for this product yet. Load a datasheet to list its rows.</div>
+      <div class="table-wrap dm-wrap" id="dm-wrap" tabindex="0" role="region" aria-labelledby="h-rows" hidden>
+        <table class="table dm-table">
+          <thead><tr><th>Show</th><th>Datasheet row</th><th>Name in Excel</th><th>Remove text</th><th>Response</th><th>Result</th><th>Spec keywords</th></tr></thead>
+          <tbody id="dm-body"></tbody>
+        </table>
+      </div>
+
+      <div class="dm-save" id="dm-save-bar">
+        <span class="small muted" id="dm-changes" role="status" aria-live="polite">No changes to save.</span>
+        <button type="button" class="btn" id="dm-save" disabled>Save mapping</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="../../assets/vendor/pdfjs/pdf.min.js"></script>
+<script src="../datasheet-notes/ds-parse.js"></script>   <!-- the readers: row keys, the $ / * rule, and reading a datasheet to list its rows -->
+<script src="../datasheet-notes/ds-fcu.js"></script>
+<script src="../datasheet-notes/ds-read.js"></script>
+<script src="mapping.js"></script>
+</body>
+</html>

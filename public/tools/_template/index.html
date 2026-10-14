@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tool name - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small"><a id="back" href="../../dashboard.html">&larr; Dashboard</a></p>
+    <h1>Tool name</h1>
+    <p>One line on what this tool does.</p>
+  </div>
+
+  <!-- TOOL CONTENT STARTS: build the tool inside this block using the shared classes (card, btn, input, table, notice) -->
+  <div class="empty">This tool is being built. It will appear here once it is ready.</div>
+  <!-- TOOL CONTENT ENDS -->
+</main>
+<script>
+(function () {
+  "use strict";
+  // The id must match the tool id in the Admin page. Users whose team does not have this tool are sent back to the dashboard.
+  Hub.requireLogin({ tool: "my-tool-id" }).then(function (profile) {
+    // tool code goes here; profile.user is the signed-in person
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+/* Standards library. Colours only through the hub tokens. */
+.st-controls { display: grid; gap: 12px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: end; }
+.st-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.st-chip {
+  font: inherit; font-size: 13px; font-weight: 600; min-height: 32px; padding: 0 12px; cursor: pointer;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+.st-chip:hover { background: var(--surface-2); }
+.st-chip[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.st-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
+.st-group { margin-top: 22px; }
+.st-group h2 { margin-bottom: 10px; }
+.st-group h2 span { font-weight: 400; color: var(--text-soft); font-size: 14px; }
+.st-tile { min-height: 0; gap: 6px; padding: 16px 18px; }
+.st-tile h3 { font-size: 17px; color: var(--link); overflow-wrap: anywhere; }
+.st-tile p { font-size: 13.5px; }
+.st-tile .meta { padding-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.st-tile .badge { position: static; }
+.st-spec textarea { min-height: 150px; resize: vertical; font-size: 13.5px; }
+.st-miss { margin: 8px 0 0; padding-left: 18px; columns: 2 220px; font-size: 14px; }
+
+/* one standard */
+.st-head { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.st-title { font-size: 17px; color: var(--text); margin-top: 4px; }
+.st-layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.st-card h2 { font-size: 16px; margin-bottom: 8px; }
+.st-card ul { margin: 0; padding-left: 20px; }
+.st-card li + li { margin-top: 6px; }
+.st-card .table-wrap { margin-top: 14px; box-shadow: none; }
+.st-card caption { caption-side: top; text-align: left; padding: 10px 12px; font-weight: 650; font-size: 14px; }
+.st-card .table td, .st-card .table th { padding: 7px 12px; }
+.st-check { border-left: 4px solid var(--brand); }
+.st-related { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.st-nav { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.st-nav a { max-width: 100%; white-space: normal; text-align: left; height: auto; padding: 8px 14px; }
+@media (max-width: 600px) {
+  .st-controls { grid-template-columns: minmax(0, 1fr); }
+}
+@media print {
+  .topbar, .st-nav, .st-noprint { display: none !important; }
+  .card { box-shadow: none; break-inside: avoid; }
+}

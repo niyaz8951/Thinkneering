@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Product Options - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .po-pick { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+  .po-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .po-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .po-facts { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* the tree: product > section > component > values */
+  .po-root { font-weight: 650; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .po-tree { margin: 10px 0 0 9px; padding-left: 16px; border-left: 2px solid var(--border); }
+  .po-sec { position: relative; margin-top: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .po-sec::before { content: ""; position: absolute; left: -17px; top: 22px; width: 16px; border-top: 2px solid var(--border); }
+  .po-sec > summary { cursor: pointer; padding: 12px 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; list-style: none; }
+  .po-sec > summary::-webkit-details-marker { display: none; }
+  .po-sec > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(-45deg); transition: transform .15s; flex: none; margin-right: 2px; }
+  .po-sec[open] > summary::before { transform: rotate(45deg); }
+  .po-sec > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius); }
+  .po-sec > summary .count { font-weight: 400; font-size: 13px; color: var(--text-soft); }
+  .po-body { padding: 0 14px 12px 14px; }
+  .po-sub { margin: 12px 0 2px; font-size: 12px; font-weight: 650; color: var(--text-soft); }   /* datasheet text: case as printed */
+  .po-row { display: grid; grid-template-columns: minmax(140px, 230px) 1fr; gap: 6px 14px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .po-row.off { opacity: .6; }
+  .po-name { font-weight: 600; overflow-wrap: anywhere; }
+  .po-vals { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; min-width: 0; }
+  .po-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px; border-radius: 999px;
+             background: var(--surface-2); border: 1px solid var(--border); font-size: 14px; overflow-wrap: anywhere; }
+  .po-chip small { color: var(--text-soft); font-size: 12px; white-space: nowrap; }
+  .po-chip.special { background: var(--ok-bg); border-color: var(--ok); }
+  .po-chip.special b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); white-space: nowrap; }
+  .po-chip.range { background: transparent; border-style: dashed; }
+  .po-chip.off { text-decoration: line-through; opacity: .7; }
+  .po-note { flex: 1 1 100%; margin: 0; padding: 6px 10px; border-left: 3px solid var(--brand); background: var(--surface-2);
+             border-radius: 0 8px 8px 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .po-note .by, .po-chip .by { color: var(--text-soft); font-size: 12px; }
+  .po-x { font: inherit; font-size: 12px; font-weight: 600; color: var(--brand-strong); background: none; border: 0; padding: 0 2px; cursor: pointer; text-decoration: underline; }
+  .po-x.danger { color: var(--danger); }
+  .po-more { font: inherit; font-size: 13px; color: var(--brand-strong); background: none; border: 0; padding: 3px 4px; cursor: pointer; text-decoration: underline; }
+  .po-tools { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; }
+  .po-form { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .po-form textarea { min-height: 64px; resize: vertical; }
+  .po-secx { padding: 8px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  /* FCU: series > model > section */
+  .po-series { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+  .po-series > summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; list-style: none; }
+  .po-series > summary::-webkit-details-marker, .po-model > summary::-webkit-details-marker { display: none; }
+  .po-series > summary::before, .po-model > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(-45deg); transition: transform .15s; flex: none; margin-right: 2px; }
+  .po-series[open] > summary::before, .po-model[open] > summary::before { transform: rotate(45deg); }
+  .po-series > summary:focus-visible, .po-model > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius); }
+  .po-series > summary .count, .po-model > summary .count { font-weight: 400; font-size: 13px; color: var(--text-soft); }
+  .po-series.all { background: var(--surface); }
+  .po-models { padding: 0 14px 12px; display: grid; gap: 8px; }
+  .po-model { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .po-model > summary { cursor: pointer; padding: 10px 14px; font-weight: 650; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; list-style: none; }
+  .po-model > .po-tree { margin: 0 14px 12px 23px; }
+  .po-root .hint { font-weight: 400; font-size: 13px; flex: 1 1 100%; margin: 0; }
+  /* FCU: one table per series, one column per model */
+  .po-matrix-box { padding: 0 14px 14px; }
+  .po-matrix-box > .hint { margin: 0 0 8px; }
+  .po-matrix-wrap { max-height: 72vh; overflow: auto; }
+  .po-matrix { table-layout: fixed; }
+  .po-matrix th, .po-matrix td { vertical-align: top; padding: 8px 12px; overflow-wrap: anywhere; }
+  .po-matrix thead th { position: sticky; top: 0; z-index: 2; white-space: normal; }
+  .po-matrix th.unit { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); }
+  .po-matrix th.unit small { display: block; font-weight: 400; color: var(--text-soft); }
+  .po-matrix td.comp, .po-matrix thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+  .po-matrix thead th:first-child { z-index: 3; background: var(--surface-2); }
+  .po-matrix td.comp { font-weight: 600; padding-left: 22px; }
+  .po-matrix tr.sec td { background: var(--surface-2); font-weight: 650; border-top: 2px solid var(--border); }
+  .po-matrix tr.sub td { padding-left: 22px; font-size: 12px; font-weight: 650; color: var(--text-soft); padding-top: 10px; padding-bottom: 2px; border-bottom: 0; }
+  .po-matrix tr.off td { opacity: .6; }
+  .po-matrix td.diff { font-weight: 600; }
+  .po-matrix td.d1 { background: var(--warn-bg); }
+  .po-matrix td.d2 { background: color-mix(in srgb, var(--brand) 26%, var(--surface)); }
+  .po-matrix td.d3 { background: var(--ok-bg); }
+  .po-matrix td.d4 { background: var(--danger-bg); }
+  .po-matrix td.d5 { background: color-mix(in srgb, var(--brand-sky) 50%, var(--surface)); }
+  .po-cellv + .po-cellv { margin-top: 3px; }
+  .po-cellv small { color: var(--text-soft); font-size: 12px; white-space: nowrap; }
+  .po-cellv.off { text-decoration: line-through; opacity: .7; }
+  .po-matrix .po-tools { gap: 10px; }
+  .po-matrix .po-form { min-width: 0; }
+  .po-add { margin: 10px 0 0 27px; }
+  @media (max-width: 560px) {
+    .po-row { grid-template-columns: 1fr; }
+    .po-tree { margin-left: 2px; padding-left: 10px; }
+    .po-sec::before { left: -11px; width: 10px; }
+    .po-add { margin-left: 14px; }
+    .po-models { padding: 0 8px 8px; }
+    .po-model > .po-tree { margin: 0 8px 10px 10px; }
+  }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small"><a href="../../dashboard.html#general">&larr; General</a></p>
+    <h1>Product Options</h1>
+    <p>What each factory has offered so far: sections, components and their options, from the datasheets run in Datasheet Notes, plus special options and notes from the team. The rows and their wording follow the product's row mapping, which is the same for every factory and every user.</p>
+  </div>
+
+  <div class="stack">
+    <section class="card stack" aria-labelledby="h-pick">
+      <div class="po-head">
+        <h2 id="h-pick">Product and factory</h2>
+        <a class="btn ghost sm" id="po-mapping" href="mapping.html" hidden>Row mapping</a>
+      </div>
+      <div class="po-pick">
+        <label class="field"><span>Product</span>
+          <select class="input" id="po-product" disabled><option value="">Loading…</option></select></label>
+        <label class="field"><span>Factory</span>
+          <select class="input" id="po-factory" disabled><option value="">Choose a product first</option></select></label>
+        <label class="field"><span>Search</span>
+          <input class="input" id="po-search" type="search" placeholder="e.g. filter, copper, IE4" autocomplete="off" disabled></label>
+      </div>
+      <p class="hint" id="po-hint" role="status">Choose a product and a factory.</p>
+    </section>
+
+    <section class="card stack" id="po-result" aria-labelledby="h-tree" hidden>
+      <div class="po-bar">
+        <div>
+          <h2 id="h-tree">Options tree</h2>
+          <div class="po-facts" id="po-facts"></div>
+        </div>
+        <div class="row">
+          <label class="check" id="po-only-wrap" hidden><input type="checkbox" id="po-only"> Only rows that differ</label>
+          <label class="check" id="po-edit-wrap" hidden><input type="checkbox" id="po-edit"> Edit</label>
+          <button type="button" class="btn ghost sm" id="po-open">Expand all</button>
+          <button type="button" class="btn ghost sm" id="po-close">Collapse all</button>
+          <button type="button" class="btn sm" id="po-download">Download Excel</button>
+        </div>
+      </div>
+      <div class="notice" id="po-edit-note" hidden>Edit is on. Add a special option or a note to a section or a row, and take out values or rows that are not options (airflow, pressure drop). "Leave out row" applies to every factory of this product; everything else is for this factory only.</div>
+      <div class="notice error" id="po-error" role="alert" hidden></div>
+      <div class="empty" id="po-empty" hidden></div>
+      <div id="po-tree-host"></div>
+      <p class="hint">Values are as printed on the datasheets run so far, for the rows the product's row mapping shows (one mapping per product, the same for every factory and every user). "Seen n times" is how often the value turned up; a datasheet run again is counted again.
+        A value not listed here is not known yet, it does not mean the factory cannot offer it. Confirm special requests with the factory.</p>
+    </section>
+  </div>
+</main>
+
+<script src="../datasheet-notes/ds-parse.js"></script>   <!-- only for the list of readers: which products and factories a datasheet can give -->
+<script src="../datasheet-notes/ds-fcu.js"></script>
+<script src="po-xlsx.js"></script>
+<script src="product-options.js"></script>
+</body>
+</html>

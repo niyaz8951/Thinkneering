@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Standard - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<link rel="stylesheet" href="standards.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<script src="standards-data.js"></script>
+<script src="std.js"></script>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small st-noprint"><a href="index.html">&larr; All standards</a></p>
+    <h1 id="code"></h1>
+    <p class="st-title" id="title"></p>
+    <div class="st-head" id="badges"></div>
+  </div>
+  <div class="st-layout" id="body"></div>
+  <div class="st-nav" id="nav"></div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function card(title, children, cls) {
+    return el("section", { "class": "card st-card" + (cls ? " " + cls : "") }, [el("h2", { text: title })].concat(children));
+  }
+  function list(items) { return el("ul", {}, items.map(function (t) { return el("li", { text: t }); })); }
+
+  function table(t) {
+    return el("div", { "class": "table-wrap" }, [
+      el("table", { "class": "table" }, [
+        el("caption", { text: t.caption }),
+        el("thead", {}, [el("tr", {}, t.head.map(function (h) { return el("th", { scope: "col", text: h }); }))]),
+        el("tbody", {}, t.rows.map(function (r) { return el("tr", {}, r.map(function (c) { return el("td", { text: c }); })); }))
+      ])
+    ]);
+  }
+
+  function render() {
+    var id = Std.idFromAddress(location), s = Std.byId[id];
+    var body = $("body"), nav = $("nav"); body.textContent = ""; nav.textContent = ""; $("badges").textContent = "";
+    if (!s) {
+      document.title = "Standard not found - DAME Tools Hub";
+      $("code").textContent = "Standard not found";
+      $("title").textContent = "";
+      body.appendChild(el("div", { "class": "empty" }, [
+        el("p", { text: "There is no page for \"" + id + "\" in the library." }),
+        el("p", { style: "margin-top:10px" }, [el("a", { "class": "btn sm", href: "index.html", text: "Open the list of standards" })])
+      ]));
+      return;
+    }
+    document.title = s.code + " - Standards - DAME Tools Hub";
+    $("code").textContent = s.code;
+    $("title").textContent = s.title;
+    var b = $("badges");
+    Std.badges(s).forEach(function (x) { b.appendChild(x); });
+    b.appendChild(el("span", { "class": "badge", text: Std.groupName[s.group] }));
+
+    body.appendChild(card("What it covers", [el("p", { text: s.covers }),
+      el("p", { "class": "muted small", style: "margin-top:10px", text: "Edition known to this page: " + s.edition + ". Check for a newer one." })]));
+    body.appendChild(card("How it shows up in a specification", [el("p", { text: s.spec })]));
+    var key = [list(s.points)];
+    if (s.table) key.push(table(s.table));
+    body.appendChild(card("Key points", key));
+    body.appendChild(card("Check before answering a compliance line", [list(s.check)], "st-check"));
+
+    var rel = (s.related || []).map(function (r) { return Std.byId[r]; }).filter(Boolean);
+    if (rel.length) body.appendChild(card("Related standards", [el("div", { "class": "st-related" }, rel.map(function (r) { return Std.tile(r, "#" + r.id); }))]));
+
+    body.appendChild(el("p", { "class": "muted small", text: "Summary in our own words for quick reference. It does not replace the standard; the wording and edition named in the project specification govern." }));
+
+    var same = STD.ITEMS, i = same.indexOf(s), prev = same[i - 1], next = same[i + 1];
+    nav.appendChild(prev ? el("a", { "class": "btn ghost", href: "#" + prev.id, text: "← " + prev.code }) : el("span"));
+    if (next) nav.appendChild(el("a", { "class": "btn ghost", href: "#" + next.id, text: next.code + " →" }));
+    window.scrollTo(0, 0);
+  }
+
+  Hub.requireLogin({ tool: Std.TOOL_ID }).then(function () {
+    render();
+    window.addEventListener("hashchange", render);
+  });
+})();
+</script>
+</body>
+</html>

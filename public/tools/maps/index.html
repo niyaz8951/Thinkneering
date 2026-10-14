@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Maps - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<link rel="stylesheet" href="maps.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page wide" id="mpPage">
+  <div class="page-head">
+    <h1 id="mpTitle">Maps</h1>
+    <p id="mpLead">Product knowledge as a growing tree. Open a branch, read its notes and special notes, or show one branch alone.</p>
+    <p class="small muted" id="mpSub" hidden></p>
+  </div>
+
+  <!-- all maps -->
+  <section id="mpList">
+    <div class="mp-find">
+      <input class="input" type="search" id="mpFind" placeholder="Search every map: e.g. IPLV, coil coating" autocomplete="off" aria-label="Search every map">
+      <button class="btn" type="button" id="mpNew">Add map</button>
+    </div>
+    <div class="mp-hits" id="mpHits" hidden></div>
+    <div id="mpListState" class="empty">Loading maps…</div>
+    <div class="grid" id="mpGrid"></div>
+  </section>
+
+  <!-- one map -->
+  <section id="mpMap" hidden>
+    <div class="card mp-bar">
+      <input class="input" type="search" id="mpQ" placeholder="Search this map" autocomplete="off" aria-label="Search this map">
+      <div class="tabs" role="tablist" aria-label="View">
+        <button class="tab" type="button" role="tab" id="mpViewMap" aria-selected="true">Map</button>
+        <button class="tab" type="button" role="tab" id="mpViewOut" aria-selected="false">Outline</button>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Read or edit" id="mpMode" hidden>
+        <button class="tab" type="button" role="tab" id="mpRead" aria-selected="true">Read</button>
+        <button class="tab" type="button" role="tab" id="mpEdit" aria-selected="false">Edit</button>
+      </div>
+      <button class="btn ghost" type="button" id="mpImport" hidden>Import</button>
+      <button class="btn ghost" type="button" id="mpExport">Export</button>
+      <button class="btn ghost" type="button" id="mpSettings" hidden>Map settings</button>
+    </div>
+    <div class="mp-meta">
+      <nav class="mp-crumbs" id="mpCrumbs" aria-label="Branch path"></nav>
+      <div class="mp-pills" id="mpPills"></div>
+    </div>
+    <div id="mpMapState" class="empty" hidden></div>
+    <div class="mp-work" id="mpWork">
+      <div class="card mp-treecard">
+        <div class="mp-canvas" id="mpCanvas"><div class="mp-stage" id="mpStage"></div></div>
+        <div class="mp-outline" id="mpOutline" hidden></div>
+        <div class="mp-legend"><span>Click a branch to read it and grow it.</span><span>The arrows button shows that branch alone.</span><span><i></i>Dashed = to verify</span></div>
+      </div>
+      <aside class="card mp-panel" id="mpPanel" aria-label="Branch notes" hidden></aside>
+    </div>
+  </section>
+</main>
+<script src="maps.js"></script>
+</body>
+</html>

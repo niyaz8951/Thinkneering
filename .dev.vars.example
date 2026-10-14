@@ -1,0 +1,3 @@
+# Copy to .dev.vars for `npm run dev` (never committed). Secrets on Cloudflare are set with `wrangler secret put`.
+SESSION_SECRET=change-me-locally
+AI_GATEWAY_TOKEN=

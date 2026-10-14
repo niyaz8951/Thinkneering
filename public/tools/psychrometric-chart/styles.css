@@ -1,0 +1,308 @@
+/* Psychrometric chart — tool-specific styles only.
+   Panels, buttons, fields, tables, stats and notices come from the hub shell
+   through legacy-tools.css (STANDARDS.md § 2a). Every colour below is a hub
+   token from the theme table in STANDARDS.md § 3 — nothing is hard-coded, so
+   the tool follows Daikin day/night automatically. Spacing and font tokens
+   are the legacy --space-* / --font-* names that legacy-tools.css maps onto
+   the hub, with plain fallbacks so the page still lays out if a token is
+   missing.
+
+   The chart's SVG is styled from here rather than by presentation attributes,
+   because SVG attributes cannot resolve var() — only CSS can. That is what
+   lets one chart follow both themes without redrawing. */
+
+/* Series palette for plotted states, built from the hub tokens. Light and
+   dark variants of the brand blue are kept apart in the order so consecutive
+   states are always told apart. --text is used as a series colour on purpose:
+   it flips with the theme, so it is always the "ink" colour of the page. */
+:root {
+  --chart-1: var(--brand);
+  --chart-2: var(--danger);
+  --chart-3: var(--ok);
+  --chart-4: var(--warn);
+  --chart-5: var(--text);
+  --chart-6: var(--brand-sky);
+  --chart-7: var(--brand-strong);
+  --chart-8: var(--text-soft);
+  --chart-grid: var(--border);
+  --chart-sensible: var(--danger);
+  --chart-latent: var(--brand);
+}
+
+.psy-panel { margin-top: var(--space-4, 24px); }
+
+/* `hidden` is a user-agent rule and loses to any author rule that sets
+   `display`, so the toggled regions below need this guard. */
+[hidden] { display: none !important; }
+
+.psy-back { color: var(--text-soft); text-decoration: none; font-weight: 500; }
+.psy-back:hover { color: var(--brand); text-decoration: underline; }
+
+.psy-toolbar select { max-width: 300px; }
+.psy-toolbar__gap { flex: 1 1 var(--space-3, 16px); }
+
+.psy-example-note {
+  margin-top: var(--space-3, 16px);
+  max-width: 76ch;
+  padding-left: var(--space-3, 16px);
+  border-left: 2px solid var(--brand-sky);
+}
+
+.psy-actions { display: flex; gap: var(--space-2, 8px); flex-wrap: wrap; }
+.psy-hint { margin-bottom: var(--space-3, 16px); max-width: 72ch; }
+
+.psy-fields {
+  display: grid;
+  gap: var(--space-3, 16px);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  margin-top: var(--space-4, 24px);
+  align-items: start;
+}
+/* .field + .field adds a top margin; inside a grid the gap already spaces them. */
+.psy-fields .field + .field { margin-top: 0; }
+
+.psy-errors { margin-top: var(--space-3, 16px); }
+.psy-errors ul { margin: var(--space-1, 4px) 0 0; padding-left: var(--space-4, 24px); }
+
+/* ------------------------------------------------------------ mixing */
+
+.psy-mix {
+  margin-top: var(--space-4, 24px);
+  padding: var(--space-3, 16px);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.psy-mix .field { margin: 0; }
+.psy-mix__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2, 8px); }
+.psy-mix__row select { flex: 1 1 160px; min-width: 140px; max-width: 280px; }
+.psy-mix__plus { color: var(--text-soft); font-weight: 600; }
+.psy-mix__msg { color: var(--danger); min-height: 1.2em; margin-top: var(--space-1, 4px); }
+.psy-mix__msg:empty { display: none; }
+
+/* ------------------------------------------------------------ input rows */
+
+/* The inputs sit inside table cells, where the global 100% width would make
+   every column fight for the same space. Each is sized to the figure it holds
+   so the row stays readable at a glance. */
+.psy-points td { vertical-align: middle; }
+.psy-points input[type='number'] { width: 100%; min-width: 84px; text-align: right; font-family: var(--font-mono, ui-monospace, Consolas, monospace); }
+.psy-points select { min-width: 150px; }
+.psy-points .psy-name { min-width: 130px; }
+
+.psy-swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  margin-right: var(--space-2, 8px); vertical-align: baseline; flex: none;
+}
+
+.psy-row-actions { display: flex; gap: var(--space-1, 4px); justify-content: flex-end; }
+.psy-row-actions .btn { min-width: 32px; padding-inline: var(--space-1, 4px); }
+
+/* A short message under the box it is about. */
+.psy-msg { margin-top: var(--space-1, 4px); font-size: 0.8125rem; color: var(--danger); }
+input[aria-invalid='true'] { border-color: var(--danger); }
+
+/* ----------------------------------------------------------------- chart */
+
+/* A psychrometric chart is intrinsically wide: squeezing it to a phone's width
+   makes the property lines unreadable rather than merely small. It is allowed
+   to scroll sideways instead, and every figure on it also appears in the
+   tables below, so nothing is only available to someone who can pan. */
+.psy-chart-scroll { overflow-x: auto; margin: 0 calc(var(--space-1, 4px) * -1); }
+.psy-chart { display: block; width: 100%; min-width: 640px; height: auto; }
+.psy-chart.is-picking { cursor: crosshair; }
+
+.psy-range select { min-width: 220px; }
+
+.psy-readout {
+  display: flex; flex-wrap: wrap; gap: var(--space-1, 4px) var(--space-3, 16px);
+  margin-top: var(--space-2, 8px); padding: var(--space-2, 8px) var(--space-3, 16px);
+  background: var(--surface-2); border-radius: 8px;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 0.8125rem; color: var(--text-soft);
+}
+.psy-readout b { color: var(--text); font-weight: 500; }
+
+.psy-layers {
+  display: flex; flex-wrap: wrap; gap: var(--space-2, 8px) var(--space-4, 24px);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: var(--space-3, 16px); margin: var(--space-4, 24px) 0 0;
+}
+.psy-layers legend {
+  padding-inline: var(--space-2, 8px);
+  font-family: var(--font-heading, inherit); font-weight: 600; font-size: 0.9375rem;
+}
+.psy-layers .check { margin-bottom: 0; }
+
+.psy-chart-help { margin-top: var(--space-3, 16px); max-width: 72ch; }
+
+/* --------------------------------------------------------- chart internals */
+
+.psy-bg { fill: var(--surface); }
+.psy-frame { fill: none; stroke: var(--border); stroke-width: 1; }
+.psy-grid { stroke: var(--chart-grid); stroke-width: 1; }
+.psy-grid--minor { stroke-width: 0.5; opacity: 0.55; }
+
+.psy-axis-tick {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 11px; fill: var(--text-soft);
+}
+.psy-axis-title {
+  font-family: var(--font-heading, inherit); font-size: 12px; font-weight: 600;
+  fill: var(--text-soft);
+}
+.psy-axis-title--h { fill: var(--warn); }
+
+.psy-caption {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 10px; fill: var(--text-soft);
+}
+.psy-caption--title { font-family: var(--font-heading, inherit); font-weight: 600; font-size: 11px; fill: var(--text); }
+
+/* The five property families are told apart by weight and dash pattern before
+   colour, so the chart still reads if it is printed in grey or seen by someone
+   who cannot separate the hues. */
+.psy-line { fill: none; }
+.psy-line--rh { stroke: var(--brand); stroke-width: 0.8; opacity: 0.5; }
+.psy-line--wb { stroke: var(--danger); stroke-width: 0.5; stroke-dasharray: 5 4; opacity: 0.35; }
+.psy-line--wb-major { stroke-width: 0.9; opacity: 0.55; }
+.psy-line--h { stroke: var(--warn); stroke-width: 0.7; stroke-dasharray: 2 5; opacity: 0.55; }
+.psy-line--v { stroke: var(--text-soft); stroke-width: 0.7; stroke-dasharray: 9 5; opacity: 0.4; }
+
+.psy-sat { fill: none; stroke: var(--brand); stroke-width: 2.2; }
+
+.psy-hscale-tick { stroke: var(--warn); stroke-width: 1; opacity: 0.8; }
+
+.psy-label { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 9.5px; }
+.psy-label--rh { fill: var(--brand); opacity: 0.9; }
+.psy-label--sat { fill: var(--brand); font-size: 10px; font-weight: 500; }
+.psy-label--wb { fill: var(--danger); opacity: 0.9; font-size: 9px; }
+.psy-label--v { fill: var(--text-soft); opacity: 0.8; }
+.psy-label--hscale { fill: var(--warn); opacity: 1; }
+.psy-label--comfort { fill: var(--ok); font-size: 10px; opacity: 0.9; }
+.psy-label--adp { fill: var(--text-soft); font-size: 10px; }
+.psy-label--prot { fill: var(--text-soft); font-size: 9px; }
+.psy-label--prot-title {
+  fill: var(--text-soft); font-family: var(--font-heading, inherit);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+}
+
+/* The comfort bands run to the foot of the chart because ASHRAE 55 sets no
+   lower humidity limit. Drawing them heavily would give two tall boxes more
+   weight than the process they sit behind, so they are fill only. */
+.psy-comfort { stroke: none; fill: var(--brand-sky); opacity: 0.18; }
+.psy-comfort--winter { opacity: 0.12; }
+
+/* ------------------------------------------------------ process and points */
+
+.psy-process { stroke-width: 2.6; stroke-linecap: round; opacity: 0.9; }
+.psy-process.is-active { stroke-width: 3.6; opacity: 1; }
+/* Two airstreams meeting, not a coil: dashed, so it does not read as a duty. */
+.psy-process--mix { stroke-width: 2; stroke-dasharray: 7 5; }
+.psy-process--mix.is-active { stroke-width: 2.8; }
+
+/* The right-angled construction under a process line: how far the change is
+   sensible, and how far latent. */
+.psy-leg { fill: none; stroke-width: 1.2; stroke-dasharray: 4 3; opacity: 0.6; }
+.psy-leg--sensible { stroke: var(--chart-sensible); }
+.psy-leg--latent { stroke: var(--chart-latent); }
+
+.psy-adp-line { stroke: var(--text-soft); stroke-width: 1.2; stroke-dasharray: 3 4; opacity: 0.8; }
+.psy-adp-dot { fill: none; stroke: var(--text-soft); stroke-width: 1.6; }
+
+.psy-pt-halo { opacity: 0.18; }
+.psy-pt { stroke: var(--surface); stroke-width: 2; }
+.psy-pt-label { font-family: var(--font-heading, inherit); font-size: 12px; font-weight: 600; }
+.psy-pt-sub { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 10px; fill: var(--text-soft); }
+/* The backdrop copy of a label, drawn underneath it to clear the property
+   lines. Stroke and fill are both the surface colour so it reads as a hole. */
+.psy-halo {
+  fill: var(--surface); stroke: var(--surface);
+  stroke-width: 4px; stroke-linejoin: round;
+}
+
+.psy-cross { stroke: var(--text-soft); stroke-width: 0.8; stroke-dasharray: 2 3; opacity: 0.7; }
+
+/* Leader from a marker to a label that had to be pushed clear of a cluster. */
+.psy-pt-leader { stroke: var(--text-soft); stroke-width: 0.8; opacity: 0.45; }
+
+/* ------------------------------------------------------------ protractor */
+
+.psy-prot-face { fill: var(--surface); stroke: var(--border); stroke-width: 1; opacity: 0.92; }
+.psy-prot-tick { stroke: var(--text-soft); stroke-width: 1; opacity: 0.7; }
+.psy-prot-needle { stroke: var(--brand); stroke-width: 2.2; stroke-linecap: round; }
+.psy-prot-hub { fill: var(--brand); }
+.psy-prot-value {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 12px; font-weight: 500; fill: var(--brand);
+}
+
+/* ------------------------------------------------------------- results */
+
+.psy-states th[scope='row'] { font-weight: 400; color: var(--text); }
+.psy-unit { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 0.8125rem; color: var(--text-soft); }
+.psy-states td.num, .psy-segments td.num { font-variant-numeric: tabular-nums; }
+
+.psy-segments tr.is-active td { background: var(--surface-2); }
+.psy-seg-btn {
+  display: inline-flex; align-items: center; border: 0; background: transparent;
+  color: var(--text); font-family: inherit; font-size: 0.9375rem;
+  padding: 0; cursor: pointer; text-align: left;
+}
+.psy-seg-btn:hover { color: var(--brand); }
+
+.psy-detail {
+  margin-top: var(--space-4, 24px); padding-top: var(--space-4, 24px);
+  border-top: 1px solid var(--border);
+}
+.psy-detail h3 { margin-bottom: var(--space-1, 4px); }
+.psy-detail__note { color: var(--text-soft); max-width: 76ch; margin-bottom: var(--space-3, 16px); }
+.psy-detail .stat-grid { margin-bottom: var(--space-3, 16px); }
+.psy-stat-unit {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 0.8125rem; font-weight: 400;
+  color: var(--text-soft);
+}
+.psy-detail__notes ul { margin: 0; padding-left: var(--space-4, 24px); }
+.psy-detail__notes li + li { margin-top: var(--space-2, 8px); }
+
+.psy-notes { margin: 0; padding-left: var(--space-4, 24px); color: var(--text-soft); max-width: 80ch; }
+.psy-notes li + li { margin-top: var(--space-2, 8px); }
+.psy-notes code {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 0.875em;
+  background: var(--surface-2); padding: 1px var(--space-1, 4px); border-radius: 4px;
+}
+
+/* ---------------------------------------------------------- responsive */
+
+@media (max-width: 720px) {
+  .psy-toolbar__gap { flex-basis: 100%; }
+  .psy-layers { gap: var(--space-2, 8px); }
+  /* Two columns of toggles rather than one long list on a phone. */
+  .psy-layers .check { flex: 1 1 44%; }
+  .psy-mix__row select { max-width: none; }
+}
+
+/* ------------------------------------------------------------- printing */
+
+@media print {
+  /* Shell items that have no place on paper. */
+  .demo-bar, .topbar, .toast { display: none !important; }
+  .psy-toolbar, .psy-actions, .psy-layers, .psy-readout, .psy-mix,
+  .psy-chart-help, #topbar, .skip-link, .psy-back, .psy-row-actions { display: none !important; }
+  .psy-chart-scroll { overflow: visible; }
+  .psy-chart { min-width: 0; }
+  .psy-panel { break-inside: avoid; box-shadow: none; }
+
+  /* Every column on the page, portrait or landscape: no scrolling box, tight
+     cells, and input boxes shown as plain figures. */
+  .table-wrap { overflow: visible; }
+  .psy-points, .psy-states, .psy-segments { table-layout: auto; width: 100%; font-size: 0.75rem; }
+  table.data.psy-points th, table.data.psy-points td,
+  table.data.psy-states th, table.data.psy-states td,
+  table.data.psy-segments th, table.data.psy-segments td { padding: 3px 4px; overflow-wrap: anywhere; }
+  .psy-points input, .psy-points select {
+    min-width: 0; width: 100%; padding: 0; border: 0; background: none; font-size: 0.75rem;
+    min-height: 0; appearance: none; -webkit-appearance: none;
+  }
+  .psy-points th:last-child { display: none; }
+  .psy-seg-btn { font-size: 0.75rem; }
+  table.data.psy-states td.num, table.data.psy-states th.num,
+  table.data.psy-segments td.num, table.data.psy-segments th.num,
+  table.data.psy-points td.num { overflow-wrap: normal; white-space: nowrap; }
+  table.data.psy-segments th.num { white-space: normal; }
+}

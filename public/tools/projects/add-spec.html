@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Add a specification - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .as-page { max-width: 760px; }
+  .as-pick { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .as-drop {
+    display: grid; justify-items: center; gap: 6px; width: 100%; padding: 34px 18px; text-align: center; cursor: pointer;
+    font: inherit; color: var(--text); background: color-mix(in srgb, var(--brand) 5%, var(--surface));
+    border: 1.5px dashed color-mix(in srgb, var(--brand) 45%, var(--border)); border-radius: var(--radius);
+    transition: border-color .2s var(--ease), background .2s var(--ease), transform .2s var(--ease);
+  }
+  .as-drop:hover, .as-drop.over { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
+  .as-drop:active { transform: scale(.99); }
+  .as-drop .ic { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--brand); color: var(--on-brand); }
+  .as-drop .ic svg { width: 26px; height: 26px; }
+  .as-drop strong { font-size: 17px; letter-spacing: -.01em; }
+  .as-drop span { font-size: 14px; color: var(--text-soft); }
+  .as-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .as-chosen { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); overflow-wrap: anywhere; }
+  .as-chosen b { flex: 1 1 auto; min-width: 0; }
+  textarea.input { min-height: 220px; resize: vertical; font-family: var(--mono); font-size: 14px; }
+  .as-go { display: grid; gap: 10px; }
+  .as-go .btn { min-height: 52px; font-size: 16px; border-radius: 14px; }
+  .as-steps { display: grid; gap: 8px; }
+  .as-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .as-bar i { display: block; height: 100%; width: 30%; border-radius: 3px; background: var(--brand); animation: as-run 1.1s ease-in-out infinite; }
+  @keyframes as-run { from { margin-left: -30%; } to { margin-left: 100%; } }
+  @media (max-width: 640px) { textarea.input { font-size: 16px; } }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page as-page">
+  <div class="page-head">
+    <h1>Add a specification</h1>
+    <p id="as-intro">Choose the product and factory, give the specification, and start filling. Clauses answered before come filled in.</p>
+  </div>
+
+  <div class="notice error" id="as-error" role="alert" hidden></div>
+
+  <div class="stack" id="as-form" hidden>
+    <section class="card stack" aria-labelledby="h-what">
+      <h2 id="h-what">Product and factory</h2>
+      <div class="as-pick">
+        <label class="field"><span>Product</span><select class="input" id="as-product" disabled><option value="">Loading…</option></select></label>
+        <label class="field"><span>Factory</span><select class="input" id="as-factory" disabled><option value="">Choose a product first</option></select></label>
+      </div>
+      <p class="hint">Answers are kept separately for each factory.</p>
+    </section>
+
+    <section class="card stack" aria-labelledby="h-spec">
+      <h2 id="h-spec">Specification</h2>
+      <div class="tabs" role="tablist" aria-label="How to give the specification">
+        <button class="tab" role="tab" type="button" data-src="pdf" aria-selected="true">PDF file</button>
+        <button class="tab" role="tab" type="button" data-src="text" aria-selected="false">Paste text</button>
+      </div>
+
+      <div id="as-pdf" class="stack">
+        <button type="button" class="as-drop" id="as-drop">
+          <span class="ic" id="as-ic" aria-hidden="true"></span>
+          <strong>Choose the specification PDF</strong>
+          <span>or drop it here. A text PDF, not a scan. Up to 50 pages are read.</span>
+        </button>
+        <input type="file" id="as-file" class="as-file" accept=".pdf,application/pdf" tabindex="-1" aria-hidden="true">
+        <div class="as-chosen" id="as-chosen" hidden><b id="as-name"></b><button type="button" class="btn ghost sm" id="as-other">Choose another</button></div>
+      </div>
+
+      <div id="as-text" class="stack" hidden>
+        <label class="field"><span>Specification text</span>
+          <textarea class="input" id="as-paste" placeholder="Paste the specification here, one clause per line as it is written."></textarea></label>
+        <label class="field"><span>Name for this specification</span>
+          <input class="input" id="as-title" maxlength="80" placeholder="e.g. AHU Specs" autocomplete="off"></label>
+      </div>
+
+      <label class="check"><input type="checkbox" id="as-skip" checked> Skip the cover and contents pages</label>
+    </section>
+
+    <div class="as-go">
+      <div class="notice error" id="as-msg" role="alert" hidden></div>
+      <div class="as-steps" id="as-busy" hidden>
+        <p class="small muted" id="as-status" role="status" aria-live="polite"></p>
+        <div class="as-bar" aria-hidden="true"><i></i></div>
+      </div>
+      <button type="button" class="btn" id="as-go" disabled>Convert and start filling</button>
+      <p class="hint">The PDF is read on your device and is not uploaded. The clauses are saved in this project and in the company compliance library, with your name and the time.
+        <a id="as-classic" href="#">Open the classic converter</a> for the keyword dictionary and the Excel preview.</p>
+    </div>
+  </div>
+</main>
+
+<script src="../../assets/vendor/pdfjs/pdf.min.js"></script>
+<script src="../../assets/js/reflow.js"></script>
+<script src="../compliance-maker/xlsx-writer.js"></script>
+<script src="../compliance-maker/cm-engine.js"></script>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, $ = function (id) { return document.getElementById(id); };
+  var projectId = Hub.param("project"), project = null, products = [], source = "pdf", file = null, busy = false, KEEP = "dame_as_choice";
+  if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "../../assets/vendor/pdfjs/pdf.worker.min.js";
+  $("as-ic").innerHTML = Hub.ICON.doc;
+
+  function option(v, t) { return el("option", { value: v, text: t }); }
+  function product() { return products.filter(function (p) { return p.id === $("as-product").value; })[0] || null; }
+  function fillFactories(want) {
+    var p = product(), s = $("as-factory");
+    s.textContent = ""; s.appendChild(option("", p ? "Choose a factory" : "Choose a product first"));
+    (p ? p.factories : []).forEach(function (f) { s.appendChild(option(f.id, f.name)); });
+    s.disabled = !p;
+    if (p && p.factories.length === 1) s.value = p.factories[0].id;
+    else if (want) { s.value = want; if (s.value !== want) s.value = ""; }
+  }
+  function remember() { try { localStorage.setItem(KEEP, JSON.stringify({ p: $("as-product").value, f: $("as-factory").value })); } catch (e) { /* not kept */ } }
+  function recall() { try { return JSON.parse(localStorage.getItem(KEEP)) || {}; } catch (e) { return {}; } }
+
+  function ready() { return !!$("as-factory").value && (source === "pdf" ? !!file : $("as-paste").value.trim().length > 0); }
+  function refresh() {
+    $("as-go").disabled = busy || !ready();
+    $("as-go").textContent = busy ? "Working…" : "Convert and start filling";
+  }
+  function fail(text) { var m = $("as-msg"); m.textContent = text || ""; m.hidden = !text; }
+
+  $("as-product").addEventListener("change", function () { fillFactories(); remember(); refresh(); });
+  $("as-factory").addEventListener("change", function () { remember(); refresh(); });
+  $("as-paste").addEventListener("input", refresh);
+
+  [].forEach.call(document.querySelectorAll(".tab"), function (tab) {
+    tab.addEventListener("click", function () {
+      source = tab.getAttribute("data-src");
+      [].forEach.call(document.querySelectorAll(".tab"), function (t) { t.setAttribute("aria-selected", t === tab ? "true" : "false"); });
+      $("as-pdf").hidden = source !== "pdf"; $("as-text").hidden = source !== "text";
+      fail(""); refresh();
+    });
+  });
+
+  /* ---------- the file ---------- */
+  function take(f) {
+    fail("");
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") { fail(f.name + " is not a PDF. Choose the specification as a PDF, or paste its text."); return; }
+    if (f.size > 60 * 1024 * 1024) { fail(f.name + " is larger than 60 MB. Split it, or paste the text of the section you need."); return; }
+    file = f; $("as-name").textContent = f.name; $("as-chosen").hidden = false; $("as-drop").hidden = true; refresh();
+  }
+  var drop = $("as-drop"), input = $("as-file");
+  drop.addEventListener("click", function () { if (!busy) input.click(); });
+  $("as-other").addEventListener("click", function () { if (busy) return; file = null; $("as-chosen").hidden = true; drop.hidden = false; refresh(); input.click(); });
+  input.addEventListener("change", function () { take(input.files[0]); input.value = ""; });
+  ["dragenter", "dragover"].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); }); });
+  ["dragleave", "drop"].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); }); });
+  drop.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f && !busy) take(f); });
+  window.addEventListener("dragover", function (e) { e.preventDefault(); });      // a PDF dropped beside the box must not replace the page
+  window.addEventListener("drop", function (e) { e.preventDefault(); });
+
+  /* ---------- convert, save in the project, open it for filling ---------- */
+  function status(text) { $("as-status").textContent = text; }
+  $("as-go").addEventListener("click", function () {
+    if (busy || !ready()) return;
+    busy = true; fail(""); $("as-busy").hidden = false; refresh();
+    var skip = $("as-skip").checked, name = "", work;
+    if (source === "pdf") { name = file.name; work = CMEngine.fromPdf(file, { skipFront: skip, onProgress: status }); }
+    else {
+      status("Sorting the clauses…");
+      var raw = $("as-paste").value;
+      if (window.TN && window.TN.reflow && window.TN.reflow.tidyForParsing) raw = window.TN.reflow.tidyForParsing(raw).text;   // page lines out, split words rejoined
+      name = $("as-title").value.replace(/\s+/g, " ").trim();
+      work = Promise.resolve(CMEngine.fromText(raw, { skipFront: skip }));
+    }
+    work.then(function (res) {
+      var clauses = res.rows.filter(function (r) { return r.type === "letter" || r.type === "number" || r.type === "text"; }).length;
+      if (!clauses) throw new Error("No clauses were found. Check that this is the specification text" + (skip ? ", or untick \"Skip the cover and contents pages\"" : "") + ".");
+      status("Saving " + clauses + " clauses in " + project.name + "…");
+      return Api.cmSaveRun(Hub.token(), { factoryId: $("as-factory").value, source: source, fileName: name, projectId: projectId,
+        lines: res.rows.map(function (r) { return { type: r.type || "", sr: r.sr || "", spec: r.spec || "" }; }) }).then(function (saved) {
+        var go = function () { window.location.href = "record.html?run=" + encodeURIComponent(saved.run_id); };
+        var notes = (res.partial ? [res.partial] : []).concat(res.info || []);
+        if (res.partial) Hub.tell(notes.join("\n"), { title: "Part of the specification was read" }).then(go);
+        else { Hub.toast(clauses + " clauses added" + (saved.matched ? ", " + saved.matched + " filled from the library" : "") + "."); go(); }
+      });
+    }).then(null, function (err) {
+      busy = false; $("as-busy").hidden = true; refresh();
+      fail((err && err.message) || String(err));
+    });
+  });
+
+  /* ---------- start ---------- */
+  Hub.requireLogin({ tool: "projects" }).then(function () {
+    Hub.setBack("Projects", "index.html");
+    if (!projectId) throw new Error("No project was chosen. Open a project first, then add a specification.");
+    return Promise.all([Api.prGet(Hub.token(), projectId), Api.cmOptions(Hub.token())]);
+  }).then(function (res) {
+    project = res[0].project; products = res[1].products || [];
+    Hub.setBack(project.name, "project.html?id=" + encodeURIComponent(projectId));
+    document.title = "Add a specification - " + project.name;
+    $("as-intro").textContent = "For " + project.name + ". Choose the product and factory, give the specification, and start filling. Clauses answered before come filled in.";
+    $("as-classic").href = "../compliance-maker/index.html?project=" + encodeURIComponent(projectId);
+    var last = recall(), s = $("as-product");
+    s.textContent = ""; s.appendChild(option("", "Choose a product"));
+    products.forEach(function (p) { s.appendChild(option(p.id, p.name)); });
+    s.disabled = false;
+    if (products.length === 1) s.value = products[0].id; else if (last.p) { s.value = last.p; if (s.value !== last.p) s.value = ""; }
+    fillFactories(last.f);
+    $("as-form").hidden = false; refresh();
+  }, function (err) {
+    $("as-error").hidden = false; $("as-error").textContent = ((err && err.message) || err) + "";
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Datasheet Notes - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .dn-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .dn-drop {
+    display: block; width: 100%; padding: 30px 16px; text-align: center; cursor: pointer;
+    font: inherit; color: var(--text);
+    background: var(--surface-2); border: 1.5px dashed var(--border); border-radius: var(--radius);
+    transition: border-color .15s, background .15s;
+  }
+  .dn-drop:hover, .dn-drop.over { border-color: var(--brand); }
+  .dn-drop strong { display: block; font-size: 15px; }
+  .dn-drop span { display: block; margin-top: 4px; font-size: 13px; color: var(--text-soft); }
+  .dn-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .dn-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .dn-facts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dn-preview { max-height: 560px; overflow: auto; }
+  .dn-preview table { table-layout: fixed; min-width: 640px; }
+  .dn-preview th { position: sticky; top: 0; z-index: 2; }
+  /* Section and Component stay in view when a wide table is scrolled sideways.
+     --dn-c1 = the width of the Section column, set by the page when the table is drawn. */
+  .dn-preview th:nth-child(-n+2), .dn-preview td:nth-child(-n+2) { position: sticky; left: 0; }
+  .dn-preview th:nth-child(2), .dn-preview td:nth-child(2) { left: var(--dn-c1, 170px); box-shadow: inset -1px 0 0 var(--border); }
+  .dn-preview th:nth-child(-n+2) { z-index: 3; }
+  .dn-preview td:nth-child(-n+2) { z-index: 1; background: var(--surface); }
+  @media (max-width: 560px) {
+    .dn-preview th:nth-child(-n+2), .dn-preview td:nth-child(-n+2) { padding-left: 8px; padding-right: 6px; font-size: 12px; }
+    .dn-preview th:nth-child(-n+2) { font-size: 11px; letter-spacing: 0; }
+  }
+  .dn-run { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dn-run .notice { flex: 1 1 240px; margin: 0; }
+  .dn-preview td { vertical-align: top; overflow-wrap: anywhere; padding: 8px 12px; }
+  .dn-preview th.unit { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+  .dn-preview td.sec { font-weight: 650; }
+  .dn-preview tr.first td { border-top: 2px solid var(--border); }
+  .dn-preview tr.sub td { background: var(--surface-2); font-weight: 650; }
+  .dn-list { margin: 6px 0 0; padding-left: 18px; }
+  /* Cells that differ from the first unit. Built from the theme tokens so they follow day and night. */
+  .dn-preview td.diff { font-weight: 600; }
+  .dn-preview td.d1 { background: var(--warn-bg); }
+  .dn-preview td.d2 { background: color-mix(in srgb, var(--brand) 26%, var(--surface)); }
+  .dn-preview td.d3 { background: var(--ok-bg); }
+  .dn-preview td.d4 { background: var(--danger-bg); }
+  .dn-preview td.d5 { background: color-mix(in srgb, var(--brand-sky) 50%, var(--surface)); }
+  .dn-diff { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .dn-diff p { flex: 1 1 320px; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="page-head">
+    <p class="small"><a href="../../dashboard.html#general">&larr; General</a></p>
+    <h1>Datasheet Notes</h1>
+    <p>Product datasheet in, Excel table of unit data, sections and options out, one column per unit.</p>
+  </div>
+
+  <div class="stack">
+    <!-- 1. selection -->
+    <section class="card stack" aria-labelledby="h-unit">
+      <h2 id="h-unit">Project and product</h2>
+      <div class="dn-grid">
+        <label class="field" data-project-box hidden><span>Project</span>
+          <select class="input" id="dn-project" disabled><option value="">Loading…</option></select></label>
+        <label class="field"><span>Product</span>
+          <select class="input" id="dn-product" disabled><option value="">Loading…</option></select></label>
+      </div>
+      <p class="hint" data-project-box hidden><span id="dn-project-hint">Choose the project these datasheets belong to.</span>
+        <a href="../projects/index.html?new=1">Add New Project</a></p>
+      <p class="hint" id="dn-scope-hint" role="status">Choose a product to continue.</p>
+    </section>
+
+    <!-- 2. datasheet -->
+    <section class="card stack" id="dn-upload" aria-labelledby="h-file" hidden>
+      <h2 id="h-file">Datasheet</h2>
+      <button type="button" class="dn-drop" id="dn-drop">
+        <strong>Choose the datasheet PDF or drop it here</strong>
+        <span>Daikin AHU technical report (ASTRAWEB) or Daikin FAN COIL UNIT technical report (McQuay Smart Tools). Text PDF only, not a scan.
+          A PDF with several units, or several PDFs, gives one column per unit.</span>
+      </button>
+      <input type="file" id="dn-file" class="dn-file" accept=".pdf,application/pdf" multiple tabindex="-1" aria-hidden="true">
+      <div class="dn-run">
+        <div class="notice" id="dn-status" role="status" aria-live="polite" hidden></div>
+        <button type="button" class="btn ghost sm" id="dn-cancel" hidden>Cancel</button>
+      </div>
+      <div class="notice warn" id="dn-map-note" hidden></div>
+      <p class="hint">The PDF is read on your computer and is not uploaded. The table made from it is saved in the project. New section and row names go to the product's row mapping (kept in Product Options, one list per product for every factory and every user), and the values of the mapped rows go to the Product Options tree of the factory. The Product Options list never takes the project name, reference or unit tag.</p>
+    </section>
+
+    <!-- 3. result -->
+    <section class="card stack" id="dn-result" aria-labelledby="h-result" hidden>
+      <div class="dn-head">
+        <div>
+          <h2 id="h-result">Result</h2>
+          <p class="small muted" id="dn-title"></p>
+        </div>
+        <div class="row">
+          <button type="button" class="btn" id="dn-download">Download Excel</button>
+          <button type="button" class="btn ghost" id="dn-clear">Clear</button>
+        </div>
+      </div>
+      <div class="notice" id="dn-saved" role="status" aria-live="polite" hidden></div>
+      <div class="notice warn" id="dn-failed" hidden></div>
+      <div class="dn-facts" id="dn-facts"></div>
+      <div class="notice dn-diff" id="dn-diff" hidden>
+        <p class="small" id="dn-diff-text"></p>
+        <label class="check" id="dn-only-wrap"><input type="checkbox" id="dn-only"> Only rows that differ</label>
+      </div>
+      <div class="notice warn" id="dn-warn" hidden></div>
+      <div class="empty" id="dn-empty" hidden>The row mapping for this product leaves out every row of this datasheet. Ask an admin to check the row mapping in Product Options.</div>
+      <div class="table-wrap dn-preview" id="dn-table" tabindex="0" role="region" aria-labelledby="h-result">
+        <table class="table">
+          <colgroup id="dn-cols"></colgroup>
+          <thead><tr id="dn-head-row"></tr></thead>
+          <tbody id="dn-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">Rows and wording follow the product's row mapping (Product Options > Row mapping), the same for every factory and every user; values come from the datasheet.
+        Remarks stay empty for you to fill in Excel. Check the table against the datasheet before sending it out.</p>
+    </section>
+  </div>
+</main>
+
+<script src="../../assets/vendor/pdfjs/pdf.min.js"></script>
+<script src="../projects/pr-pick.js"></script>
+<script src="ds-parse.js"></script>
+<script src="ds-fcu.js"></script>
+<script src="ds-read.js"></script>
+<script src="ds-xlsx.js"></script>
+<script src="datasheet-notes.js"></script>
+</body>
+</html>

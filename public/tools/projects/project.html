@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en" data-loading>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Project - DAME Tools Hub</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<script src="../../assets/js/config.js"></script>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/hub.js"></script>
+<style>
+  .pj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pj-facts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .pj-form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  /* Tool tiles: blue once the project holds data from the tool, grey until then. Both open the tool. */
+  .pj-tile.has { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+  .pj-tile.has p, .pj-tile.has .meta { color: var(--on-brand); opacity: .92; }
+  .pj-tile.has .tile-icon { background: color-mix(in srgb, var(--on-brand) 18%, transparent); color: var(--on-brand); }
+  .pj-tile.none { background: var(--surface-2); box-shadow: none; }
+  .pj-tile.none h3, .pj-tile.none p, .pj-tile.none .meta { color: var(--text-soft); }
+  .pj-tile.none .tile-icon { background: var(--surface); color: var(--text-soft); }
+  /* next step: one headline, one progress line, one button */
+  .pj-next { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; padding: 24px; }
+  .pj-next-text { flex: 1 1 320px; min-width: 0; display: grid; gap: 6px; }
+  .pj-eyebrow { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); }
+  .pj-next h2 { font-size: 24px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .pj-next-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pj-next-actions .btn { min-height: 46px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
+  .pj-meter { display: grid; gap: 6px; margin-top: 8px; max-width: 460px; }
+  .pj-meter-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .pj-meter-bar.sm { height: 6px; max-width: 150px; margin: 6px 0 4px; }
+  .pj-meter-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ok); transition: width .5s var(--ease); }
+  .pj-share-sheet { max-width: 460px; }
+  .pj-people { display: grid; gap: 2px; max-height: min(46vh, 380px); overflow-y: auto; margin: 0 -8px; }
+  .pj-person { display: flex; align-items: center; gap: 12px; padding: 9px 8px; border-radius: 10px; cursor: pointer; }
+  .pj-person:hover { background: var(--surface-2); }
+  .pj-person input { width: 20px; height: 20px; flex: none; accent-color: var(--brand); }
+  .pj-person b { display: block; font-weight: 600; } .pj-person small { color: var(--text-soft); font-size: 13px; overflow-wrap: anywhere; }
+  .pj-table td { vertical-align: top; }
+  .pj-table .act { text-align: right; white-space: nowrap; }
+  .pj-table .act .btn + .btn { margin-left: 6px; }
+  .pj-file { font-weight: 600; overflow-wrap: anywhere; }
+  a.pj-link { display: block; color: var(--brand); text-decoration: none; }
+  a.pj-link:hover { text-decoration: underline; }
+  .pj-group td { background: var(--surface-2); font-weight: 650; }
+  .pj-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pj-log { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+  .pj-log li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .pj-log li:last-child { border-bottom: 0; }
+  .pj-pick { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  @media (max-width: 640px) {
+    .pj-table thead { display: none; }
+    .pj-table, .pj-table tbody, .pj-table tr, .pj-table td { display: block; width: 100%; }
+    .pj-table td { border: 0; padding: 2px 14px; }
+    .pj-table tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .pj-table tr.pj-group { padding: 0; }
+    .pj-table tr.pj-group td { padding: 8px 14px; }
+    .pj-table .act { display: flex; flex-wrap: wrap; gap: 8px; text-align: left; padding-top: 10px; white-space: normal; }
+    .pj-table .act .btn + .btn { margin-left: 0; }
+    .pj-table td[data-label]:not(:empty)::before { content: attr(data-label) ": "; color: var(--text-soft); font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="page">
+  <div class="empty" id="pj-loading">Loading the project…</div>
+  <div class="notice error" id="pj-error" role="alert" hidden></div>
+
+  <div id="pj-main" hidden>
+    <div class="page-head pj-head">
+      <div>
+        <h1 id="pj-name"></h1>
+        <p id="pj-client"></p>
+        <div class="pj-facts" id="pj-facts"></div>
+      </div>
+      <div class="row">
+        <button type="button" class="btn" id="pj-export">Download project (Excel)</button>
+        <button type="button" class="btn ghost" id="pj-share" hidden>Share</button>
+        <button type="button" class="btn ghost" id="pj-edit">Edit details</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <form class="card stack" id="pj-form" hidden novalidate>
+        <h2>Project details</h2>
+        <div class="pj-form">
+          <label class="field"><span>Project name</span><input class="input" name="name" maxlength="120" autocomplete="off"></label>
+          <label class="field"><span>Client type</span><select class="input" name="clientType"></select></label>
+          <label class="field"><span>Client name</span><input class="input" name="clientName" maxlength="120" autocomplete="off"></label>
+          <label class="field"><span>Region</span><select class="input" name="region"></select></label>
+        </div>
+        <div class="notice error" id="pj-form-msg" role="alert" hidden></div>
+        <div class="row"><button type="submit" class="btn" id="pj-save">Save details</button><button type="button" class="btn ghost" id="pj-form-cancel">Cancel</button>
+          <span style="flex:1"></span><button type="button" class="btn danger" id="pj-delete">Delete project</button></div>
+      </form>
+
+      <!-- where the project stands, and the one thing to do next -->
+      <section class="card pj-next" id="pj-next" aria-labelledby="pj-next-title">
+        <div class="pj-next-text">
+          <p class="pj-eyebrow" id="pj-next-eyebrow">Next step</p>
+          <h2 id="pj-next-title"></h2>
+          <p class="muted" id="pj-next-sub"></p>
+          <div class="pj-meter" id="pj-meter" hidden>
+            <div class="pj-meter-bar" role="img" id="pj-meter-bar"><i id="pj-meter-fill"></i></div>
+            <span class="small muted" id="pj-meter-text"></span>
+          </div>
+        </div>
+        <div class="pj-next-actions" id="pj-next-actions"></div>
+      </section>
+
+      <section aria-labelledby="h-tools">
+        <h2 id="h-tools" style="margin-bottom:10px">Add to this project</h2>
+        <div class="grid" id="pj-tiles"></div>
+        <p class="hint">Blue: the project already holds this. Grey: nothing yet. Whatever you add here is saved in this project.</p>
+      </section>
+
+      <section class="card stack" aria-labelledby="h-runs">
+        <h2 id="h-runs">Compliance records</h2>
+        <p class="small muted">One record per converted specification, grouped by product. Click a name to read it and fill Compliance and Remarks online, or upload the Excel you filled. Your answers are kept in the project; new ones go to the library team for review.</p>
+        <div class="notice" id="pj-up-msg" role="status" aria-live="polite" hidden></div>
+        <div class="empty" id="pj-runs-empty" hidden>No specification converted in this project yet. Open the Compliance Maker above.</div>
+        <div class="table-wrap" id="pj-runs-wrap" hidden>
+          <table class="table pj-table">
+            <thead><tr><th>Specification</th><th style="width:190px">Filled</th><th>Answers</th><th>By</th><th></th></tr></thead>
+            <tbody id="pj-runs"></tbody>
+          </table>
+        </div>
+        <input type="file" id="pj-file" class="pj-pick" accept=".xlsx" tabindex="-1" aria-hidden="true">
+      </section>
+
+      <section class="card stack" id="pj-compare-card" aria-labelledby="h-compare" hidden>
+        <h2 id="h-compare">Specification beside datasheet</h2>
+        <p class="small muted">What the specification asks for, next to what each unit has, row by row.</p>
+        <div class="row" id="pj-compare"></div>
+      </section>
+
+      <section class="card stack" aria-labelledby="h-notes">
+        <h2 id="h-notes">Datasheet notes</h2>
+        <p class="small muted">One table per datasheet run. Click a name to view it. These stay in the project; they are not part of the compliance library.</p>
+        <div class="empty" id="pj-notes-empty" hidden>No datasheet read in this project yet. Open Datasheet Notes above.</div>
+        <div class="table-wrap" id="pj-notes-wrap" hidden>
+          <table class="table pj-table">
+            <thead><tr><th>Datasheet</th><th>Product</th><th>Size</th><th>By</th><th></th></tr></thead>
+            <tbody id="pj-notes"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card stack" aria-labelledby="h-log">
+        <h2 id="h-log">History</h2>
+        <ul class="pj-log" id="pj-log"></ul>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="../../assets/js/xlsx-lite.js"></script>
+<script src="../datasheet-notes/ds-xlsx.js"></script>
+<script src="pr-xlsx.js"></script>
+<script src="../compliance-maker/cm-rows.js"></script>
+<script src="pr-match.js"></script>
+<script>
+(function () {
+  "use strict";
+  var el = Hub.el, $ = function (id) { return document.getElementById(id); };
+  var id = Hub.param("id"), data = null, profile = null, uploadFor = null;
+
+  function when(iso, time) {
+    var d = new Date(iso); if (isNaN(d)) return "";
+    return Hub.date(iso) + (time ? Hub.date(iso, true).slice(Hub.date(iso).length) : "");
+  }
+  function bare(names) { return String(names || "").split(", ").map(function (n) { return n.replace(/\.[A-Za-z0-9]{1,5}$/, ""); }).join(", "); }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+  function hasTool(toolId) { return profile.categories.some(function (c) { return c.allowed && c.tools.some(function (t) { return t.id === toolId && t.status === "live"; }); }); }
+  function fail(err) { Hub.toast((err && err.message) || String(err), true); }
+
+  /* ---------- draw ---------- */
+  function pct(r) { return r.clauses ? Math.round(100 * (r.filled || 0) / r.clauses) : 0; }
+  function tile(toolId, name, text, icon, n, one, many, href) {
+    if (!hasTool(toolId)) return null;
+    return el("a", { "class": "tile pj-tile " + (n ? "has" : "none"), href: href || "../" + toolId + "/index.html?project=" + encodeURIComponent(id) }, [
+      el("div", { "class": "tile-icon", html: icon }), el("h3", { text: name }), el("p", { text: text }),
+      el("div", { "class": "meta", text: n ? plural(n, one, many) + " saved" : "Nothing saved yet" })
+    ]);
+  }
+
+  /* The one thing to do next, worked out from what the project holds. */
+  function nextStep() {
+    var runs = data.runs, clauses = 0, filled = 0, pending = 0;
+    runs.forEach(function (r) { clauses += r.clauses || 0; filled += r.filled || 0; pending += r.pending || 0; });
+    var open = runs.filter(function (r) { return (r.clauses || 0) > (r.filled || 0); }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); })[0];
+    var title, sub, acts = [], eyebrow = "Next step";
+    function act(text, href, ghost) { acts.push(el("a", { "class": "btn" + (ghost ? " ghost" : ""), href: href, text: text })); }
+    var addSpec = "add-spec.html?project=" + encodeURIComponent(id), addSheet = "../datasheet-notes/index.html?project=" + encodeURIComponent(id);
+    if (!runs.length && !data.notes.length) {
+      title = "Add the specification"; sub = "Give the PDF or paste the text. The clauses come ready to fill, with the answers the company already has.";
+      if (hasTool("compliance-maker")) act("Add a specification", addSpec);
+      if (hasTool("datasheet-notes")) act("Read a datasheet", addSheet, true);
+    } else if (open) {
+      var left = open.clauses - open.filled;
+      title = (open.filled ? "Continue " : "Fill ") + (bare(open.file_name) || "the specification");
+      sub = plural(left, "clause is", "clauses are") + " still to fill" + (open.filled ? ", " + open.filled + " done." : ". " + (open.from_library ? open.from_library + " came filled from the library." : ""));
+      act(open.filled ? "Continue filling" : "Start filling", "record.html?run=" + encodeURIComponent(open.id));
+    } else if (runs.length && !data.notes.some(function (n) { return runs.some(function (r) { return r.product_id === n.product_id; }); }) && hasTool("datasheet-notes")) {
+      title = "Read the datasheet"; sub = "Every clause is filled. Read the datasheet to put what the units have beside what the specification asks.";
+      act("Read a datasheet", addSheet); act("Download project (Excel)", "#download", true);
+    } else if (!runs.length) {
+      title = "Add the specification"; sub = "The datasheet is in. Add the specification to fill its compliance and compare the two.";
+      if (hasTool("compliance-maker")) act("Add a specification", addSpec);
+    } else {
+      eyebrow = "Up to date"; title = "Everything is filled";
+      sub = pending ? plural(pending, "answer is", "answers are") + " with the library team for review. You can download the project now." : "Download the project, or add another specification or datasheet.";
+      act("Download project (Excel)", "#download");
+    }
+    $("pj-next-eyebrow").textContent = eyebrow; $("pj-next-title").textContent = title; $("pj-next-sub").textContent = sub;
+    var box = $("pj-next-actions"); box.textContent = ""; acts.forEach(function (a) { box.appendChild(a); });
+    [].forEach.call(box.querySelectorAll('a[href="#download"]'), function (a) { a.addEventListener("click", function (e) { e.preventDefault(); $("pj-export").click(); }); });
+    $("pj-meter").hidden = !clauses;
+    if (clauses) {
+      var p = Math.round(100 * filled / clauses);
+      $("pj-meter-fill").style.width = p + "%"; $("pj-meter-bar").setAttribute("aria-label", p + "% of the clauses filled");
+      $("pj-meter-text").textContent = filled + " of " + clauses + " clauses filled" + (pending ? " · " + pending + " in review" : "");
+    }
+  }
+
+  function runRow(r) {
+    var badges = el("div", { "class": "pj-badges" }, [
+      r.from_library ? el("span", { "class": "badge", text: r.from_library + " from the library" }) : null,
+      r.answered ? el("span", { "class": "badge ok", text: r.answered + " filled by the project" }) : null,
+      r.pending ? el("span", { "class": "badge warn", text: r.pending + " in review" }) : null,
+      r.approved ? el("span", { "class": "badge ok", text: r.approved + " approved" }) : null,
+      r.rejected ? el("span", { "class": "badge", text: r.rejected + " not taken" }) : null,
+      !r.from_library && !r.answered ? el("span", { "class": "small muted", text: "Not filled yet" }) : null
+    ]);
+    return el("tr", {}, [
+      el("td", {}, [el("a", { "class": "pj-file pj-link", href: "record.html?run=" + encodeURIComponent(r.id), title: "Read and fill online", text: bare(r.file_name) || "Pasted text" }),
+        el("div", { "class": "small muted", text: r.factory + " factory · " + when(r.created_at, true) })]),
+      el("td", {}, [el("div", { "class": "pj-meter-bar sm", role: "img", "aria-label": pct(r) + "% filled" }, [el("i", { style: "width:" + pct(r) + "%" })]),
+        el("div", { "class": "small muted", text: (r.filled || 0) + " of " + (r.clauses || 0) + " clauses" })]),
+      el("td", {}, [badges]),
+      el("td", { "data-label": "By", "class": "small", text: r.user }),
+      el("td", { "class": "act" }, [
+        el("a", { "class": "btn sm", href: "record.html?run=" + encodeURIComponent(r.id), text: "Open" }),
+        el("button", { type: "button", "class": "btn ghost sm", text: "Upload filled Excel", onclick: function () { uploadFor = r; $("pj-file").click(); } }),
+        el("button", { type: "button", "class": "btn danger sm", text: "Remove", onclick: function () {
+          Hub.confirm("Its clauses stay in the company library. The answers you filled for this project go with the record.", { title: "Remove " + (bare(r.file_name) || "this record") + "?", ok: "Remove", danger: true }).then(function (yes) {
+            if (yes) Api.prDeleteRecord(Hub.token(), "run", r.id).then(function () { Hub.toast("Record removed."); load(); }, fail);
+          });
+        } })
+      ])
+    ]);
+  }
+
+  function noteRow(n) {
+    return el("tr", {}, [
+      el("td", {}, [el("a", { "class": "pj-file pj-link", href: "note.html?id=" + encodeURIComponent(n.id), title: "View the table", text: bare(n.file_names) || "Datasheet" }),
+        el("div", { "class": "small muted", text: when(n.created_at, true) })]),
+      el("td", { "data-label": "Product", text: n.product }),
+      el("td", { "data-label": "Size", text: plural(n.units, "unit", "units") + ", " + plural(n.rows, "row", "rows") }),
+      el("td", { "data-label": "By", "class": "small", text: n.user }),
+      el("td", { "class": "act" }, [
+        el("a", { "class": "btn sm", href: "note.html?id=" + encodeURIComponent(n.id), text: "View" }),
+        el("button", { type: "button", "class": "btn ghost sm", text: "Download Excel", onclick: function (e) {
+          var b = e.currentTarget; b.disabled = true;
+          Api.prNoteGet(Hub.token(), n.id).then(function (t) {
+            var name = t.columns.length === 1 ? t.columns[0] : data.project.name + " - " + t.columns.length + " units";
+            PRXlsx.save(DSXlsx.build({ columns: t.columns, rows: t.rows }, "Datasheet Notes"), name + " - Datasheet Notes.xlsx");
+            Hub.toast("Excel downloaded.");
+          }, fail).then(function () { b.disabled = false; });
+        } }),
+        el("button", { type: "button", "class": "btn danger sm", text: "Remove", onclick: function () {
+          Hub.confirm("This cannot be undone. Read the datasheet again to get the table back.", { title: "Delete " + (bare(n.file_names) || "this table") + "?", ok: "Delete", danger: true }).then(function (yes) {
+            if (yes) Api.prDeleteRecord(Hub.token(), "note", n.id).then(function () { Hub.toast("Table deleted."); load(); }, fail);
+          });
+        } })
+      ])
+    ]);
+  }
+
+  function render() {
+    var p = data.project;
+    document.title = p.name + " - DAME Tools Hub";
+    $("pj-name").textContent = p.name;
+    $("pj-client").textContent = p.client_name;
+    var facts = $("pj-facts"); facts.textContent = "";
+    [p.client_type, p.region, "Created by " + p.created_by + ", " + when(p.created_at)].forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
+    var acc = data.access || {}, members = acc.members || [];
+    if (members.length) facts.appendChild(el("span", { "class": "badge brand", title: members.join(", "),
+      text: "Shared with " + (members.length <= 2 ? members.join(" and ") : members.slice(0, 2).join(", ") + " and " + (members.length - 2) + " more") }));
+    $("pj-share").hidden = !acc.can_share; $("pj-delete").hidden = !acc.can_delete;
+
+    var tiles = $("pj-tiles"); tiles.textContent = "";
+    [tile("compliance-maker", "Add a specification", "PDF or pasted text in, clauses ready to fill.", Hub.ICON.checklist, data.runs.length, "specification", "specifications", "add-spec.html?project=" + encodeURIComponent(id)),
+     tile("datasheet-notes", "Read a datasheet", "Datasheet PDF in, one column per unit.", Hub.ICON.table, data.notes.length, "datasheet table", "datasheet tables")]
+      .forEach(function (t) { if (t) tiles.appendChild(t); });
+    nextStep();
+
+    // products that have both a specification and a datasheet can be put side by side
+    var cmp = $("pj-compare"), both = []; cmp.textContent = "";
+    data.runs.forEach(function (r) { if (data.notes.some(function (n) { return n.product_id === r.product_id; }) && !both.some(function (b) { return b.id === r.product_id; })) both.push({ id: r.product_id, name: r.product }); });
+    both.forEach(function (b) {
+      cmp.appendChild(el("a", { "class": "btn ghost", href: "compare.html?project=" + encodeURIComponent(id) + "&product=" + encodeURIComponent(b.id), text: b.name + ": specification beside datasheet" }));
+    });
+    $("pj-compare-card").hidden = !both.length;
+
+    // compliance records, one block per product
+    var body = $("pj-runs"), products = []; body.textContent = "";
+    data.runs.forEach(function (r) { if (products.indexOf(r.product) < 0) products.push(r.product); });
+    products.sort().forEach(function (name) {
+      var mine = data.runs.filter(function (r) { return r.product === name; });
+      body.appendChild(el("tr", { "class": "pj-group" }, [el("td", { colspan: "5", text: name + " (" + plural(mine.length, "record", "records") + ")" })]));
+      mine.forEach(function (r) { body.appendChild(runRow(r)); });
+    });
+    $("pj-runs-wrap").hidden = !data.runs.length; $("pj-runs-empty").hidden = !!data.runs.length;
+
+    var nb = $("pj-notes"); nb.textContent = "";
+    data.notes.forEach(function (n) { nb.appendChild(noteRow(n)); });
+    $("pj-notes-wrap").hidden = !data.notes.length; $("pj-notes-empty").hidden = !!data.notes.length;
+
+    var log = $("pj-log"); log.textContent = "";
+    data.log.forEach(function (g) {
+      log.appendChild(el("li", {}, [el("b", { text: g.action }), g.detail ? " - " + g.detail : "",
+        el("div", { "class": "small muted", text: g.user + ", " + when(g.at, true) })]));
+    });
+    if (!data.log.length) log.appendChild(el("li", { "class": "muted", text: "Nothing yet." }));
+  }
+
+  function load() {
+    return Api.prGet(Hub.token(), id).then(function (res) {
+      data = res; $("pj-loading").hidden = true; $("pj-main").hidden = false; render();
+    }, function (err) {
+      $("pj-loading").hidden = true; $("pj-main").hidden = true;
+      $("pj-error").hidden = false; $("pj-error").textContent = err.message + " Go back to Projects and open it from the list.";
+    });
+  }
+
+  /* ---------- edit details ---------- */
+  var form = $("pj-form");
+  $("pj-edit").addEventListener("click", function () {
+    if (!form.hidden) { form.hidden = true; return; }
+    $("pj-form-msg").hidden = true;
+    Api.prOptions(Hub.token()).then(function (o) {
+      var f = form.elements, p = data.project;
+      [[f.clientType, o.client_types, p.client_type], [f.region, o.regions, p.region]].forEach(function (x) {
+        x[0].textContent = "";
+        (x[1].indexOf(x[2]) < 0 ? [x[2]] : []).concat(x[1]).forEach(function (v) { x[0].appendChild(el("option", { value: v, text: v })); });
+        x[0].value = x[2];
+      });
+      f.name.value = p.name; f.clientName.value = p.client_name;
+      form.hidden = false; f.name.focus();
+    }, fail);
+  });
+  $("pj-form-cancel").addEventListener("click", function () { form.hidden = true; });
+  $("pj-delete").addEventListener("click", function () {
+    var n = data.runs.length + data.notes.length;
+    Hub.confirm((n ? "Its " + plural(data.notes.length, "datasheet table", "datasheet tables") + " and its history are deleted. Its " + plural(data.runs.length, "specification leaves", "specifications leave") + " the project; the clauses stay in the company library. "
+                   : "The project is empty. ") + "This cannot be undone.", { title: "Delete " + data.project.name + "?", ok: "Delete project", danger: true }).then(function (yes) {
+      if (yes) Api.prDelete(Hub.token(), id).then(function () { window.location.href = "index.html"; }, fail);
+    });
+  });
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var f = form.elements, msg = $("pj-form-msg");
+    var d = { id: id, name: f.name.value.trim(), clientType: f.clientType.value, clientName: f.clientName.value.trim(), region: f.region.value };
+    if (!d.name || !d.clientName) { msg.textContent = (!d.name ? "Project name" : "Client name") + " is needed."; msg.hidden = false; return; }
+    $("pj-save").disabled = true;
+    Api.prSave(Hub.token(), d).then(function () { form.hidden = true; Hub.toast("Details saved."); return load(); },
+      function (err) { msg.textContent = err.message; msg.hidden = false; }).then(function () { $("pj-save").disabled = false; });
+  });
+
+  /* ---------- share the project with other people ---------- */
+  $("pj-share").addEventListener("click", function () {
+    var btn = this; btn.disabled = true;
+    Api.prShareGet(Hub.token(), id).then(function (s) {
+      btn.disabled = false;
+      var picked = {}; s.members.forEach(function (m) { picked[m.id] = 1; });
+      var list = el("div", { "class": "pj-people" }), find = el("input", { "class": "input", type: "search", placeholder: "Find a person", autocomplete: "off", "aria-label": "Find a person" });
+      var count = el("p", { "class": "hub-sheet-hint" }), save = el("button", { type: "button", "class": "btn", text: "Save" });
+      function tally() { var n = Object.keys(picked).length; count.textContent = n ? "Shared with " + plural(n, "person", "people") + ". They can add, fill and download in this project; they cannot delete it." : "Not shared. Only " + s.owner + " and the admins can open this project."; }
+      function draw() {
+        var q = find.value.trim().toLowerCase(); list.textContent = "";
+        var rows = s.users.filter(function (u) { return !q || (u.name + " " + u.username + " " + u.team).toLowerCase().indexOf(q) >= 0; });
+        rows.sort(function (a, b) { return (picked[b.id] ? 1 : 0) - (picked[a.id] ? 1 : 0) || a.name.localeCompare(b.name); });
+        rows.forEach(function (u) {
+          var cb = el("input", { type: "checkbox" }); cb.checked = !!picked[u.id];
+          cb.addEventListener("change", function () { if (cb.checked) picked[u.id] = 1; else delete picked[u.id]; tally(); });
+          list.appendChild(el("label", { "class": "pj-person" }, [cb, el("span", {}, [el("b", { text: u.name }), el("small", { text: u.username + (u.team ? " · " + u.team : "") })])]));
+        });
+        if (!rows.length) list.appendChild(el("p", { "class": "hub-sheet-hint", text: s.users.length ? "Nobody matches." : "There is nobody else to share with yet." }));
+      }
+      find.addEventListener("input", draw);
+      var box = el("div", { "class": "hub-sheet pj-share-sheet", role: "dialog", "aria-modal": "true", "aria-label": "Share " + data.project.name }, [
+        el("h2", { text: "Share " + data.project.name }), count, find, list,
+        el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), save])]);
+      var back = el("div", { "class": "hub-sheet-back", onclick: function (e) { if (e.target === back) close(); } }, [box]);
+      function key(e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } }
+      function close() { document.removeEventListener("keydown", key, true); back.remove(); btn.focus(); }
+      save.addEventListener("click", function () {
+        save.disabled = true;
+        Api.prShareSet(Hub.token(), id, Object.keys(picked)).then(function (res) {
+          close(); Hub.toast(res.members ? "Shared with " + plural(res.members, "person", "people") + "." : "Sharing ended."); load();
+        }, function (err) { save.disabled = false; fail(err); });
+      });
+      document.addEventListener("keydown", key, true);
+      document.body.appendChild(back); tally(); draw(); find.focus();
+    }, function (err) { btn.disabled = false; fail(err); });
+  });
+
+  /* ---------- upload a filled compliance Excel ---------- */
+  function readSheet(rows) {
+    var head = -1, cs = -1, cc = -1, cr = -1;
+    for (var i = 0; i < Math.min(rows.length, 40) && head < 0; i++) {
+      var s = -1, c = -1, r = -1;
+      rows[i].forEach(function (v, k) {
+        v = String(v == null ? "" : v).trim().toLowerCase();
+        if (s < 0 && /^specifications?$/.test(v)) s = k;
+        else if (c < 0 && /^compliance$/.test(v)) c = k;
+        else if (r < 0 && /^remarks?$/.test(v)) r = k;
+      });
+      if (s >= 0 && c >= 0) { head = i; cs = s; cc = c; cr = r; }
+    }
+    if (head < 0) throw new Error("This sheet has no Specifications and Compliance column headings. Use the Excel downloaded from the Compliance Maker.");
+    var out = [];
+    rows.slice(head + 1).forEach(function (row) {
+      var spec = String(row[cs] == null ? "" : row[cs]).trim(); if (!spec) return;
+      var c = String(row[cc] == null ? "" : row[cc]).trim(), r = cr >= 0 ? String(row[cr] == null ? "" : row[cr]).trim() : "";
+      if (c || r) out.push({ spec: spec, compliance: c, remarks: r });
+    });
+    return out;
+  }
+  function say(text, kind) { var m = $("pj-up-msg"); m.hidden = !text; m.className = "notice" + (kind ? " " + kind : ""); m.textContent = text || ""; }
+  $("pj-file").addEventListener("change", function () {
+    var file = this.files[0], run = uploadFor; this.value = "";
+    if (!file || !run) return;
+    if (!/\.xlsx$/i.test(file.name)) { say("Please choose an .xlsx file. An older .xls file must be saved as .xlsx first.", "error"); return; }
+    say("Reading " + file.name + "…");
+    HubXlsx.read(file).then(function (rows) {
+      var filled = readSheet(rows);
+      if (!filled.length) throw new Error("No filled rows were found in " + file.name + ". Fill in Compliance or Remarks for at least one row.");
+      return Api.prSubmitAnswers(Hub.token(), run.id, filled);
+    }).then(function (res) {
+      say(res.stored
+        ? plural(res.stored, "answer", "answers") + " saved in this project from " + file.name + ". " +
+          (res.pending ? plural(res.pending, "is", "are") + " new or different from the library and waiting for review." : "All of them match the library already.")
+        : "Nothing changed: no filled row of " + file.name + " matches a clause of this record, or the answers were already saved.", res.stored ? "ok" : "warn");
+      return load();
+    }).then(null, function (err) { say(err.message || String(err), "error"); });
+  });
+
+  /* ---------- download the whole project ---------- */
+  $("pj-export").addEventListener("click", function () {
+    var btn = this; btn.disabled = true;
+    Api.prExport(Hub.token(), id).then(function (x) {
+      // Products that have both a specification and a datasheet also get "Review-AHU":
+      // each datasheet row with the clause that asks about it and the value of every unit.
+      var ids = {}, both = [];
+      data.runs.forEach(function (r) { ids[r.product_id] = (ids[r.product_id] || 0) | 1; });
+      data.notes.forEach(function (n) { ids[n.product_id] = (ids[n.product_id] || 0) | 2; });
+      Object.keys(ids).forEach(function (k) { if (ids[k] === 3) both.push(k); });
+      return Promise.all(both.map(function (k) { return PRMatch.load({ projectId: id, productId: k, detail: data }).then(null, function () { return null; }); }))
+        .then(function (matches) { return { x: x, matches: matches.filter(Boolean) }; });
+    }).then(function (got) {
+      var x = got.x, review = {};
+      got.matches.forEach(function (m) { review[m.product] = m; });
+      var p = x.project, runs = {};
+      x.runs.forEach(function (r) { runs[r.id] = r; });
+
+      var info = [["Project information", ""], ["Project name", p.name], ["Client type", p.client_type], ["Client name", p.client_name], ["Region", p.region],
+        ["Created by", p.created_by], ["Created", when(p.created_at, true)], ["Last changed by", p.updated_by], ["Last changed", when(p.updated_at, true)],
+        ["Compliance records", x.runs.length], ["Datasheet tables", x.notes.length], ["Downloaded", when(new Date().toISOString(), true)]];
+
+      // One sheet per product: "Specs-AHU" holds every converted specification of that product,
+      // "Notes-AHU" every datasheet table. Sheet order: information, then product by product.
+      var sheets = [{ name: "Project Information", widths: [24, 60], rows: info }], products = [];
+      x.runs.forEach(function (r) { if (products.indexOf(r.product) < 0) products.push(r.product); });
+      x.tables.forEach(function (t) { if (products.indexOf(t.product) < 0) products.push(t.product); });
+      products.sort().forEach(function (product) {
+        var rows = [], bold = [], part = [], sect = [], first = true;
+        x.runs.filter(function (r) { return r.product === product; }).reverse().forEach(function (r) {      // oldest first
+          if (!first) rows.push([]); first = false;
+          bold.push(rows.length); rows.push([bare(r.file_name) || "Pasted text", r.factory + " factory, converted by " + r.user + ", " + when(r.created_at, true), "", "", "", ""]);
+          bold.push(rows.length); rows.push(["Sr", "Specifications", "Compliance", "Remarks", "Answer from", "Filled by"]);
+          x.compliance.filter(function (c) { return c.run === r.id; }).forEach(function (c) {
+            if (c.type === "part") part.push(rows.length); else if (c.type === "section") sect.push(rows.length);
+            rows.push([c.sr, c.spec, c.compliance, c.remarks, c.source, c.by]);      // Internal Comments and TL Review stay on the site
+          });
+        });
+        if (rows.length) sheets.push({ name: "Specs-" + product, widths: [9, 90, 22, 44, 34, 20], rows: rows, bold: bold, part: part, sect: sect });
+
+        var notes = [], nbold = [], width = 0;
+        x.tables.filter(function (t) { return t.product === product; }).forEach(function (t) {
+          if (notes.length) notes.push([]);
+          nbold.push(notes.length); notes.push([bare(t.file_names) || "Datasheet", when(t.created_at, true)]);
+          nbold.push(notes.length); notes.push(["Section", "Component"].concat(t.columns, ["Remarks"]));
+          width = Math.max(width, t.columns.length);
+          var sec = "";
+          t.rows.forEach(function (r) { if (r.section) sec = r.section; notes.push([sec, r.component].concat(r.cells || [], [""])); });
+        });
+        if (notes.length) {
+          var widths = [24, 30]; for (var i = 0; i < width; i++) widths.push(28); widths.push(24);
+          sheets.push({ name: "Notes-" + product, widths: widths, rows: notes, bold: nbold });
+        }
+
+        var m = review[product], rv = m ? PRMatch.sheetRows(m, false) : [];
+        if (rv.length) {
+          var out = [["Section", "Component", "Specification asks"].concat(m.columns, ["Remarks"])], rsect = [];
+          rv.forEach(function (r) {
+            if (r.section) rsect.push(out.length);
+            out.push([r.section, r.component, r.text].concat(r.kind === "sub" ? m.columns.map(function () { return ""; }) : r.cells, [""]));
+          });
+          sheets.push({ name: "Review-" + product, widths: [24, 30, 70].concat(m.columns.map(function () { return 26; }), [30]), rows: out, bold: [0], sect: rsect });
+        }
+      });
+      PRXlsx.save(PRXlsx.build(sheets), p.name + " - project data.xlsx");
+      Hub.toast("Excel downloaded.");
+      return load();
+    }, fail).then(function () { btn.disabled = false; });
+  });
+
+  Hub.requireLogin({ tool: "projects" }).then(function (p) {
+    profile = p;
+    Hub.setBack("Projects", "index.html");
+    if (!id) { $("pj-loading").hidden = true; $("pj-error").hidden = false; $("pj-error").textContent = "No project was chosen. Go back to Projects and open one from the list."; return; }
+    load();
+  });
+})();
+</script>
+</body>
+</html>
