@@ -3,7 +3,7 @@
    caller re-hashes with PBKDF2 (see app_login). The rules of app__check_password stay. */
 import { fail } from "../errors";
 
-export const PBKDF2_ITERATIONS = 600000;
+export const PBKDF2_ITERATIONS = 100000;
 
 export function checkPassword(p: unknown): string {
   const s = typeof p === "string" ? p : "";
