@@ -57,7 +57,8 @@ export default {
     if (path.startsWith("/api/")) return reply({ ok: false, error: "Not found." }, 404);
     // page addresses stay exactly as on the DAME site (dashboard.html, tools/projects/record.html?run=...);
     // the site root is the sign-in page
-    if (path === "/") return env.ASSETS.fetch(new Request(url.origin + "/index.html", request));
+    // a folder address (tools/projects/) opens its index.html, as GitHub Pages did
+    if (path.endsWith("/")) return env.ASSETS.fetch(new Request(url.origin + path + "index.html" + url.search, request));
     return env.ASSETS.fetch(request);
   },
 

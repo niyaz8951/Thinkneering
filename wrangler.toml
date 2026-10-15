@@ -18,7 +18,7 @@ directory = "public"
 binding = "ASSETS"
 html_handling = "none"
 not_found_handling = "404-page"
-run_worker_first = ["/api/*", "/"]
+run_worker_first = ["/api/*", "/", "/tools/*"]   # tools/<id>/ opens index.html (the Worker maps it)
 
 [vars]
 ENV_NAME = "production"
