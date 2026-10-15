@@ -1,15 +1,77 @@
-name = "thinkneering"
-pages_build_output_dir = "."
-compatibility_date = "2025-11-01"
+# Thinkneering Hub - one Worker: the static site (public/) and the API (worker/src).
+# The top level IS the live site. No account id or zone id here: they come from the Workers Builds
+# connection (or `wrangler login`). Secrets (dashboard or `wrangler secret put`): SESSION_SECRET.
+#
+# What must exist on the Cloudflare account before the first deploy:
+#   D1 database  thinkneering-db   (id below)
+#   R2 bucket    hub-files
+# Workers AI needs nothing to be created. Vectorize and the custom domain are switched on later (see below).
+
+name = "thinkneering-hub"
+main = "worker/src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true                      # https://thinkneering-hub.<account>.workers.dev
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+html_handling = "none"
+not_found_handling = "404-page"
+run_worker_first = ["/api/*", "/"]
+
+[vars]
+ENV_NAME = "production"
+AI_GATEWAY_ID = "hub"                   # AI > AI Gateway > a gateway named "hub"; calls work without it too
 
 [[d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db"
-database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
+database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
+migrations_dir = "db/migrations"
 
-# Workers AI: the dictionary and every KEPT AI feature. Everything else works
-# without it; those features answer "AI binding not configured" instead.
-# (Local `wrangler pages dev` needs CLOUDFLARE_API_TOKEN for this binding;
-# comment it out temporarily to run the site offline.)
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "hub-files"
+
 [ai]
 binding = "AI"
+
+[triggers]
+crons = ["*/5 * * * *", "30 2 * * *"]   # Vectorize indexing (idle until VECTORS exists), nightly backup to R2
+
+[observability]
+enabled = true
+
+# ---- switch on when ready (remove the leading # on each line) ----
+# Custom domain: thinkneering.com must be a zone on this account (Websites in the dashboard).
+#routes = [{ pattern = "tools.thinkneering.com", custom_domain = true }]
+#
+# Vectorize: create the index first:
+#   npx wrangler vectorize create hub-vectors --dimensions=1024 --metric=cosine
+#   npx wrangler vectorize create-metadata-index hub-vectors --property-name=factory_id --type=string
+#   npx wrangler vectorize create-metadata-index hub-vectors --property-name=kind --type=string
+# Until then the AI search uses word overlap, which works but is less exact.
+#[[vectorize]]
+#binding = "VECTORS"
+#index_name = "hub-vectors"
+
+# ---------- local, offline: `npm run dev:offline` (no Cloudflare login; a stand-in AI that marks "Noted") ----------
+[env.local]
+name = "thinkneering-hub-local"
+workers_dev = false
+
+[env.local.vars]
+ENV_NAME = "local"
+AI_GATEWAY_ID = "hub"
+AI_FAKE = "1"
+
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "thinkneering-db"
+database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
+migrations_dir = "db/migrations"
+
+[[env.local.r2_buckets]]
+binding = "FILES"
+bucket_name = "hub-files"
