@@ -27,7 +27,7 @@ AI_GATEWAY_ID = "hub"                   # AI > AI Gateway > a gateway named "hub
 [[d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db"
-database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
+database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
 migrations_dir = "db/migrations"
 
 [[r2_buckets]]
@@ -69,7 +69,7 @@ AI_FAKE = "1"
 [[env.local.d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db"
-database_id = "829bac8e-1bc2-45e9-b5d8-9fe88f233a44"
+database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
 migrations_dir = "db/migrations"
 
 [[env.local.r2_buckets]]
