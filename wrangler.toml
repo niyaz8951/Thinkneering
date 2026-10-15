@@ -1,11 +1,17 @@
 # Thinkneering Hub - one Worker: the static site (public/) and the API (worker/src).
-# No account id or zone id here: they come from `wrangler login` (or the Workers Builds connection).
-# Secrets (`wrangler secret put` or the dashboard): SESSION_SECRET, AI_GATEWAY_TOKEN.
+# The top level IS the live site. No account id or zone id here: they come from the Workers Builds
+# connection (or `wrangler login`). Secrets (dashboard or `wrangler secret put`): SESSION_SECRET.
+#
+# What must exist on the Cloudflare account before the first deploy:
+#   D1 database  thinkneering-db   (id below)
+#   R2 bucket    hub-files
+# Workers AI needs nothing to be created. Vectorize and the custom domain are switched on later (see below).
 
 name = "thinkneering-hub"
 main = "worker/src/index.ts"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true                      # https://thinkneering-hub.<account>.workers.dev
 
 [assets]
 directory = "public"
@@ -15,95 +21,45 @@ not_found_handling = "404-page"
 run_worker_first = ["/api/*", "/"]
 
 [vars]
-ENV_NAME = "local"
-AI_GATEWAY_ID = "hub"
+ENV_NAME = "production"
+AI_GATEWAY_ID = "hub"                   # AI > AI Gateway > a gateway named "hub"; calls work without it too
 
 [[d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db"
-database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
+database_id = "ac4d12fc-8c89-4432-ac27-bdc89ce10f5a"
 migrations_dir = "db/migrations"
 
 [[r2_buckets]]
 binding = "FILES"
 bucket_name = "hub-files"
 
-[[vectorize]]
-binding = "VECTORS"
-index_name = "hub-vectors"
-
 [ai]
 binding = "AI"
 
 [triggers]
-crons = ["*/5 * * * *", "30 2 * * *"]
+crons = ["*/5 * * * *", "30 2 * * *"]   # Vectorize indexing (idle until VECTORS exists), nightly backup to R2
 
 [observability]
 enabled = true
 
-# ---------- staging: its own database, bucket and index ----------
-[env.staging]
-name = "thinkneering-hub-staging"
-routes = [{ pattern = "staging.tools.thinkneering.com", custom_domain = true }]
+# ---- switch on when ready (remove the leading # on each line) ----
+# Custom domain: the hub lives at thinkneering.com (owner's decision, 15 Oct 2026); attached in the dashboard.
+#routes = [{ pattern = "thinkneering.com", custom_domain = true }]   # attached in the dashboard (Domains tab) on 15 Oct 2026
+#
+# Vectorize: create the index first:
+#   npx wrangler vectorize create hub-vectors --dimensions=1024 --metric=cosine
+#   npx wrangler vectorize create-metadata-index hub-vectors --property-name=factory_id --type=string
+#   npx wrangler vectorize create-metadata-index hub-vectors --property-name=kind --type=string
+# Until then the AI search uses word overlap, which works but is less exact.
+#[[vectorize]]
+#binding = "VECTORS"
+#index_name = "hub-vectors"
 
-[env.staging.vars]
-ENV_NAME = "staging"
-AI_GATEWAY_ID = "hub"
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "thinkneering-db-staging"
-database_id = "replace-with-the-staging-database-id-when-staging-is-created"
-migrations_dir = "db/migrations"
-
-[[env.staging.r2_buckets]]
-binding = "FILES"
-bucket_name = "hub-files-staging"
-
-[[env.staging.vectorize]]
-binding = "VECTORS"
-index_name = "hub-vectors-staging"
-
-[env.staging.ai]
-binding = "AI"
-
-[env.staging.triggers]
-crons = ["*/5 * * * *", "30 2 * * *"]
-
-# ---------- production ----------
-[env.production]
-name = "thinkneering-hub"
-routes = [{ pattern = "tools.thinkneering.com", custom_domain = true }]
-
-[env.production.vars]
-ENV_NAME = "production"
-AI_GATEWAY_ID = "hub"
-
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "thinkneering-db"
-database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
-migrations_dir = "db/migrations"
-
-[[env.production.r2_buckets]]
-binding = "FILES"
-bucket_name = "hub-files"
-
-[[env.production.vectorize]]
-binding = "VECTORS"
-index_name = "hub-vectors"
-
-[env.production.ai]
-binding = "AI"
-
-[env.production.triggers]
-crons = ["*/5 * * * *", "30 2 * * *"]
-
-# ---------- local, offline: no AI and no Vectorize binding, so `wrangler dev --env local` runs without a
-# Cloudflare login (AI review then says it is not available here). `npm run dev` uses the top-level
-# bindings, where AI calls go to Workers AI through your login.
+# ---------- local, offline: `npm run dev:offline` (no Cloudflare login; a stand-in AI that marks "Noted") ----------
 [env.local]
 name = "thinkneering-hub-local"
+workers_dev = false
 
 [env.local.vars]
 ENV_NAME = "local"
@@ -113,7 +69,7 @@ AI_FAKE = "1"
 [[env.local.d1_databases]]
 binding = "DB"
 database_name = "thinkneering-db"
-database_id = "a5ea0be2-8f86-4e78-b786-571e66301f0b"
+database_id = "ac4d12fc-8c89-4432-ac27-bdc89ce10f5a"
 migrations_dir = "db/migrations"
 
 [[env.local.r2_buckets]]
