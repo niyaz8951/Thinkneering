@@ -21,8 +21,8 @@ import { all, sha256 } from "../lib/sql";
 import { match, unitLookup, hasValue, type MapRule, type NoteTable } from "../lib/rows";
 import { measurements, type Measure } from "./guard";
 import { ClauseSearch, GramIndex, lexicalScore, type Similar } from "./search";
-import { aiMapFor, type AiSettings } from "./map";
-import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
+import { aiMapFor, type AiSettings, type Section } from "./map";
+import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, prepareKnowledge, knowledgeMatching, type KnowledgeIndexed, type AiRule, type RuleHit } from "./rules";
 import type { AiUsage } from "./models";
 
 export interface RunInfo { id: string; product_id: string; factory_id: string; project_id: string | null; product: string; factory: string }
@@ -38,7 +38,7 @@ export interface Comparison { compliance: string; remarks: string; reason: strin
 export interface Context {
   run: RunInfo; rows: RunRowFull[]; place: Map<number, { part: number; section: string }>;
   columns: string[]; sheet: Map<number, SheetHit[]>; options: Map<number, OptionInfo>; aiNotes: { section: string; key: string; body: string }[];
-  rules: AiRule[]; settings: AiSettings; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
+  rules: AiRule[]; settings: AiSettings; instructions: Section[] | null; knowledge: KnowledgeIndexed[]; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
   projectIndex?: GramIndex<PastAnswer>; recordIndex?: GramIndex<RunRowFull>;
 }
 
@@ -117,7 +117,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   }
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
-  return { run, rows, place: pl, columns: look.columns, sheet, options, aiNotes, rules: ai.rules, settings: ai.settings,
+  return { run, rows, place: pl, columns: look.columns, sheet, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
            search: new ClauseSearch(env, usage), project, names };
 }
 
@@ -256,7 +256,7 @@ export function notesFor(ctx: Context, x: RunRowFull): string[] {
 /* Everything the decision for one clause needs. */
 export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
-  options: OptionInfo; notes: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
+  options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
@@ -270,6 +270,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   return {
     part: pl.part, section: pl.section, parent, sheet, cmp, conflict,
     options: ctx.options.get(x.seq) || { values: [], specials: [], notes: [], ai: [] }, notes: notesFor(ctx, x),
+    knowledge: knowledgeMatching(ctx.knowledge, x.spec_text, ctx.place.get(x.seq)?.section || ""),
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
     rules: picked.rules, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules

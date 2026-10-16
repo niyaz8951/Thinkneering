@@ -14,6 +14,7 @@ import { complete, firstJson, MODELS, type AiUsage } from "./models";
 import type { Similar } from "./search";
 import { splitComments, directRule, type RuleHit, type DatasheetField } from "./rules";
 import { groundRemarks, trimAnswerEcho, hedges } from "./guard";
+import { instructionsText, type Section } from "./map";
 
 export const PROMPT_VERSION = "draft-2026-10-16b";
 export const RULE_VERSION = "rule-2026-10-16";
@@ -28,10 +29,13 @@ export interface DraftInput {
   conflict?: string;                     // the library's value differs from this project's datasheet
   options?: string[];                    // Product Options lines for the rows of this clause
   notes?: string[];                      // AI notes of the Options tree
+  knowledge?: string[];                  // verified branches of the knowledge maps that match the clause
   record?: PastAnswerIn | null;          // the same clause answered by a person in this record
   inSection?: string[];                  // answers given earlier in this section of the record
   project?: PastAnswerIn[];              // the same / similar clause answered in other projects of the factory
-  copyAt?: number;                       // AI map > Settings
+  copyAt?: number;                       // AI map > Decision steps > Library
+  instructions?: Section[] | null;       // AI map > Instructions (null = the default brief)
+  useRules?: boolean;                    // AI map > Decision steps > Map rules that answer by themselves
   allowModel?: boolean;                  // false: answer from the free sources only (setting or budget)
 }
 export type DraftSource = "datasheet" | "library-similar" | "record" | "rule" | "project" | "model";
@@ -66,39 +70,24 @@ export function standardChoice(v: unknown): string {
   return hit || "";
 }
 
-export function systemPrompt(product: string, factory: string): string {
-  return `You are a senior application engineer at the ${factory} ${product} factory of Daikin, answering a consultant's specification clause by clause for a compliance statement that is submitted under the company's name.
+/* The fixed frame (reply format, the six answers, the number rule: what code relies on) around the brief, which is
+   the Instructions branch of the AI map (map.ts DEFAULT_INSTRUCTIONS when the map has none). */
+export function systemPrompt(product: string, factory: string, instructions?: Section[] | null): string {
+  return `${instructionsText(instructions || null, product, factory)}
 
-Accuracy first. A false "Comply" is the worst mistake; a draft marked low confidence is better than a confident wrong one.
-
+REPLY (fixed by the site)
 Answer with ONE JSON object and nothing else:
-{"compliance": "<one of the six answers>", "remarks": "<one or two short sentences for the consultant, or empty>", "reason": "<one sentence a reviewer can check: which rule, datasheet row, library answer or fact you used>", "confidence": "high" | "medium" | "low"}
+{"compliance": "<one of the six answers>", "remarks": "<one or two short sentences for the consultant, or empty>", "reason": "<one sentence a reviewer can check: which rule, datasheet row, library answer or fact you used, and what needs checking>", "confidence": "high" | "medium" | "low"}
+The six answers, written exactly: ${CHOICES.map((c) => '"' + c + '"').join(", ")}.
+Never write a number with a unit (mm, kW, Pa, m/s, %, hours ...) that is not in the sources you are given: the clause says what is REQUIRED, not what the product IS. Write "[value]" where an unknown value belongs and set confidence "low".`;
+}
 
-The six answers:
-- "Comply": the product meets the clause as written.
-- "Comply with Remarks": it meets the intent but what is offered differs from the wording, or a condition applies. The remark states WHAT IS OFFERED ("Offered units are with 62 mm double-wall panels."). This is the most common answer in a real compliance sheet.
-- "Noted": an instruction, a description or a general statement with nothing to comply with.
-- "Not Comply": it cannot be met. Only when a rule, a datasheet row or a library answer says so; never from a guess.
-- "Not Applicable": the clause does not apply to this product or selection (a belt-drive clause on a direct-drive EC fan unit). Say why in a few words.
-- "In Contractor's Scope": installation, rigging, site work, site testing, connections, commissioning labour, work by others.
-
-Sources, strongest first; use the first that settles the clause:
-1. AI rules for this clause, from the library team: follow them.
-2. Site rules: instructions for clauses like this one, written by the library team: follow them when they fit the clause.
-3. Project datasheet rows: the actual values of the units selected for this project. They win over everything below. A row may be off-topic (found by keywords): use only rows about what the clause asks.
-4. Product Options and AI notes: what this factory can offer (values seen on its datasheets, special options, notes). Use them when the datasheet does not have the subject; "Comply with Remarks" with the option named when the clause asks for something the factory offers as an option.
-5. Library answers of similar clauses (this factory, already checked), and answers given earlier in this section: copy their answer and wording when they cover the same requirement; keep consistent with the section.
-6. Answers to similar clauses in other projects: like the library, but not yet approved.
-7. General knowledge of this kind of equipment, only for the kind of answer, never for a value; then confidence is "low".
-
-Hard rules:
-- Never write a number with a unit (mm, kW, Pa, m/s, %, hours ...) that is not in a source above. The clause says what is REQUIRED; it does not say what the product IS. If the clause asks for 50 mm and no source gives a thickness, you do not know the thickness: write "[value]" where the value belongs and set confidence "low".
-- A clause with a "Parent clause" is a list item continuing it: read them together.
-- The remark continues the answer; never start it with the answer's words. "In Contractor's Scope" + "Installation by the contractor." is right; "In Contractor's Scope. In contractor's scope ..." is wrong.
-- Remarks are for the consultant: plain, definitive, short. Never use should, approximately, typically, likely, expected. Never mention datasheets, selection reports, libraries, rules, internal notes or file names: state the value or the fact itself.
-- Internal notes explain past answers; use them, never quote them.
-- Part 1 (General) clauses are mostly "Noted" or "In Contractor's Scope"; Part 3 (Execution) mostly "In Contractor's Scope" or "Noted"; Part 2 (Products) describes the unit and needs a real answer.
-- "high" confidence only when a rule, a datasheet row or a library answer covers the requirement directly.`;
+/* What the brief is, for the drafts: the code's version, or the map's (a change to the map makes a new one). */
+export function promptVersionOf(instructions?: Section[] | null): string {
+  if (!instructions || !instructions.length) return PROMPT_VERSION;
+  let h = 0;
+  for (const ch of JSON.stringify(instructions)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return "map-" + (h >>> 0).toString(16).padStart(8, "0");
 }
 
 function block(title: string, lines: string[]): string {
@@ -123,9 +112,10 @@ export function userPrompt(d: DraftInput): string {
     return `${i + 1}. (similarity ${x.score.toFixed(2)}) Clause: ${x.spec_text.slice(0, 600)}\n   Compliance: ${x.compliance || "(no answer yet)"}\n   Remarks: ${x.remarks || "(none)"}` +
       (c.note ? `\n   Internal note: ${c.note.slice(0, 300)}` : "") + (c.rules.length ? `\n   AI rules: ${c.rules.join(" | ").slice(0, 400)}` : "");
   })));
-  parts.push(block(`Factory facts (${d.product}, standard offering)`, (d.facts || []).map((h) => `- ${h.rule.title ? h.rule.title + ": " : ""}${h.rule.instruction.slice(0, 400)}`)));
+  if ((d.facts || []).length) parts.push(block(`Factory facts (${d.product}, standard offering)`, (d.facts || []).map((h) => `- ${h.rule.title ? h.rule.title + ": " : ""}${h.rule.instruction.slice(0, 400)}`)));
   parts.push(block(`Product Options of the ${d.factory} factory for this clause (values seen on its datasheets, special options, notes)`, (d.options || []).map((t) => "- " + t.slice(0, 400))));
   parts.push(block("AI notes (library team, facts about the product)", (d.notes || []).map((t) => "- " + t.slice(0, 500))));
+  if ((d.knowledge || []).length) parts.push(block("Knowledge maps (process and product understanding, verified)", (d.knowledge || []).map((t) => "- " + t.slice(0, 700))));
   if (d.conflict) parts.push("Conflict: " + d.conflict + " The project's datasheet wins.");
   parts.push(block("Answers given earlier in this section of this specification (keep to them)", (d.inSection || []).map((t) => "- " + t)));
   parts.push(block("Answers to similar clauses in other projects of this factory", (d.project || []).map((x, i) =>
@@ -142,7 +132,7 @@ function trustedText(d: DraftInput): string {
     ...(d.facts || []).map((h) => `${h.rule.title} ${h.rule.instruction}`),
     ...(d.datasheet || []).map((f) => `${f.label} ${f.value}`),
     ...d.similar.filter((x) => x.score >= SHOW_AT).slice(0, 3).map((x) => `${x.compliance} ${x.remarks} ${x.comments}`),
-    ...(d.options || []), ...(d.notes || []), ...(d.inSection || []), ...(d.project || []).map((x) => `${x.compliance} ${x.remarks}`),
+    ...(d.options || []), ...(d.notes || []), ...(d.knowledge || []), ...(d.inSection || []), ...(d.project || []).map((x) => `${x.compliance} ${x.remarks}`),
     d.parent || ""
   ].join(" \n ");
 }
@@ -202,7 +192,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   }
 
   // 4. an AI rule that answers by itself
-  const direct = own.rules.length ? null : directRule(d.rules || []);
+  const direct = own.rules.length || d.useRules === false ? null : directRule(d.rules || []);
   if (direct) {
     const r = direct.rule;
     return { compliance: standardChoice(r.answer) || r.answer, remarks: r.remark, confidence: "high", source: "rule", model: "", promptVersion: RULE_VERSION,
@@ -211,7 +201,8 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   }
 
   // 5. the same clause answered in another project of this factory (below the library: not yet approved)
-  const pj = !own.rules.length ? (d.project || []).find((x) => x.score >= copyAt && standardChoice(x.compliance)) : undefined;
+  const pjAt = copyAt <= 1 ? copyAt : COPY_AT;   // (the library step switched off does not switch this one off)
+  const pj = !own.rules.length ? (d.project || []).find((x) => x.score >= pjAt && standardChoice(x.compliance)) : undefined;
   if (pj) {
     return { compliance: standardChoice(pj.compliance), remarks: pj.remarks, confidence: "medium", source: "project", model: "", promptVersion: RULE_VERSION,
       reason: `Same requirement as a project answer${pj.by ? " by " + pj.by : ""} (${pj.where})${pj.pending ? ", not yet approved for the library" : ""}.`,
@@ -225,7 +216,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   }
 
   // 6. the model, once more if its first reply cannot be used
-  const sys = systemPrompt(d.product, d.factory), user = userPrompt(d);
+  const sys = systemPrompt(d.product, d.factory, d.instructions), user = userPrompt(d);
   let text = await complete(env, MODELS.draft, sys, user, usage, 500);
   let got = readReply(text);
   if (!got.ok) {
@@ -249,7 +240,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   if (compliance === "Not Comply") {
     const backed = ruleSays(/not comply|deviat|cannot|can not|not available|not offered/i) ||
       d.similar.some((x) => x.score >= SHOW_AT && standardChoice(x.compliance) === "Not Comply") || ds || (d.options || []).length > 0 ||
-      (d.notes || []).some((t) => /not (offered|available|possible)|cannot|can not/i.test(t));
+      [...(d.notes || []), ...(d.knowledge || [])].some((t) => /not (offered|available|possible)|cannot|can not/i.test(t));
     if (!backed) throw new Error("The model said Not Comply with no rule, datasheet row or library answer behind it; answer this clause yourself.");
   }
 
@@ -263,7 +254,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const lead = own.rules.length ? "Followed the clause's AI rule. " : "";
   const base = String(j.reason ?? "").trim().slice(0, 400) || "Drafted by the model from the sources shown to it.";
   return {
-    compliance, remarks, confidence, source: "model", model: MODELS.draft, promptVersion: PROMPT_VERSION,
+    compliance, remarks, confidence, source: "model", model: MODELS.draft, promptVersion: promptVersionOf(d.instructions),
     reason: (lead + base + (notes.length ? " Check: " + notes.join("; ") + "." : "")).slice(0, 600),
     sources: sourcesOf(d)
   };

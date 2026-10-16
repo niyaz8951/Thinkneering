@@ -13,6 +13,7 @@
    Images: the pages still send and expect JPEG data: URLs. The bytes live in R2
    (maps/<map>/<image>.jpg and -thumb.jpg); D1 keeps the keys and the caption. Decoded on write,
    re-encoded on read; deleting a branch, a map or an image deletes its R2 objects in the same request. */
+import { seedTree, addSeed } from "../ai/map";
 import type { Env, Params } from "../env";
 import type { Routes } from "../router";
 import { fail } from "../errors";
@@ -22,7 +23,7 @@ import { all, now, uuid, str, tidy, int, isArray, isObject, chunks, marks, like,
 export type Rights = "own" | "edit" | "read" | "none";
 
 export interface MapRow {
-  id: string; name: string; share: "private" | "team_read" | "team_edit";
+  id: string; name: string; share: "private" | "team_read" | "team_edit"; kind?: "knowledge" | "rulebook";
   created_by: string | null; created_at: string; updated_by: string | null; updated_at: string;
 }
 export interface NodeRow {
@@ -179,8 +180,9 @@ async function oneNodeJson(env: Env, nodeId: string): Promise<Record<string, unk
 }
 
 function mapJson(s: Session, m: MapRow, name: (id: string | null | undefined) => string): Record<string, unknown> {
-  return { id: m.id, name: m.name, share: m.share, rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at };
+  return { id: m.id, name: m.name, share: m.share, kind: m.kind || "knowledge", rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at };
 }
+const KINDS = ["knowledge", "rulebook"];
 
 /* The name of a map as kept: tidy, 1 to 80 characters, unique (case-blind) among the owner's maps. */
 async function mapName(env: Env, v: unknown, ownerId: string | null, exceptId: string | null, emptyMsg: string, dupMsg: string): Promise<string> {
@@ -268,26 +270,34 @@ export const routes: Routes = {
       me: s.id, can_manage: s.canEdit("maps"),
       maps: maps.map((m) => {
         const st = stats.get(m.id) || { n: 1, sp: 0, tv: 0 };
-        return { id: m.id, name: m.name, share: m.share, rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at,
+        return { id: m.id, name: m.name, share: m.share, kind: m.kind || "knowledge", rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at,
                  branches: Math.max(st.n - 1, 0), special: st.sp, to_verify: st.tv, images: imgs.get(m.id) || 0 };
       })
     };
   },
 
-  /* A new map. p_share: private | team_read | team_edit. The root branch carries the map's name. */
+  /* A new map. p_share: private | team_read | team_edit. p_kind: knowledge (default) | rulebook (an AI rule book,
+     started from the template of ai/map.ts). The root branch carries the map's name. */
   async mp_create(env, p) {
     const s = await mpUser(env, p.p_token);
     const share = str(p.p_share, 20) || "private";
+    const kind = str(p.p_kind, 20) || "knowledge";
+    if (!KINDS.includes(kind)) fail("Choose what the map is for.");
     const name = await mapName(env, p.p_name, s.id, null, "Give the map a name, usually the product.", "You already have a map with that name.");
     if (!SHARES.includes(share)) fail("Choose who the map is shared with.");
     const c = await env.DB.prepare("SELECT count(*) AS n FROM mp_maps WHERE created_by = ?").bind(s.id).first<{ n: number }>();
     if ((c?.n || 0) >= 200) fail("You have 200 maps. Delete one you no longer need first.");
-    const id = uuid(), at = now();
-    await env.DB.batch([
-      env.DB.prepare("INSERT INTO mp_maps (id, name, share, created_by, created_at, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, name, share, s.id, at, s.id, at),
-      env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
-                      VALUES (?, ?, NULL, ?, 0, 1, ?, ?, ?, ?, ?, ?)`).bind(uuid(), id, name, s.id, at, s.id, at, s.id, at)
-    ]);
+    const id = uuid(), at = now(), rootId = uuid();
+    const stmts: D1PreparedStatement[] = [
+      env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, name, share, kind, s.id, at, s.id, at),
+      env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
+                      VALUES (?, ?, NULL, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?)`).bind(rootId, id, name,
+        kind === "rulebook" ? "An AI rule book. Link it in Compliance review > AI rules. Instructions = what the AI reads before every answer; Decision steps = the order it goes through; the Parts hold the rules; Learned = what it learned, to verify." : "",
+        s.id, at, s.id, at, s.id, at)
+    ];
+    // an AI rule book starts from the template (instructions, decision steps, starter rules)
+    if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at));
+    for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
     return { ok: true, id };
   },
 
@@ -302,7 +312,7 @@ export const routes: Routes = {
     return { map: mapJson(s, m, name), nodes: nodes.map((n) => nodeJson(n, name, imgs.get(n.id) || 0)) };
   },
 
-  /* Rename a map or change who it is shared with (its owner, or a map manager for a shared map).
+  /* Rename a map, change who it is shared with or what it is for (p_kind) (its owner, or a map manager for a shared map).
      A null leaves that part as it is. */
   async mp_map_save(env, p) {
     const s = await mpUser(env, p.p_token);
@@ -317,6 +327,13 @@ export const routes: Routes = {
       const share = str(p.p_share, 20);
       if (!SHARES.includes(share)) fail("Choose who the map is shared with.");
       stmts.push(env.DB.prepare("UPDATE mp_maps SET share = ? WHERE id = ?").bind(share, m.id));
+    }
+    if (p.p_kind != null) {
+      const kind = str(p.p_kind, 20);
+      if (!KINDS.includes(kind)) fail("Choose what the map is for.");
+      // the AI reads a linked map as what it is linked for: a change of type takes it off those links
+      if (kind !== (m.kind || "knowledge")) stmts.push(env.DB.prepare("DELETE FROM ai_map_links WHERE map_id = ? AND role <> ?").bind(m.id, kind));
+      stmts.push(env.DB.prepare("UPDATE mp_maps SET kind = ? WHERE id = ?").bind(kind, m.id));
     }
     stmts.push(touch(env, m.id, s.id));
     await env.DB.batch(stmts);

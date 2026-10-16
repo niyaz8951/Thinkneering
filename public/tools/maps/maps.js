@@ -48,6 +48,14 @@
     if (first) first.focus();
     return close;
   }
+  // what a map is for: knowledge (process or product understanding) or an AI rule book (Compliance review > AI rules)
+  var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: what the AI follows" };
+  var KIND_HINT = "Knowledge maps are read by people, and by the AI as facts when linked in Compliance review > AI rules. An AI rule book holds the AI's instructions, decision steps and rules; a new one starts from the template.";
+  function kindSelect(id, value) {
+    var s = el("select", { "class": "input", id: id }, Object.keys(KIND).map(function (k) { return el("option", { value: k, text: KIND[k] }); }));
+    s.value = value || "knowledge";
+    return s;
+  }
   function shareSelect(id, value) {
     var s = el("select", { "class": "input", id: id }, Object.keys(SHARE).map(function (k) { return el("option", { value: k, text: SHARE[k] }); }));
     s.value = value || "private";
@@ -78,6 +86,7 @@
         grid.appendChild(el("a", { "class": "tile mp-tile", href: "?map=" + m.id }, [
           el("span", { "class": "tile-icon", "aria-hidden": "true", html: Hub.ICON.tree }),
           el("span", { "class": "badge", text: SHARE[m.share] || m.share }),
+          m.kind === "rulebook" ? el("span", { "class": "badge mp-kind", text: "AI rule book" }) : null,
           el("h3", { text: m.name }),
           el("p", { text: parts.join(" · ") }),
           el("span", { "class": "meta", text: (m.mine ? "Yours" : "By " + m.owner) + " · changed " + Hub.date(m.updated_at) + (m.to_verify ? " · " + m.to_verify + " to verify" : "") })
@@ -112,14 +121,14 @@
     sheet("Add a map", function (close) {
       var err = el("p", { "class": "mp-err", role: "alert" });
       var name = el("input", { "class": "input", type: "text", id: "mpNewName", maxlength: "80", placeholder: "e.g. Chiller", autocomplete: "off" });
-      var share = shareSelect("mpNewShare", "private"), busy = false;
+      var share = shareSelect("mpNewShare", "private"), kind = kindSelect("mpNewKind", "knowledge"), busy = false;
       var ok = el("button", { type: "button", "class": "btn", text: "Add map", onclick: go });
       function go() {
         var v = name.value.replace(/\s+/g, " ").trim();
         if (!v) { err.textContent = "Give the map a name, usually the product."; name.focus(); return; }
         if (busy) return;
         busy = true; ok.disabled = true; err.textContent = "";
-        Api.mpCreate(T, { name: v, share: share.value }).then(function (r) {
+        Api.mpCreate(T, { name: v, share: share.value, kind: kind.value }).then(function (r) {
           store("sessionStorage", userKey("edit"), r.id);            // a new map opens in Edit
           window.location.href = "?map=" + r.id;
         }, function (e) { busy = false; ok.disabled = false; err.textContent = e.message; });
@@ -127,6 +136,7 @@
       name.addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
       return [
         el("label", { "class": "field" }, [el("span", { text: "Map name" }), name]),
+        el("label", { "class": "field" }, [el("span", { text: "What it is for" }), kind, el("p", { "class": "hint", text: KIND_HINT })]),
         el("label", { "class": "field" }, [el("span", { text: "Shared with" }), share, el("p", { "class": "hint", text: SHARE_HINT + " You can change this later." })]),
         err,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), ok])
@@ -184,7 +194,7 @@
     var m = M.map;
     $("mpTitle").textContent = m.name; document.title = m.name + " - Maps - DAME Tools Hub";
     var sub = $("mpSub"); sub.hidden = false;
-    sub.textContent = (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
+    sub.textContent = (m.kind === "rulebook" ? "AI rule book · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
     $("mpMode").hidden = !canEdit(); $("mpImport").hidden = !(canEdit() && st.edit); $("mpSettings").hidden = !isOwn();
   }
   function reload(after) {
@@ -955,15 +965,15 @@
     sheet("Map settings", function (close) {
       var err = el("p", { "class": "mp-err", role: "alert" }), busy = false;
       var name = el("input", { "class": "input", type: "text", id: "mpSetName", value: M.map.name, maxlength: "80", autocomplete: "off" });
-      var share = shareSelect("mpSetShare", M.map.share);
+      var share = shareSelect("mpSetShare", M.map.share), kind = kindSelect("mpSetKind", M.map.kind);
       var ok = el("button", { type: "button", "class": "btn", text: "Save", disabled: true, onclick: go });
-      function changed() { ok.disabled = busy || (name.value.replace(/\s+/g, " ").trim() === M.map.name && share.value === M.map.share); }
-      name.addEventListener("input", changed); share.addEventListener("change", changed);
+      function changed() { ok.disabled = busy || (name.value.replace(/\s+/g, " ").trim() === M.map.name && share.value === M.map.share && kind.value === (M.map.kind || "knowledge")); }
+      name.addEventListener("input", changed); share.addEventListener("change", changed); kind.addEventListener("change", changed);
       function go() {
         var v = name.value.replace(/\s+/g, " ").trim();
         if (!v) { err.textContent = "Give the map a name, usually the product."; name.focus(); return; }
         busy = true; changed(); err.textContent = "";
-        settled().then(function () { return Api.mpMapSave(T, { id: M.map.id, name: v === M.map.name ? null : v, share: share.value === M.map.share ? null : share.value }); }).then(function () {
+        settled().then(function () { return Api.mpMapSave(T, { id: M.map.id, name: v === M.map.name ? null : v, share: share.value === M.map.share ? null : share.value, kind: kind.value === (M.map.kind || "knowledge") ? null : kind.value }); }).then(function () {
           close(); Hub.toast("Map settings saved.");
           reload();
         }, function (e) { busy = false; changed(); err.textContent = e.message; });
@@ -979,6 +989,7 @@
       }
       return [
         el("label", { "class": "field" }, [el("span", { text: "Map name" }), name]),
+        el("label", { "class": "field" }, [el("span", { text: "What it is for" }), kind, el("p", { "class": "hint", text: "Changing it takes the map off the AI links of the other type in Compliance review." })]),
         el("label", { "class": "field" }, [el("span", { text: "Shared with" }), share, el("p", { "class": "hint", text: SHARE_HINT })]),
         err,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn danger", text: "Delete map", onclick: del }),

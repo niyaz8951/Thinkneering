@@ -27,21 +27,24 @@ test.describe("AI", () => {
     await openReview(page, "ahu-riyadh");
     await page.click('.tab[data-tab="rules"]');
     const links = page.locator("#mapLinks");
-    await expect(links).toContainText("Map for all AHU factories");
-    await expect(links).toContainText("Map for Riyadh only");
+    await expect(links).toContainText("All AHU factories");
+    await expect(links).toContainText("Riyadh only");
+    await expect(links).toContainText("Knowledge map");
     // make the product's map from the template if this run has none yet
-    if (await links.locator(".map-link").first().locator(".sum").filter({ hasText: "No map yet" }).count()) {
+    if (await links.locator(".map-link").first().locator(".sum").filter({ hasText: "built-in instructions" }).count()) {
       await links.locator(".map-link").first().getByRole("button", { name: "Create from template" }).click();
       await page.getByRole("alertdialog").locator("input").fill("E2E AI rules AHU");
       await page.getByRole("alertdialog").getByRole("button", { name: "Create" }).click();
     }
     await expect(links.locator(".map-link").first()).toContainText(/\d+ rules, \d+ of them answer by themselves/);
-    await expect(page.locator("#mapSettings")).toContainText("copy from the library at 90% similar");
+    await expect(page.locator("#mapSettings")).toContainText("copies from the library at 90% similar");
     await page.fill("#tryText", "Units shall be set level and plumb on the concrete base.");
     await page.selectOption("#tryPart", "3");
     await page.click("#btnTry");
     await expect(page.locator("#tryOut")).toContainText("answers it by itself");
-    await expect(page.locator("#tryOut .step-list li")).toHaveCount(5);
+    await expect(page.locator("#tryOut .step-list li")).toHaveCount(6);
+    await page.locator("#tryOut .try-prompt summary").click();
+    await expect(page.locator("#tryOut .try-prompt")).toContainText("SCOPE OF SUPPLY");
 
     // another person, in a browser of his own
     const other = await (await page.context().browser()!.newContext()).newPage();

@@ -203,7 +203,7 @@ describe("AI rules: routes", () => {
     expect(made.name).toBe("AI rules: AHU");
     let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     expect(got.all).toMatchObject({ id: made.id, name: "AI rules: AHU" });
-    expect(got.all.rules).toBeGreaterThan(8);
+    expect(got.all.rules).toBe(8);
     expect(got.all.direct).toBeGreaterThanOrEqual(4);
     expect(got.own).toBeNull();
     expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
@@ -211,10 +211,10 @@ describe("AI rules: routes", () => {
     // a factory map of his own, named as he likes, linked by name
     const own = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_name: "AHU-Riyadh-AI notes" });
     const part3 = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Part 3 Execution'").bind(own.id).first<any>();
-    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-bad', ?, ?, 'Hoisting', 'Hoisting is by others.', ?, 9, 1)")
-      .bind(own.id, part3.id, JSON.stringify(["When: hoisting", "Answer: By others please", "Remark: Hoisting by others."])).run();
-    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-ok', ?, ?, 'Hoisting 2', '', ?, 10, 1)")
-      .bind(own.id, part3.id, JSON.stringify(["When: hoisting", "Answer: In Contractor's Scope", "Remark: Hoisting is by the contractor."])).run();
+    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-bad', ?, ?, 'Crating', 'Crating is by others.', ?, 9, 1)")
+      .bind(own.id, part3.id, JSON.stringify(["When: crating", "Answer: By others please", "Remark: Crating by others."])).run();
+    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-ok', ?, ?, 'Crating 2', '', ?, 10, 1)")
+      .bind(own.id, part3.id, JSON.stringify(["When: crating", "Answer: In Contractor's Scope", "Remark: Crating is by the contractor."])).run();
     await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date().toISOString(), own.id).run();
     const settings = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Settings'").bind(own.id).first<any>();
     await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(["Copy from library at: 0.85", "Speed: fast"]), settings.id).run();
@@ -225,17 +225,17 @@ describe("AI rules: routes", () => {
     expect(got.problems.join("\n")).toMatch(/"Speed" is not a setting the AI knows/);
     expect(got.maps.map((m: any) => m.name)).toEqual(expect.arrayContaining(["AI rules: AHU", "AHU-Riyadh-AI notes"]));
     // try a clause: the factory's rule answers it, from its branch
-    const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Hoisting of the sections to the roof.", p_part: 3 });
-    expect(tried.direct).toMatchObject({ title: "Hoisting 2", answer: "In Contractor's Scope" });
-    expect(tried.direct.where).toMatch(/AHU-Riyadh-AI notes.*Part 3 Execution.*Hoisting 2/);
+    const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Crating of the sections for the sea voyage.", p_part: 3 });
+    expect(tried.direct).toMatchObject({ title: "Crating 2", answer: "In Contractor's Scope" });
+    expect(tried.direct.where).toMatch(/AHU-Riyadh-AI notes.*Part 3 Execution.*Crating 2/);
     const scope = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "This section includes air handling units.", p_section: "SECTION INCLUDES", p_part: 1 });
     expect(scope.direct).toMatchObject({ title: "Scope statements", answer: "Noted" });
     // the Riyadh map does not reach Dubai
-    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "Hoisting of the sections.", p_part: 3 })).direct).toBeNull();
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "Crating of the sections.", p_part: 3 })).direct).toBeNull();
     // switched off ("to verify"): ignored
     await env.DB.prepare("UPDATE mp_nodes SET verified = 0 WHERE id = 'n-ok'").run();
     await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 1000).toISOString(), own.id).run();
-    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Hoisting of the sections.", p_part: 3 })).direct).toBeNull();
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Crating of the sections.", p_part: 3 })).direct).toBeNull();
     // unlink
     await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: null });
     expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).own).toBeNull();
@@ -395,5 +395,88 @@ describe("AI review: connection and allowance", () => {
     expect(r3.failed).toBe(2);
     const r4 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25, p_skip: r3.failed_seqs });
     expect(r4).toMatchObject({ done: 0, failed: 0, remaining: 0 });
+  });
+});
+
+describe("AI rule book and knowledge maps", () => {
+  beforeEach(async () => { await resetLogins(); });
+
+  it("a map is a rule book or knowledge; the brief, the steps and the facts come from the maps; old maps get the new parts; the AI writes what it learned, to verify", async () => {
+    const t = await login("teamAdmin");
+    // made in Maps: an AI rule book starts from the template, a knowledge map is empty as always
+    const rb = await ok("mp_create", { p_token: t, p_name: "AHU rule book", p_kind: "rulebook" });
+    const kn = await ok("mp_create", { p_token: t, p_name: "AHU know-how", p_kind: "knowledge" });
+    const tops = async (id: string) => (await env.DB.prepare("SELECT n.title FROM mp_nodes n JOIN mp_nodes r ON r.id = n.parent_id AND r.parent_id IS NULL WHERE n.map_id = ? ORDER BY n.sort").bind(id).all<any>()).results.map((x) => x.title);
+    expect(await tops(rb.id)).toEqual(expect.arrayContaining(["Instructions", "Decision steps", "Settings", "Part 3 Execution", "Learned"]));
+    expect(await tops(kn.id)).toEqual([]);
+    expect((await ok("mp_list", { p_token: t })).maps.find((m: any) => m.id === rb.id).kind).toBe("rulebook");
+    // each picker takes only its kind
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "rulebook" })).toMatch(/is a knowledge map/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "knowledge" })).toMatch(/is an AI rule book/);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "knowledge" });
+    // knowledge: a verified branch the AI may quote; one "to verify" is not a fact yet
+    const kroot = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND parent_id IS NULL").bind(kn.id).first<any>();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('k1', ?, ?, 'Dampers', 'Dampers are tested to AMCA 500-D, equivalent to EN 1751 leakage classes.', '[]', 0, 1)").bind(kn.id, kroot.id),
+      env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('k2', ?, ?, 'Damper blades', 'Damper blades are aerofoil aluminium, untested claim.', '[]', 1, 0)").bind(kn.id, kroot.id)
+    ]);
+    // the brief: edit a section in the map, the model reads the new text
+    const roleNode = await env.DB.prepare("SELECT n.id FROM mp_nodes n JOIN mp_nodes p ON p.id = n.parent_id WHERE n.map_id = ? AND p.title = 'Instructions' AND n.title = 'Role'").bind(rb.id).first<any>();
+    await env.DB.prepare("UPDATE mp_nodes SET notes = 'You answer for the {factory} plant ({product}) in the KSA team style.' WHERE id = ?").bind(roleNode.id).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id IN (?, ?)").bind(new Date().toISOString(), rb.id, kn.id).run();
+    const clause = "Dampers shall have leakage to EN 1751 class 2 with aluminium blades.";
+    let tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: clause, p_part: 2 });
+    expect(tried.prompt.from_map).toBe(true);
+    expect(tried.prompt.version).toMatch(/^map-/);
+    expect(tried.prompt.system).toMatch(/You answer for the Riyadh plant \(AHU\) in the KSA team style/);
+    expect(tried.prompt.system).toMatch(/SCOPE OF SUPPLY[\s\S]*By Contractor \/ others/);
+    expect(tried.prompt.system).toMatch(/The six answers, written exactly/);              // the fixed frame stays
+    expect(tried.knowledge.join(" ")).toMatch(/AMCA 500-D/);
+    expect(tried.knowledge.join(" ")).not.toMatch(/untested claim/);
+    expect(tried.prompt.user).toMatch(/Knowledge maps[\s\S]*AMCA 500-D/);
+    // a step switched off ("to verify")
+    await env.DB.prepare("UPDATE mp_nodes SET verified = 0 WHERE map_id = ? AND title LIKE '%Knowledge maps%'").bind(rb.id).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 1000).toISOString(), rb.id).run();
+    tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: clause, p_part: 2 });
+    expect(tried.knowledge).toEqual([]);
+    expect(tried.steps.find((x: any) => x.step === "Knowledge maps").result).toMatch(/Switched off/);
+    const got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(got.settings.useKnowledge).toBe(false);
+    expect(got.k_all).toMatchObject({ id: kn.id, branches: 1 });
+    expect(got.instructions).toEqual(expect.arrayContaining(["Role", "Scope of supply"]));
+
+    // an older rule book (no Instructions) gets the new parts with one press, its rules untouched
+    await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND title IN ('Instructions', 'Decision steps', 'Learned')").bind(rb.id).run();
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).instructions).toBeNull();
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual(["Instructions", "Decision steps", "Learned"]);
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
+    expect(await tops(rb.id)).toEqual(expect.arrayContaining(["Part 3 Execution", "Instructions", "Learned"]));
+
+    // learning: 3 people answered the same way instead of the AI -> one branch under Learned, to verify, written once
+    const fb = (i: number) => env.DB.prepare(`INSERT INTO ai_feedback (id, product_id, factory_id, part, section, source, suggested, suggested_remarks, final, final_remarks, outcome)
+      VALUES (?, 'ahu', 'ahu-riyadh', 1, '1.07 WARRANTY', 'model', 'Comply', '', 'Comply with Remarks', 'Warranty is 24 months from delivery.', 'replaced')`).bind("fb" + i);
+    await env.DB.batch([fb(1), fb(2), fb(3)]);
+    const w = await ok("ai_learn", { p_token: t, p_product_id: "ahu" });
+    expect(w.written).toEqual([{ map: "AHU rule book", title: "WARRANTY: Comply with Remarks" }]);
+    const n = await env.DB.prepare("SELECT n.verified, n.special FROM mp_nodes n JOIN mp_nodes p ON p.id = n.parent_id WHERE n.map_id = ? AND p.title = 'Learned'").bind(rb.id).first<any>();
+    expect(n.verified).toBe(0);
+    expect(JSON.parse(n.special)).toEqual(expect.arrayContaining(["Part: 1", "Section: warranty", "Answer: Comply with Remarks", "Remark: Warranty is 24 months from delivery."]));
+    expect((await ok("ai_learn", { p_token: t, p_product_id: "ahu" })).written).toEqual([]);
+    // to verify = off; verified = a rule like any other
+    const q = "The warranty shall start from the date of substantial completion.";
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: q, p_section: "WARRANTY", p_part: 1 })).direct).toBeNull();
+    await env.DB.prepare("UPDATE mp_nodes SET verified = 1 WHERE map_id = ? AND title = 'WARRANTY: Comply with Remarks'").bind(rb.id).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 2000).toISOString(), rb.id).run();
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: q, p_section: "WARRANTY", p_part: 1 })).direct)
+      .toMatchObject({ answer: "Comply with Remarks", remark: "Warranty is 24 months from delivery." });
+
+    // changing a map's type in Maps takes it off the links of the other type
+    await ok("mp_map_save", { p_token: t, p_map_id: kn.id, p_kind: "rulebook" });
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).k_all).toBeNull();
+    // refused: not an admin; another person's map he cannot edit
+    expect(await refused("ai_map_upgrade", { p_token: await login("sales"), p_product_id: "ahu" })).toMatch(/Only an admin/);
+    expect(await refused("ai_learn", { p_token: await login("sales"), p_product_id: "ahu" })).toMatch(/Only an admin/);
+    expect(await refused("ai_map_upgrade", { p_token: await login("admin"), p_product_id: "ahu" })).toMatch(/cannot edit that map/);
   });
 });

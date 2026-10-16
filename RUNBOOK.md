@@ -125,3 +125,8 @@ about one 300-clause review. Paid ($5 a month) lifts all of these; see AI-Roadma
 - `npx wrangler d1 execute DB --remote --file starter-ai-notes-ahu-riyadh.sql` loads 12 AI notes (Options tree, Riyadh, General).
 - Monthly AI figures: `SELECT source, outcome, count(*) FROM ai_feedback WHERE created_at >= '2026-10-01' GROUP BY 1, 2`.
 
+## 10. Rule book and knowledge maps (16 Oct 2026, night)
+- Migration 0004 (map types). Without npx: D1 > thinkneering-db > Console, paste `console-4-migration-0004.txt`.
+- An existing rule book: Compliance review > AI rules > **Add the new parts**.
+- What the AI learned, by hand: Compliance review > AI rules > How the AI did > **Write to the map** (also nightly, 02:30 UTC).
+

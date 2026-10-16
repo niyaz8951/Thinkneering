@@ -60,6 +60,19 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, night - AI rule book and knowledge maps (built)
+- Maps have a type (mp_maps.kind, migration 0004): **knowledge** (as before) or **AI rule book** (made from the template).
+  Compliance review > AI rules links one of each per product and per factory (ai_map_links.role).
+- Rule book: **Instructions** (the owner's prompt, polished for this tool, one section per branch; the model's brief is
+  built from them; fixed frame in code: reply format, six answers, no value without a source), **Decision steps**
+  (real switches: "to verify" = skipped; thresholds as special notes), Settings, Part rules (now also `Part:`),
+  **Learned** (ai/learn.ts: patterns of 3+ same changes written nightly / on demand as "to verify" branches, once each).
+- Knowledge maps: verified branches matched by telling words go to the model as facts (and count as sources for numbers).
+- Try a clause shows the exact prompt; drafts made from a map's brief carry prompt version "map-<hash>".
+- Not ported from the owner's prompt: Mode 2 (replies to consultant comments: a later tool), Excel styling (export has
+  its own), "TO VERIFY" = `[value]` + low confidence, Flagged items = low confidence + reason, Deviation = Comply with
+  Remarks (or Not Comply when a stated limit is broken), By Contractor = In Contractor's Scope.
+
 ### 16 Oct 2026, evening - datasheet-first answers, AI maps, AI notes, focus-mode proposals and feedback (built)
 - **Order of evidence** (evidence.ts, draft.ts): datasheet compared by code (same rows as the chips: lib/rows.ts is a
   line-for-line port of CMRows.match, parity-tested) -> library copy (threshold from Settings; a library answer the

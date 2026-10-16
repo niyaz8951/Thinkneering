@@ -1,6 +1,6 @@
 # AI on compliance records - how it decides, and how to steer it from the site
 
-For the owner and the admins. Updated 16 Oct 2026 (evening). Code: `worker/src/ai/evidence.ts` (what is known about a
+For the owner and the admins. Updated 16 Oct 2026 (night): rule book and knowledge maps. Code: `worker/src/ai/evidence.ts` (what is known about a
 clause), `worker/src/ai/draft.ts` (the order and the model), `worker/src/ai/guard.ts` (checks), `worker/src/ai/map.ts`
 (the AI maps), `worker/src/api/ai.ts` (routes). Everything below can be changed in the site; nothing needs code.
 
@@ -23,7 +23,7 @@ For each clause, the first step that settles it wins:
 | 3 | **Same clause earlier in this record** | Proposed again: "Same clause as your answer to 1.04 H". | No |
 | 4 | **AI rule with Answer + Remark** (the AI maps) | Applied as written. | No |
 | 5 | **Other projects of the same factory** | A same-clause answer is proposed, ranked below the library, marked "not yet approved". | No |
-| 6 | **The AI model** | Only when nothing above settles it, within the daily budget. It gets: the clause's own `#` rules, the map rules, the datasheet rows, **Product Options** (values seen, special options, notes, **AI notes**), the library's 3 most similar answers, the answers given earlier in this section, other projects' answers, the parent clause. It writes; code checks (section 3). | Yes |
+| 6 | **The AI model** | Only when nothing above settles it, within the daily budget. It reads the rule book's **Instructions**, then: the clause's own `#` rules, the map rules, the knowledge-map branches that match, the datasheet rows, **Product Options** (values seen, special options, notes, **AI notes**), the library's 3 most similar answers, the answers given earlier in this section, other projects' answers, the parent clause. It writes; code checks (section 3). | Yes |
 
 A clause with its own `#` rules (Internal Comments) goes to the model with them in front, when the model may be used.
 
@@ -33,24 +33,37 @@ the confidence low; the answer is not repeated in the remark; hedging words make
 rule, datasheet row, library answer or Product Options entry behind it; "high" only when a source backs it directly.
 
 ## 4. Steering it from the site
-**a. AI maps (rules and settings)** - Compliance review > **AI rules**, per product and factory:
-- *Map for all AHU factories* and *Map for Riyadh only*: choose any map you can see in Maps (e.g. "AHU-Riyadh-AI notes"),
-  **Open in Maps**, or **Create from template** (decision tree, settings, starter rules; private to you, share it in Maps).
-  A Riyadh record reads the Riyadh map first, then the map for all factories.
-- In a linked map: top branches **Part 1 General / Part 2 Products / Part 3 Execution / Any Part** (other names count as
-  Any Part), **Settings**, and optional **How the AI decides** (documentation). Every branch under a Part is a rule:
-  title = name, notes = what the AI should do, special notes one per line:
-  `When: install, rigging` (the clause mentions one; "install" also finds installation) -
-  `Section: references` (the section title mentions one) - `Answer: Noted` - `Remark: Noted.`
-  Answer + Remark = the rule answers by itself. When / Section pass to the branches under it. **"To verify" = off.**
-- **Settings** (special notes in the Settings branch; a factory map overrides the product map):
-  `Copy from library at: 0.90` - `Use the AI model: yes` - `Daily AI budget: 9000 neurons` - `Suggest in focus mode: yes` -
-  `Datasheet wins over the library: yes` - `Use answers from other projects: yes`
-- The tab lists **what the AI cannot use** in the maps (an Answer that is not one of the six, an unknown setting, a rule
-  that would answer everything) and the settings in use.
-- **Try a clause**: paste a clause (and its section and Part): the 5 steps the AI would take and the rules that apply.
-- **How the AI did, last 30 days**: per source, how many proposals were kept, kept with another remark, or replaced; and
-  the answers people changed the same way 3 times or more, with the rule to write for it.
+**a. Two kinds of map** - chosen in Maps when the map is made (*What it is for*), changeable in the map's settings:
+- **AI rule book**: what the AI follows. A new one starts from the template.
+- **Knowledge** (process or product understanding): maps as people always used them. The AI reads their **verified**
+  branches that share telling words with a clause, as facts it may quote. A branch "to verify" is not a fact yet.
+
+Compliance review > **AI rules** has, for *All AHU factories* and for *Riyadh only* (read first), one picker for each
+kind: **Open in Maps**, **Create from template** (rule book). An older rule book without Instructions gets
+**Add the new parts** (Instructions, Decision steps, Learned) without touching its rules.
+
+**The rule book, branch by branch**
+- **Instructions**: the AI's brief. Every section (Role, Where values come from, Which answer, Equivalent standards,
+  Scope of supply, Remark style, When something is not clear, ...) is read by the model, in order, before it answers.
+  Edit the text and the AI follows it within a minute; mark a section "to verify" to leave it out; `{product}` and
+  `{factory}` are filled in. A factory rule book's section with the same title replaces it; new titles are added.
+  Fixed by the site (cannot be edited): the reply format, the six answers, and that no value is written without a source.
+- **Decision steps**: the IF / THEN order the AI goes through (datasheet -> library copy -> earlier answers -> rules that
+  answer by themselves -> other projects -> Product Options -> knowledge maps -> the model -> checks). Mark a step "to
+  verify" to skip it; the order is fixed. Its special notes are its settings: `Copy from library at: 0.90`,
+  `Datasheet wins over the library: yes`, `Use the AI model: yes`, `Daily AI budget: 9000 neurons`.
+- **Settings**: `Suggest in focus mode: yes`, `Use answers from other projects: yes` (a factory rule book overrides).
+- **Part 1 General / Part 2 Products / Part 3 Execution / Any Part**: the rules. Title = name, notes = what the AI
+  should do; special notes one per line: `When: install, rigging` - `Section: references` - `Part: 2` -
+  `Answer: Noted` - `Remark: Noted.` Answer + Remark = the rule answers by itself (no model). "To verify" = off.
+- **Learned**: every night (and on *Write to the map*), what people changed the same way 3 times or more becomes a
+  branch here: Section, Part, Answer and the remark they wrote, "to verify". Verify it to switch it on, edit it to
+  narrow it, delete it if wrong (it is not written again).
+
+**On the tab**: what the AI reads (instruction sections, settings, steps switched off); what in the maps it cannot
+use; **Try a clause** with the steps, the rules, AI notes and knowledge branches that apply, and **What the AI reads for
+this clause**: the exact brief and clause text the model would get; **How the AI did, last 30 days** with
+**Write to the map**.
 
 **b. Product Options > + AI note** (on any section or row of the Options tree, per factory; editors of Product Options):
 facts about the product for the AI ("Panels are 62 mm double wall, PU foam; 50 mm on request"). Used for the clauses

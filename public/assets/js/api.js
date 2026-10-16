@@ -87,9 +87,9 @@
     prAdminSummary: function (t) { return rpc("pr_admin_summary", { p_token: t }); },
     // Maps (product knowledge as a tree: branches, notes, special notes, links, images)
     mpList: function (t) { return rpc("mp_list", { p_token: t }); },
-    mpCreate: function (t, d) { return rpc("mp_create", { p_token: t, p_name: d.name, p_share: d.share || "private" }); },
+    mpCreate: function (t, d) { return rpc("mp_create", { p_token: t, p_name: d.name, p_share: d.share || "private", p_kind: d.kind || "knowledge" }); },
     mpGet: function (t, id) { return rpc("mp_get", { p_token: t, p_map_id: id }); },
-    mpMapSave: function (t, d) { return rpc("mp_map_save", { p_token: t, p_map_id: d.id, p_name: d.name == null ? null : d.name, p_share: d.share == null ? null : d.share }); },
+    mpMapSave: function (t, d) { return rpc("mp_map_save", { p_token: t, p_map_id: d.id, p_name: d.name == null ? null : d.name, p_share: d.share == null ? null : d.share, p_kind: d.kind == null ? null : d.kind }); },
     mpDelete: function (t, id) { return rpc("mp_delete", { p_token: t, p_map_id: id }); },
     mpNodeAdd: function (t, parentId, title) { return rpc("mp_node_add", { p_token: t, p_parent_id: parentId, p_title: title }); },
     mpNodeSave: function (t, id, patch) { return rpc("mp_node_save", { p_token: t, p_node_id: id, p_patch: patch }); },
@@ -112,8 +112,10 @@
     aiSuggest: function (t, runId, seqs) { return rpc("ai_suggest", { p_token: t, p_run_id: runId, p_seqs: seqs }); },
     // Compliance review > AI rules (admins and the super user): the maps the AI reads, a clause to try, quality
     aiMapGet: function (t, d) { return rpc("ai_map_get", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
-    aiMapLink: function (t, d) { return rpc("ai_map_link", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_map_id: d.mapId || null }); },
+    aiMapLink: function (t, d) { return rpc("ai_map_link", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_map_id: d.mapId || null, p_role: d.role || "rulebook" }); },
     aiMapCreate: function (t, d) { return rpc("ai_map_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
+    aiMapUpgrade: function (t, d) { return rpc("ai_map_upgrade", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
+    aiLearn: function (t, productId) { return rpc("ai_learn", { p_token: t, p_product_id: productId }); },
     aiTry: function (t, d) { return rpc("ai_try", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId, p_clause: d.clause, p_section: d.section || "", p_part: d.part || 0 }); },
     aiQuality: function (t, productId) { return rpc("ai_quality", { p_token: t, p_product_id: productId }); },
     adminSaveCategory: function (t, d) { return rpc("app_admin_save_category", { p_token: t, p_id: d.id, p_name: d.name, p_description: d.description, p_sort: d.sort, p_is_default: d.is_default }); }

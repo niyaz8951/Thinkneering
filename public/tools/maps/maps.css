@@ -5,6 +5,7 @@
 .mp-find .input { flex: 1 1 240px; min-width: 0; width: auto; }
 .mp-tile .mp-count { color: var(--text-soft); font-size: 14px; }
 .mp-tile h3 { padding-right: 96px; overflow-wrap: anywhere; }
+.mp-tile .badge.mp-kind { position: static; justify-self: start; width: fit-content; color: var(--brand); border-color: var(--brand); }
 .mp-hits { display: grid; gap: 8px; margin-bottom: 18px; }
 .mp-hit { display: block; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-decoration: none; }
 .mp-hit:hover { border-color: var(--brand); }

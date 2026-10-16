@@ -27,15 +27,17 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
   const s = ctx.settings;
   const cmp = ev.cmp;
   // a library-answered clause is only reopened when this project's datasheet contradicts it (and the map allows)
+  const sheetOn = s.useDatasheet, optOn = s.useOptions, recOn = s.useRecord;
   return {
     clause: x.spec_text, sr: x.sr, part: ev.part, section: ev.section, parent: ev.parent, product: ctx.run.product, factory: ctx.run.factory,
     similar: ev.similar, comments: x.l_comments || "", rules: ev.rules,
-    datasheet: ev.sheet.map((h) => ({ label: h.label, value: h.value, key: h.key })), units: ctx.columns,
-    datasheetDecision: cmp ? { compliance: cmp.compliance, remarks: cmp.remarks, reason: cmp.reason, keys: cmp.rows.map((r) => r.key) } : null,
-    conflict: s.datasheetWins ? ev.conflict : "",
-    options: [...ev.options.values.map((v) => "Seen on datasheets: " + v), ...ev.options.specials.map((v) => "Special option: " + v), ...ev.options.notes.map((v) => "Note: " + v)],
-    notes: ev.notes, record: ev.record, inSection: ev.inSection, project: s.projectAnswers ? ev.project : [],
-    copyAt: s.copyAt, allowModel
+    datasheet: sheetOn ? ev.sheet.map((h) => ({ label: h.label, value: h.value, key: h.key })) : [], units: sheetOn ? ctx.columns : [],
+    datasheetDecision: sheetOn && cmp ? { compliance: cmp.compliance, remarks: cmp.remarks, reason: cmp.reason, keys: cmp.rows.map((r) => r.key) } : null,
+    conflict: sheetOn && s.datasheetWins ? ev.conflict : "",
+    options: optOn ? [...ev.options.values.map((v) => "Seen on datasheets: " + v), ...ev.options.specials.map((v) => "Special option: " + v), ...ev.options.notes.map((v) => "Note: " + v)] : [],
+    notes: optOn ? ev.notes : [], knowledge: s.useKnowledge ? ev.knowledge : [], record: recOn ? ev.record : null, inSection: recOn ? ev.inSection : [], project: s.projectAnswers ? ev.project : [],
+    // the library step off: nothing is copied; the similar answers still go to the model as a style reference
+    copyAt: s.useLibrary ? s.copyAt : 2, allowModel, instructions: ctx.instructions, useRules: s.useRules
   };
 }
 

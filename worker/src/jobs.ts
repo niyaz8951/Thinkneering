@@ -1,17 +1,23 @@
 /* Cron Triggers (wrangler.toml):
      every 5 minutes  embed the rows waiting in ai_jobs into Vectorize (100 a run)
-     02:30 UTC daily  export every table to R2 as JSON (backups/YYYY-MM-DD/<table>.json), keep 90 days
+     02:30 UTC daily  export every table to R2 as JSON (backups/YYYY-MM-DD/<table>.json), keep 90 days;
+                      then write what the AI learned into its maps (ai/learn.ts)
    Both are safe to run again; both do nothing when their binding is missing (local, tests). */
 import type { Env } from "./env";
 import { all, now } from "./lib/sql";
 import { embed } from "./ai/models";
+import { learnToMaps } from "./ai/learn";
 
 const TABLES = ["app_users", "app_sessions", "app_categories", "app_user_categories", "app_tools", "app_tool_editors", "app_category_admins", "app_audit",
   "cm_products", "cm_factories", "cm_runs", "cm_lines", "cm_run_lines", "cm_answer_log", "dn_map", "dn_map_settings", "po_values", "po_extras",
   "pr_lists", "pr_projects", "pr_notes", "pr_members", "pr_log", "mp_maps", "mp_nodes", "mp_images", "ai_drafts", "ai_jobs", "ai_chats", "ai_chat_messages"];
 
 export async function scheduled(event: ScheduledController, env: Env): Promise<void> {
-  if (event.cron === "30 2 * * *") await backup(env);
+  if (event.cron === "30 2 * * *") {
+    await backup(env);
+    // what people changed the same way 3 times or more becomes a "to verify" branch under Learned in the AI map
+    try { await learnToMaps(env, null, null); } catch (e) { console.log("learn", e); }
+  }
   else await indexPending(env);
 }
 
