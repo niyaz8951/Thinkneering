@@ -18,8 +18,10 @@
 import type { Env } from "../env";
 import { placeRows, cmNorm } from "../lib/cm";
 import { all, sha256 } from "../lib/sql";
-import { match, unitLookup, hasValue, type MapRule, type NoteTable } from "../lib/rows";
+import { match, unitLookup, hasValue, sectionName, type MapRule, type NoteTable } from "../lib/rows";
+import { sectionKinds, sectionKey, type SectionInfo } from "./sections";
 import { measurements, type Measure } from "./guard";
+import { classRequirements, comparable, propertyOf, judge, fmt, familyOfUnit, classIn, compareClass } from "./compare";
 import { ClauseSearch, GramIndex, lexicalScore, type Similar } from "./search";
 import { aiMapFor, type AiSettings, type Section } from "./map";
 import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, prepareKnowledge, knowledgeMatching, type KnowledgeIndexed, type AiRule, type RuleHit } from "./rules";
@@ -33,13 +35,15 @@ export interface RunRowFull {
 export interface SheetHit { key: string; section: string; component: string; label: string; cells: string[]; value: string; entries: string[][] }
 export interface OptionInfo { values: string[]; specials: string[]; notes: string[]; ai: string[] }
 export interface PastAnswer { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
-export interface Comparison { compliance: string; remarks: string; reason: string; rows: SheetHit[]; values: Measure[] }
+export interface Comparison { compliance: string; remarks: string; reason: string; rows: SheetHit[]; values: Measure[]; confidence: "high" | "medium" | "low" }
 
 export interface Context {
   run: RunInfo; rows: RunRowFull[]; place: Map<number, { part: number; section: string }>;
   columns: string[]; sheet: Map<number, SheetHit[]>; options: Map<number, OptionInfo>; aiNotes: { section: string; key: string; body: string }[];
   rules: AiRule[]; settings: AiSettings; instructions: Section[] | null; knowledge: KnowledgeIndexed[]; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
   projectIndex?: GramIndex<PastAnswer>; recordIndex?: GramIndex<RunRowFull>;
+  kinds: Map<string, SectionInfo>;          // what kind of question each section asks (sections.ts)
+  absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
 }
 
 const OPS_MIN = /(minimum|min\.?|not less than|no less than|at least|not lower than|shall exceed|greater than|more than|≥|>=)\s*$/i;
@@ -76,6 +80,11 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     } catch (e) { console.warn("datasheet table could not be read", e); }
   }
   const look = unitLookup(tables);
+  // the unit sections the project's datasheet has (any value in them): a clause about another one is about a
+  // part the selected unit may not include (Thinkneering v3, "what this unit is made of")
+  const present = new Set<string>();
+  for (const t of tables) { let sec = ""; for (const r of t.rows) { if (r.section) sec = r.section; if (hasValue((r.cells || []).map((c) => String(c ?? "")))) present.add(sectionName(sec)); } }
+  const absent = new Map<number, string[]>();
   // Product Options of the factory, per mapping row and per section
   const valuesByRow = new Map<string, string[]>();
   for (const v of valRes.results as unknown as { row_key: string; value: string }[]) {
@@ -91,8 +100,10 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     const cells = look.values({ key: m.key, section: m.section, component: m.rule.component });
     const hit: SheetHit = { key: m.key, section: m.section, component: m.component, label: `${m.section} • ${m.component}`, cells, value: unitValues(cells, look.columns), entries: m.entries };
     const ex = extras.filter((x) => (x.row_key === m.key) || (x.row_key === "" && x.section.toLowerCase() === m.section.toLowerCase()));
+    const missing = tables.length > 0 && present.size > 0 && !present.has(sectionName(m.section));
     for (const seq of m.seqs) {
       if (hasValue(cells)) { const l = sheet.get(seq) || []; l.push(hit); sheet.set(seq, l); }
+      if (missing) { const a = absent.get(seq) || []; if (!a.includes(m.section)) a.push(m.section); absent.set(seq, a); }
       const o = options.get(seq) || { values: [], specials: [], notes: [], ai: [] };
       const vals = valuesByRow.get(m.key) || [];
       if (vals.length) o.values.push(`${m.component}: ${vals.join(" | ")}`);
@@ -106,6 +117,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     }
   }
   const ai = await aiMapFor(env, run.product_id, run.factory_id);
+  const kinds = await sectionKinds(env, run.factory_id);
   const project = (projRes.results as unknown as { spec_text: string; compliance: string; remarks: string; answered_by: string | null; review: string; project: string | null }[])
     .map((r) => ({ spec: r.spec_text, compliance: r.compliance, remarks: r.remarks, by: r.answered_by || "", score: 0, where: r.project || "another project", pending: r.review !== "approved" }));
   const ids = [...new Set([...project.map((p) => p.by), ...rows.map((r) => r.answered_by || "")].filter(Boolean))];
@@ -118,7 +130,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
-           search: new ClauseSearch(env, usage), project, names };
+           search: new ClauseSearch(env, usage), project, names, kinds, absent };
 }
 
 /* ---------- the match, worked out once per record ---------- */
@@ -181,22 +193,51 @@ function near(clause: string, at: number, entries: string[][]): boolean {
   return false;
 }
 
+/* The clause's figures and classes against the datasheet rows next to it (Thinkneering v3 comparison, compare.ts):
+   - a figure with "minimum" / "maximum" wording is a limit: met = Comply, broken = Not Comply
+   - a figure asked "as is" that the unit does not have exactly = Comply with Remarks stating the offer (owner's
+     rule, 16 Oct 2026); the property's direction says whether the offer is better or worse, and a worse one is
+     low confidence, so a person looks at it before it goes out
+   - a class (TB2, L1, D1, F7) is a minimum on its published scale: a better or equal class = Comply, a worse = Not Comply
+   - figures in another unit are converted to the clause's (l/s and cfm, Pa and in. wg, kW and TR, °C and °F ...) */
 export function compareDatasheet(clause: string, hits: SheetHit[], columns: string[]): Comparison | null {
-  const reqs = requirements(clause);
-  if (!reqs.length || !hits.length) return null;
-  const used: SheetHit[] = []; const verdicts: { ok: boolean; equal: boolean; op: string; text: string }[] = []; const vals: Measure[] = [];
+  const reqs = requirements(clause), classes = classRequirements(clause);
+  if ((!reqs.length && !classes.length) || !hits.length) return null;
+  const used: SheetHit[] = []; const vals: Measure[] = [];
+  const verdicts: { ok: boolean; equal: boolean; op: string; worse: boolean; text: string }[] = [];
+  const where = (h: SheetHit, unit: string, many: boolean) => many || columns.length > 1 ? unit : h.component;
   for (const r of reqs) {
     for (const h of hits) {
       if (!near(clause, r.at, h.entries)) continue;
-      const perUnit = h.cells.map((c, i) => ({ unit: columns[i] || "unit " + (i + 1), m: measurements(c).find((x) => x.unit === r.m.unit) })).filter((x) => x.m);
+      const perUnit = h.cells.map((c, i) => ({ unit: columns[i] || "unit " + (i + 1), got: comparable(c, r.m) })).filter((x) => x.got);
+      if (!perUnit.length) continue;
+      if (!used.includes(h)) used.push(h);
+      const prop = propertyOf(h.label + " " + clause.slice(Math.max(0, r.at - 80), r.at + 40), { family: familyOfUnit(r.m.unit), classed: false });
+      for (const u of perUnit) {
+        const { m, value: v, converted } = u.got!; vals.push(m);
+        const ok = r.op === ">=" ? v >= r.m.n - 1e-9 : r.op === "<=" ? v <= r.m.n + 1e-9 : true;
+        const j = r.op === "=" ? judge(r.m.n, v, prop) : "equal";
+        const equal = j === "equal";
+        const sign = r.op === "=" ? (equal ? "=" : "≠") : ok ? (r.op === ">=" ? "≥" : "≤") : (r.op === ">=" ? "<" : ">");
+        const shown = converted ? `${m.raw} (${fmt(v)} ${r.m.unit})` : m.raw;
+        const how = r.op === "=" && !equal && prop
+          ? (j === "better" ? `, better for ${prop.name}` : j === "worse" ? `, worse for ${prop.name}` : `, ${prop.name} must match`) : "";
+        verdicts.push({ ok, equal, op: r.op, worse: j === "worse" || j === "differs",
+          text: `${shown} ${sign} ${r.m.raw}${r.op === "=" ? " asked" : " required"}${how} (${where(h, u.unit, perUnit.length > 1)})` });
+      }
+    }
+  }
+  for (const c of classes) {
+    for (const h of hits) {
+      const perUnit = h.cells.map((cell, i) => ({ unit: columns[i] || "unit " + (i + 1), cls: classIn(cell, c.prop) })).filter((x) => x.cls);
       if (!perUnit.length) continue;
       if (!used.includes(h)) used.push(h);
       for (const u of perUnit) {
-        const v = u.m!.n; vals.push(u.m!);
-        const ok = r.op === ">=" ? v >= r.m.n : r.op === "<=" ? v <= r.m.n : true;
-        const equal = Math.abs(v - r.m.n) < 1e-9;
-        const sign = r.op === "=" ? (equal ? "=" : "≠") : ok ? (r.op === ">=" ? "≥" : "≤") : (r.op === ">=" ? "<" : ">");
-        verdicts.push({ ok, equal, op: r.op, text: `${u.m!.raw} ${sign} ${r.m.raw}${r.op === "=" ? " asked" : " required"} (${perUnit.length > 1 || columns.length > 1 ? u.unit : h.component})` });
+        const j = compareClass(c.cls, u.cls!, c.prop);
+        if (!j) continue;
+        const ok = j !== "worse";
+        verdicts.push({ ok, equal: j === "equal", op: ">=", worse: !ok,
+          text: `${u.cls} ${j === "equal" ? "=" : ok ? "better than" : "worse than"} ${c.cls} required on the ${c.prop.name} scale (${where(h, u.unit, perUnit.length > 1)})` });
       }
     }
   }
@@ -206,9 +247,11 @@ export function compareDatasheet(clause: string, hits: SheetHit[], columns: stri
   const differs = verdicts.filter((v) => v.op === "=" && !v.equal);
   const compliance = broken.length ? "Not Comply" : differs.length ? "Comply with Remarks" : "Comply";
   const remarks = used.map((h) => h.value).filter(Boolean).join("; ");
-  const shown = (broken.length ? broken : verdicts).slice(0, 4).map((v) => v.text);
-  return { compliance, remarks, rows: used, values: vals,
-           reason: `From the datasheet: ${shown.join("; ")}${verdicts.length > 4 ? " …" : ""}.` };
+  const shown = (broken.length ? broken : differs.length ? differs : verdicts).slice(0, 4).map((v) => v.text);
+  const confidence: Comparison["confidence"] = !broken.length && differs.some((v) => v.worse) ? "low" : compliance === "Comply with Remarks" ? "medium" : "high";
+  return { compliance, remarks, rows: used, values: vals, confidence,
+           reason: `From the datasheet: ${shown.join("; ")}${verdicts.length > 4 ? " …" : ""}.` +
+             (confidence === "low" ? " The offer is below what is asked: check before it goes out." : "") };
 }
 
 /* The library's answer for this clause states a value this project's datasheet contradicts. */
@@ -258,11 +301,14 @@ export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
   options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
+  sectionKind: SectionInfo | null; absent: string[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
   const pl = ctx.place.get(x.seq) || { part: 0, section: "" };
   const parent = parentOf(ctx.rows.map((r) => ({ seq: r.seq, type: r.type, sr: r.sr, spec: r.spec_text })), x.seq);
-  const sheet = ctx.sheet.get(x.seq) || [];
+  const kind = ctx.kinds.get(sectionKey(pl.section)) || null;
+  // a site-works or standards section is not answered from a figure on the unit
+  const sheet = kind && kind.kind !== "product" ? [] : ctx.sheet.get(x.seq) || [];
   const cmp = compareDatasheet(x.spec_text, sheet, ctx.columns);
   const conflict = x.l_status === "answered" ? libraryConflict(x.l_remarks || "", cmp) : "";
   const picked = pickRules(ctx.rules, x.spec_text + " " + parent, pl.section, pl.part);
@@ -273,6 +319,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
     knowledge: knowledgeMatching(ctx.knowledge, x.spec_text, ctx.place.get(x.seq)?.section || ""),
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
-    rules: picked.rules, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules
+    rules: picked.rules, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
+    sectionKind: kind, absent: ctx.absent.get(x.seq) || []
   };
 }

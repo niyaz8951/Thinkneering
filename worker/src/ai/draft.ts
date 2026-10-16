@@ -15,8 +15,9 @@ import type { Similar } from "./search";
 import { splitComments, directRule, type RuleHit, type DatasheetField } from "./rules";
 import { groundRemarks, trimAnswerEcho, hedges } from "./guard";
 import { instructionsText, type Section } from "./map";
+import { SECTION_GUIDANCE, type SectionKind } from "./sections";
 
-export const PROMPT_VERSION = "draft-2026-10-16b";
+export const PROMPT_VERSION = "draft-2026-10-16c";
 export const RULE_VERSION = "rule-2026-10-16";
 
 export interface PastAnswerIn { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
@@ -25,7 +26,7 @@ export interface DraftInput {
   similar: Similar[]; comments: string;
   rules?: RuleHit[]; facts?: RuleHit[]; datasheet?: DatasheetField[]; units?: string[];
   // from evidence.ts
-  datasheetDecision?: { compliance: string; remarks: string; reason: string; keys: string[] } | null;
+  datasheetDecision?: { compliance: string; remarks: string; reason: string; keys: string[]; confidence?: "high" | "medium" | "low" } | null;
   conflict?: string;                     // the library's value differs from this project's datasheet
   options?: string[];                    // Product Options lines for the rows of this clause
   notes?: string[];                      // AI notes of the Options tree
@@ -37,6 +38,9 @@ export interface DraftInput {
   instructions?: Section[] | null;       // AI map > Instructions (null = the default brief)
   useRules?: boolean;                    // AI map > Decision steps > Map rules that answer by themselves
   allowModel?: boolean;                  // false: answer from the free sources only (setting or budget)
+  sectionKind?: SectionKind | "";        // what the clause's section asks, learned from the library (sections.ts)
+  sectionAnswers?: number;               // how many confirmed answers that is learned from
+  absent?: string[];                     // unit sections the clause is about that this project's datasheet lacks
 }
 export type DraftSource = "datasheet" | "library-similar" | "record" | "rule" | "project" | "model";
 export interface Draft {
@@ -100,6 +104,8 @@ export function userPrompt(d: DraftInput): string {
   const parts: string[] = [];
   parts.push(`Clause (${PART_NAMES[d.part] || PART_NAMES[0]} / ${d.section || "no section"}, label ${d.sr || "-"}):\n${d.clause.slice(0, 3000)}`);
   if (d.parent) parts.push(`Parent clause (this clause continues it):\n${d.parent.slice(0, 600)}`);
+  if (d.sectionKind) parts.push(`Kind of section (learned from ${d.sectionAnswers || 0} answers people gave in this section): ${d.sectionKind}. ${SECTION_GUIDANCE[d.sectionKind]}`);
+  if ((d.absent || []).length) parts.push(`Not in this unit: the project's datasheet has no ${d.absent!.join(", ")} section. The selected unit may not include it. Do not answer Comply on configuration grounds: unless a library answer shows how such a clause is answered, set confidence "low" and say in the reason which section is missing (whether to offer it is a commercial question).`);
   parts.push(block("AI rules for this clause (library team, follow them)", own.rules.map((r, i) => `${i + 1}. ${r.slice(0, 400)}`)));
   parts.push(`Internal note for this clause (library team): ${own.note || "(none)"}`);
   parts.push(block("Site rules that apply to this clause", (d.rules || []).map((h, i) =>
@@ -167,7 +173,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   // 1. the datasheet settled it by code (a clause rule sends it to the model first, when the model may be used)
   const dd = d.datasheetDecision;
   if (dd && (!own.rules.length || !modelOk)) {
-    return { compliance: dd.compliance, remarks: dd.remarks, confidence: dd.compliance === "Comply with Remarks" ? "medium" : "high", source: "datasheet", model: "", promptVersion: RULE_VERSION,
+    return { compliance: dd.compliance, remarks: dd.remarks, confidence: dd.confidence || (dd.compliance === "Comply with Remarks" ? "medium" : "high"), source: "datasheet", model: "", promptVersion: RULE_VERSION,
       reason: (d.conflict ? d.conflict + " " : "") + dd.reason,
       sources: (d.datasheet || []).filter((f) => dd.keys.includes(f.key)).map((f) => ({ kind: "datasheet", id: f.key, text: `${f.label}: ${f.value}`.slice(0, 200), score: 1 })) };
   }
@@ -250,6 +256,9 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const ruleBacked = own.rules.length > 0 || (d.rules || []).some((h) => standardChoice(h.rule.answer) === compliance);
   let confidence: Draft["confidence"] = conf === "high" && (libraryBacked || ruleBacked) ? "high" : conf === "high" || conf === "medium" ? "medium" : "low";
   if (g.unsupported.length || hedged || remarks.includes("[value]")) confidence = "low";
+  if ((d.absent || []).length && /^Comply/.test(compliance) && !libraryBacked && !ruleBacked) {
+    confidence = "low"; notes.push(`the datasheet has no ${d.absent!.join(", ")} section`);
+  }
 
   const lead = own.rules.length ? "Followed the clause's AI rule. " : "";
   const base = String(j.reason ?? "").trim().slice(0, 400) || "Drafted by the model from the sources shown to it.";

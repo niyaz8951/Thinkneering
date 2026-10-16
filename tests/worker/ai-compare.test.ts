@@ -1,0 +1,138 @@
+/* The comparison carried over from the Thinkneering v3 Compliance Maker (worker/src/ai/compare.ts) and its use
+   in the datasheet step (evidence.ts compareDatasheet). Each case is a wrong answer v3 met on a real job. */
+import { describe, it, expect } from "vitest";
+import { convert, propertyOf, judge, classTokens, classRequirements, compareClass, comparable, PROPERTIES } from "../../worker/src/ai/compare";
+import { measurements } from "../../worker/src/ai/guard";
+import { compareDatasheet, type SheetHit } from "../../worker/src/ai/evidence";
+
+const hit = (o: Partial<SheetHit> & { cells: string[] }): SheetHit => ({
+  key: o.key || "unit data||panel", section: o.section || "Unit Data", component: o.component || "Panel",
+  label: o.label || `${o.section || "Unit Data"} • ${o.component || "Panel"}`, value: o.value || o.cells[0], entries: o.entries || [["panel"]], ...o });
+
+describe("compare: units, directions, classes", () => {
+  it("converts within a family only", () => {
+    const [ls] = measurements("1200 l/s");
+    expect(Math.round(convert(ls, "cfm")!)).toBe(2543);
+    const [inwg] = measurements("1 in. wg");
+    expect(inwg.unit).toBe("in.wg");
+    expect(Math.round(convert(inwg, "pa")!)).toBe(249);
+    const [tr] = measurements("100 TR");
+    expect(Math.round(convert(tr, "kw")!)).toBe(352);
+    const [f] = measurements("95°F");
+    expect(Math.round(convert(f, "c")!)).toBe(35);
+    expect(convert(measurements("50 mm")[0], "pa")).toBeNull();
+  });
+
+  it("knows which way is better", () => {
+    expect(judge(50, 62, propertyOf("panel thickness"))).toBe("better");          // thicker panel: not a shortfall
+    expect(judge(250, 180, propertyOf("pressure drop across the coil"))).toBe("better");
+    expect(judge(2.5, 2.8, propertyOf("coil face velocity"))).toBe("worse");
+    expect(judge(400, 380, propertyOf("power supply voltage"))).toBe("differs");
+    expect(judge(50, 62, propertyOf("screw spacing"))).toBe("unknown");          // never fails a unit on the number alone
+    expect(judge(50, 50, null)).toBe("equal");
+  });
+
+  it("keeps a thickness term from deciding a flow", () => {
+    expect(propertyOf("panel air flow", { family: "flow" })?.name).toBe("air flow");
+    expect(propertyOf("insulation thickness 50 mm", { family: "length" })?.name).toBe("insulation thickness");
+  });
+
+  it("reads classes on their published scale, not their digits", () => {
+    const tb = PROPERTIES.find((p) => p.name.startsWith("thermal bridging"))!;
+    const filter = PROPERTIES.find((p) => p.name.startsWith("filter"))!;
+    expect(compareClass("TB3", "TB2", tb)).toBe("better");    // TB1 is the best class
+    expect(compareClass("TB2", "TB3", tb)).toBe("worse");
+    expect(compareClass("F7", "F9", filter)).toBe("better");  // here the digits run the other way
+    expect(compareClass("F9", "M6", filter)).toBe("worse");
+    expect(classTokens("Casing class D1, leakage L1, TB2")).toEqual(["D1", "L1", "TB2"]);
+  });
+
+  it("needs the subject before it reads a class", () => {
+    expect(classRequirements("Fix with M5 stainless screws")).toEqual([]);
+    expect(classRequirements("Bag filters shall be class F9").map((c) => c.cls)).toEqual(["F9"]);
+    expect(classRequirements("Thermal bridging class TB2 to EN 1886").map((c) => c.prop.name)).toEqual(["thermal bridging class (EN 1886)"]);
+  });
+
+  it("reads thousands separators", () => {
+    expect(measurements("1,200 l/s and 2,543 cfm, 1,5 mm")).toMatchObject([{ n: 1200 }, { n: 2543 }, { n: 1.5 }]);
+  });
+
+  it("finds a comparable figure in another unit", () => {
+    const got = comparable("2,543 cfm", measurements("1200 l/s")[0])!;
+    expect(got.converted).toBe(true);
+    expect(Math.round(got.value)).toBe(1200);
+  });
+});
+
+describe("compareDatasheet with the v3 rules", () => {
+  it("62 mm against 50 mm asked: Comply with Remarks, better, medium", () => {
+    const c = compareDatasheet("Casing panels shall be 50 mm thick double skin.", [hit({ cells: ["62 mm"] })], ["AHU-01"])!;
+    expect(c.compliance).toBe("Comply with Remarks");
+    expect(c.confidence).toBe("medium");
+    expect(c.reason).toMatch(/better for panel thickness/);
+  });
+
+  it("a thinner panel than asked is flagged for a person (low)", () => {
+    const c = compareDatasheet("Casing panels shall be 62 mm thick.", [hit({ cells: ["50 mm"] })], ["AHU-01"])!;
+    expect(c.compliance).toBe("Comply with Remarks");
+    expect(c.confidence).toBe("low");
+    expect(c.reason).toMatch(/worse for panel thickness/);
+  });
+
+  it("a minimum is a limit, after conversion", () => {
+    const flow = hit({ key: "fan supply||air flow", section: "Fan Supply", component: "Air flow", entries: [["air", "flow"]], cells: ["1,200 l/s"] });
+    expect(compareDatasheet("Supply air flow not less than 2,400 cfm.", [flow], ["AHU-01"])!.compliance).toBe("Comply");
+    expect(compareDatasheet("Supply air flow not less than 2,600 cfm.", [flow], ["AHU-01"])!.compliance).toBe("Not Comply");
+  });
+
+  it("a class asked is a minimum on its scale", () => {
+    const tb = hit({ key: "unit data||thermal bridging", component: "Thermal bridging", entries: [["thermal", "bridging"]], cells: ["TB2"] });
+    expect(compareDatasheet("Casing thermal bridging class shall be TB3 or better.", [tb], ["AHU-01"])!.compliance).toBe("Comply");
+    const c = compareDatasheet("Casing thermal bridging class shall be TB1.", [tb], ["AHU-01"])!;
+    expect(c.compliance).toBe("Not Comply");
+    expect(c.reason).toMatch(/TB2 worse than TB1/);
+  });
+});
+
+/* ---------- section kinds and sections a unit does not have (sections.ts, draft.ts) ---------- */
+import { afterEach } from "vitest";
+import { env } from "cloudflare:test";
+import { classifySection, sectionKey, TRUST_AT } from "../../worker/src/ai/sections";
+import { draftAnswer, userPrompt } from "../../worker/src/ai/draft";
+
+const rowsOf = (n: number, compliance: string, spec: string) => Array.from({ length: n }, () => ({ compliance, spec_text: spec }));
+
+describe("section kinds, learned from people's answers", () => {
+  it("needs 5 confirmed answers before it says anything", () => {
+    expect(classifySection("INSTALLATION", rowsOf(TRUST_AT - 1, "By contractor", "Install the units."))).toBeNull();
+    expect(classifySection("INSTALLATION", rowsOf(TRUST_AT, "By contractor", "Install the units."))).toEqual({ kind: "contractor", n: 5 });
+  });
+
+  it("a casing section citing EN 1886 on every line is still about the product", () => {
+    const casing = rowsOf(6, "Comply", "Casing shall be 50 mm thick, class D1 to EN 1886.");
+    expect(classifySection("CASING", casing)?.kind).toBe("product");
+    expect(classifySection("QUALITY ASSURANCE", rowsOf(6, "Comply", "Units shall be certified by Eurovent."))?.kind).toBe("reference");
+  });
+
+  it("matches a section by its words, not its number", () => {
+    expect(sectionKey("3.02 INSTALLATION")).toBe(sectionKey("Installation"));
+  });
+});
+
+describe("the model is told the section kind and the missing sections", () => {
+  afterEach(() => { delete (env as any).AI; });
+  const base = { clause: "Units shall include a heat recovery wheel.", sr: "C.", part: 2, section: "HEAT RECOVERY", product: "AHU", factory: "Riyadh", similar: [], comments: "" };
+
+  it("puts both in the prompt", () => {
+    const p = userPrompt({ ...base, sectionKind: "contractor", sectionAnswers: 7, absent: ["Heat Wheel"] });
+    expect(p).toMatch(/Kind of section \(learned from 7 answers.*\): contractor\. This section is site execution/);
+    expect(p).toMatch(/datasheet has no Heat Wheel section/);
+  });
+
+  it("a Comply about a section the unit does not have is low confidence", async () => {
+    (env as any).AI = { async run() { return { response: JSON.stringify({ compliance: "Comply", remarks: "Heat recovery wheel is provided.", reason: "Standard option.", confidence: "high" }), usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+    const d = await draftAnswer(env, { ...base, absent: ["Heat Wheel"] });
+    expect(d.confidence).toBe("low");
+    expect(d.reason).toMatch(/the datasheet has no Heat Wheel section/);
+  });
+});

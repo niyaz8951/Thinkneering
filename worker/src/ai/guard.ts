@@ -8,16 +8,17 @@
    Bare numbers are left alone: "AHRI 430" and "Section 23 73 13" are references, not measurements. */
 import { CHOICES } from "../lib/cm";
 
-const UNITS = "kg\\/m3|kg\\/m³|mm|cm|m|km|kg|g|t|kw|w|mw|kwr|tr|btu\\/h|btuh|kcal\\/h|pa|kpa|bar|psi|%|micron|microns|µm|um|°c|deg\\s?c|c|°f|f|db|dba|db\\(a\\)|m\\/s|fpm|m3\\/h|m³\\/h|cmh|l\\/s|lps|cfm|rpm|hz|v|vac|a|amp|amps|hours|hrs|h|years|yrs|ip\\d{2}";
+const UNITS = "in\\.?\\s?w\\.?g\\.?|kg\\/m3|kg\\/m³|mm|cm|m|km|kg|g|t|kw|w|mw|kwr|tr|btu\\/h|btuh|kcal\\/h|pa|kpa|bar|psi|%|micron|microns|µm|um|°c|deg\\s?c|c|°f|f|db|dba|db\\(a\\)|m\\/s|fpm|m3\\/h|m³\\/h|cmh|l\\/s|lps|cfm|rpm|hz|v|vac|a|amp|amps|hours|hrs|h|years|yrs|ip\\d{2}";
 // longest first, so "m/s" wins over "m" and "mm" over "m"
 const UNIT_RE = UNITS.split("|").sort((a, b) => b.replace(/\\/g, "").length - a.replace(/\\/g, "").length).join("|");
-const MEASURE = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_RE})(?![a-z0-9])`, "gi");
+// "1,200 l/s" is twelve hundred (comma before exactly three digits = thousands); "1,5 mm" is one and a half
+const MEASURE = new RegExp(`(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?(?!\\d)|\\d+(?:[.,]\\d+)?)\\s*(${UNIT_RE})(?![a-z0-9])`, "gi");
 
 export interface Measure { n: number; unit: string; raw: string }
 
 function unitKey(u: string): string {
   const s = u.toLowerCase().replace(/\s+/g, "").replace("³", "3").replace("°", "");
-  const alias: Record<string, string> = { "kg/m³": "kg/m3", degc: "c", microns: "micron", um: "micron", "µm": "micron", hrs: "h", hours: "h", yrs: "years", lps: "l/s", cmh: "m3/h", amps: "a", amp: "a", vac: "v", btuh: "btu/h", "db(a)": "dba" };
+  const alias: Record<string, string> = { "in.wg": "in.wg", inwg: "in.wg", "in.w.g.": "in.wg", "inw.g.": "in.wg", "in.w.g": "in.wg", "inw.g": "in.wg", "inwg.": "in.wg", "kg/m³": "kg/m3", degc: "c", microns: "micron", um: "micron", "µm": "micron", hrs: "h", hours: "h", yrs: "years", lps: "l/s", cmh: "m3/h", amps: "a", amp: "a", vac: "v", btuh: "btu/h", "db(a)": "dba" };
   return alias[s] || s;
 }
 
@@ -30,7 +31,8 @@ export function measurements(text: unknown): Measure[] {
     // "1.5 m" fine; skip a bare "c" / "f" / "a" / "h" / "t" / "g" unless glued to the number ("40C", "3h")
     const unit = m[2];
     if (/^[cfahtg]$/i.test(unit) && /\s/.test(m[0])) continue;
-    out.push({ n: parseFloat(m[1].replace(",", ".")), unit: unitKey(unit), raw: m[0].trim() });
+    const num = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(m[1]) ? m[1].replace(/,/g, "") : m[1].replace(",", ".");
+    out.push({ n: parseFloat(num), unit: unitKey(unit), raw: m[0].trim() });
   }
   return out;
 }

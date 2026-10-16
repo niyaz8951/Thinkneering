@@ -1,6 +1,6 @@
 # Thinkneering Hub
 
-The DAME Tools Hub on Cloudflare: one Worker serves the site (`public/`, the DAME pages unchanged) and its API
+Thinkneering Tools (formerly the DAME Tools Hub) on Cloudflare: one Worker serves the site (`public/`, the DAME pages unchanged) and its API
 (`worker/src`, the old database functions as routes of the same name), D1 holds the data, R2 the files, Workers AI
 the models. Address: `https://thinkneering.com` (no staging; `npm run dev:offline` is the place to try things).
 

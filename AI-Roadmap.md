@@ -60,6 +60,25 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, late - Thinkneering v3 Compliance AI carried over (built)
+The owner supplied the discarded v3 site (Thinkneering_Final.zip); its design and its Compliance Maker AI are kept,
+nothing else. Most of v3's checks were already here (number grounding, echo trim, Not Comply needs a source, parent
+clause, synonym groups, section gate). Added now:
+- **compare.ts**: unit conversion before comparing; property directions (thicker panel = better, higher pressure drop
+  = worse; a worse offer asked "as is" stays Comply with Remarks but is low confidence); EN 1886 / filter class
+  scales (a class asked is a minimum; TB1 best, F9 above F7). Fixes "1,200 l/s" read as 1.2.
+- **sections.ts**: contractor / reference / product per section, learned from people's library answers (5 or more);
+  no datasheet figure answers a site-works or standards section; the model is told the kind.
+- **Missing unit sections**: a clause about a section this project's datasheet does not have is never a confident
+  Comply.
+- Not taken from v3: a seventh answer TO VERIFY and [GUESS] prefixes (low confidence + `[value]` do that job), batches
+  of 3 clauses with a three-pass retry, the 8B model, AI-written section summaries, the Ask chat box.
+- **Open for the owner** (v3's architecture review, real 585-row matrix): people answered 21% of rows and left 79%
+  blank on purpose; v3 proposed recording blanks as decisions and measuring row-selection F1, status accuracy and
+  remark kept / edited / replaced. This repo drafts every open clause (Design brief: "the site assumes, the user
+  corrects"). Whether a library "leave blank" decision should exist is the owner's call; the golden set should
+  measure the three numbers either way.
+
 ### 16 Oct 2026, night - AI rule book and knowledge maps (built)
 - Maps have a type (mp_maps.kind, migration 0004): **knowledge** (as before) or **AI rule book** (made from the template).
   Compliance review > AI rules links one of each per product and per factory (ai_map_links.role).

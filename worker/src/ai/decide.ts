@@ -32,12 +32,14 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
     clause: x.spec_text, sr: x.sr, part: ev.part, section: ev.section, parent: ev.parent, product: ctx.run.product, factory: ctx.run.factory,
     similar: ev.similar, comments: x.l_comments || "", rules: ev.rules,
     datasheet: sheetOn ? ev.sheet.map((h) => ({ label: h.label, value: h.value, key: h.key })) : [], units: sheetOn ? ctx.columns : [],
-    datasheetDecision: sheetOn && cmp ? { compliance: cmp.compliance, remarks: cmp.remarks, reason: cmp.reason, keys: cmp.rows.map((r) => r.key) } : null,
+    datasheetDecision: sheetOn && cmp ? { compliance: cmp.compliance, remarks: cmp.remarks, reason: cmp.reason, keys: cmp.rows.map((r) => r.key), confidence: cmp.confidence } : null,
     conflict: sheetOn && s.datasheetWins ? ev.conflict : "",
     options: optOn ? [...ev.options.values.map((v) => "Seen on datasheets: " + v), ...ev.options.specials.map((v) => "Special option: " + v), ...ev.options.notes.map((v) => "Note: " + v)] : [],
     notes: optOn ? ev.notes : [], knowledge: s.useKnowledge ? ev.knowledge : [], record: recOn ? ev.record : null, inSection: recOn ? ev.inSection : [], project: s.projectAnswers ? ev.project : [],
     // the library step off: nothing is copied; the similar answers still go to the model as a style reference
-    copyAt: s.useLibrary ? s.copyAt : 2, allowModel, instructions: ctx.instructions, useRules: s.useRules
+    copyAt: s.useLibrary ? s.copyAt : 2, allowModel, instructions: ctx.instructions, useRules: s.useRules,
+    sectionKind: ev.sectionKind?.kind, sectionAnswers: ev.sectionKind ? ev.sectionKind.n : 0,
+    absent: sheetOn ? ev.absent : []
   };
 }
 

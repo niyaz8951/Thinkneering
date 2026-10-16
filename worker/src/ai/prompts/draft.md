@@ -1,4 +1,4 @@
-# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16
+# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16c
 
 Used by `ai_review_run` for a clause that is neither copied from a >= 0.90 library match nor answered by a site
 rule with a fixed answer. The text below is a copy of `systemPrompt()` / `userPrompt()`; the code is the source
@@ -19,9 +19,17 @@ internal notes are never quoted; Part 1 / 3 usually Noted or In Contractor's Sco
 ## User
 Clause ({PART} / {SECTION}, label {SR})
 Parent clause (when a list item)
+Kind of section (learned from N answers ...): product | contractor | reference, with its guidance   <- sections.ts (16 Oct 2026, from Thinkneering v3)
+Not in this unit: the datasheet has no <section> section ...  <- mapped section absent from the project's datasheet; a Comply then is low confidence
 AI rules for this clause (library team, follow them)      <- "#" parts of the clause's Internal Comments
 Internal note for this clause (library team)               <- the part before the first "#"
 Site rules that apply to this clause                       <- ai_rules kind rule, keywords hit (max 5)
 Project datasheet rows (units: ...)                        <- newest Datasheet Notes table of the product, section-gated (max 4)
 Library answers of this factory for similar clauses        <- top 3 at similarity >= 0.30, with their notes and "#" rules
 Factory facts ({PRODUCT}, standard offering)               <- ai_rules kind fact, keywords hit (max 5)
+
+## Before the model (16 Oct 2026, carried over from Thinkneering v3: worker/src/ai/compare.ts)
+The datasheet step compares by code before any prompt: figures converted to the clause's unit; a figure asked
+"as is" is judged by its property's direction (thicker panel = better, higher pressure drop = worse) and a worse
+offer is a low-confidence Comply with Remarks; a class (TB, T, D, L, filter G..U) is a minimum on its published
+scale. In a contractor or reference section the datasheet is not compared at all.

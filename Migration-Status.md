@@ -2,7 +2,7 @@
 
 Kept by Claude. Read at the start of every THINK-HUB chat; update after every delivery.
 
-Last updated: 16 Oct 2026, night - maps typed as knowledge or AI rule book (migration 0004); the rule book's Instructions are the AI's brief, Decision steps are switches, Learned is written by the AI.
+Last updated: 16 Oct 2026, late - site renamed Thinkneering Tools with the v3 layers logo (DAME removed); v3 Compliance AI carried over (unit conversion, property directions, class scales, section kinds, missing unit sections).
 
 ## Live set-up (15 Oct 2026)
 - Worker `thinkneering-hub`, deployed from the laptop with `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`). Workers Builds not connected yet; it can be, with the same two commands.
@@ -32,7 +32,7 @@ Last updated: 16 Oct 2026, night - maps typed as knowledge or AI rule book (migr
 | files | `GET /api/file/<key>` | `api/files.ts` | done |
 | cron | Vectorize indexing (idle until VECTORS exists), nightly backup to R2 | `jobs.ts` | done, not yet run on a real account |
 
-72 Vitest tests green (`npm test`), 6 Playwright flows green (`npm run test:e2e`, desktop + phone).
+106 Vitest tests green (`npm test`), 9 Playwright flows green and 7 skipped by device (`npm run test:e2e`, desktop + phone), 16 Oct 2026 late.
 
 ## Design brief (16 Oct 2026) - where we are
 
@@ -71,6 +71,8 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 - Uppercase letter-spaced headers remain in Product Options, Maps and Container Calculator (fixed when those tools are touched).
 
 ## Decisions log
+
+- 16 Oct 2026 (late): the site is **Thinkneering Tools**, with the "layers" mark of the Thinkneering v3 site on the Daikin blue; DAME is removed from the site; theme unchanged. From v3 only the design and the Compliance Maker AI are carried over (`docs/Thinkneering-v3-Lessons.md`); the rest of v3 is not ported.
 
 - 16 Oct 2026 (night): a map is knowledge or an AI rule book, chosen when it is made; one of each is linked per product / factory. The rule book holds the AI's brief (Instructions), the step switches, the rules and what it learned (to verify until a person verifies it). Knowledge maps are facts for the model, verified branches only.
 - 16 Oct 2026 (evening): three levels of knowledge in a fixed order - project datasheet (code compares), Product Options (incl. AI notes), library; the model only writes. AI rules live in maps in Maps, linked per product and per factory in Compliance review > AI rules (no change to Maps itself); users of the AI need no Maps access. Settings are special notes of the map's Settings branch. Focus-mode proposals for everyone; the model within a daily budget (Free plan). The datasheet wins over a contradicting library answer.
