@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - shared shell.
+   Thinkneering Tools - shared shell.
    Gives every page: day/night theme, session handling, the top
    bar, and the access guard. Load order on every page:
        config.js  ->  api.js  ->  hub.js
@@ -61,7 +61,7 @@
     add("meta", { name: "theme-color", content: "#0097E0" });
     add("meta", { name: "mobile-web-app-capable", content: "yes" });
     add("meta", { name: "apple-mobile-web-app-capable", content: "yes" });
-    add("meta", { name: "apple-mobile-web-app-title", content: "DAME Tools" });
+    add("meta", { name: "apple-mobile-web-app-title", content: cfg.SITE_SHORT || cfg.SITE_NAME || "Tools" });
     add("meta", { name: "apple-mobile-web-app-status-bar-style", content: "default" });
     // let the page reach under the notch and the home bar; the top bar and the sheets keep clear of them
     var vp = document.querySelector('meta[name="viewport"]');
@@ -74,7 +74,7 @@
     if (installEvent) { installEvent.prompt(); installEvent = null; return; }
     var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
     tellSheet(ios ? "Tap the Share button of Safari, then \"Add to Home Screen\"."
-                  : "Open the browser menu (three dots) and choose \"Add to Home screen\" or \"Install app\".", { title: "Install DAME Tools" });
+                  : "Open the browser menu (three dots) and choose \"Add to Home screen\" or \"Install app\".", { title: "Install " + (cfg.SITE_SHORT || cfg.SITE_NAME || "the app") });
   }
 
   // ---------- helpers ----------
@@ -346,14 +346,22 @@
     return box;
   }
 
+  /* The word mark: the first word of SITE_NAME strong, the rest quiet ("Thinkneering" "Tools"). */
+  function brandName() {
+    var name = String(cfg.SITE_NAME || "Tools"), i = name.indexOf(" ");
+    var out = [el("span", { "class": "brand-name", text: i < 0 ? name : name.slice(0, i) })];
+    if (i > 0) out.push(el("span", { "class": "brand-sub", text: name.slice(i + 1) }));
+    return [el("span", { "class": "brand-text" }, out)];   // one box, so the flex gap of .brand does not split the name
+  }
+
   function renderTopbar(profile) {
     var host = document.getElementById("topbar");
     if (!host) return;
     var user = profile.user;
     host.className = "topbar"; host.textContent = "";
     host.appendChild(el("a", { "class": "brand", href: url("dashboard.html") }, [
-      el("span", { "class": "brand-mark", "aria-hidden": "true" }), cfg.SITE_NAME || "Tools Hub"
-    ]));
+      el("span", { "class": "brand-mark", "aria-hidden": "true" })
+    ].concat(brandName())));
     // Back button: always in the same place, on every page that has somewhere to go back to.
     host.appendChild(el("a", { "class": "back-btn", id: "hubBack", href: "#", hidden: true }, [
       el("span", { "aria-hidden": "true", html: ICON.back }),
@@ -502,7 +510,7 @@
     setBack: setBack, param: param, confirm: confirmSheet, ask: askSheet, tell: tellSheet, date: fmtDate,
     ICON: ICON, el: el, toast: toast, url: url, go: go,
     token: token, setToken: setToken, logout: logout,
-    requireLogin: requireLogin, themeButton: themeButton, avatar: avatar, renderTopbar: renderTopbar,
+    requireLogin: requireLogin, themeButton: themeButton, avatar: avatar, renderTopbar: renderTopbar, brandName: brandName,
     roleLabel: roleLabel, isAdmin: isAdmin, isSuper: isSuper, canEdit: canEdit,
     applyTheme: applyTheme, currentTheme: currentTheme,
     takeMessage: function () { var m = sget(sessionStorage, "dame_hub_msg"); sset(sessionStorage, "dame_hub_msg", null); return m; }

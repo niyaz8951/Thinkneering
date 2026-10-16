@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - Maps.
+   Thinkneering Tools - Maps.
    Product knowledge as a tree: a map (Chiller) grows into branches (Components > Compressor ...).
    Every branch has notes, special notes, links and images.
      index.html            every map the user can open, search across them, Add map
@@ -192,7 +192,7 @@
   }
   function head() {
     var m = M.map;
-    $("mpTitle").textContent = m.name; document.title = m.name + " - Maps - DAME Tools Hub";
+    $("mpTitle").textContent = m.name; document.title = m.name + " - Maps - Thinkneering Tools";
     var sub = $("mpSub"); sub.hidden = false;
     sub.textContent = (m.kind === "rulebook" ? "AI rule book · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
     $("mpMode").hidden = !canEdit(); $("mpImport").hidden = !(canEdit() && st.edit); $("mpSettings").hidden = !isOwn();

@@ -1287,7 +1287,7 @@ function buildPdf() {
     doc.text(title, M, 34, { size: 15, bold: true });
     doc.text(heading, doc.pageWidth - M, 34, { size: 9, color: 'text-muted', align: 'right' });
     doc.line(M, 46, doc.pageWidth - M, 46, { stroke: 'border' });
-    doc.text(`DAME Tools Hub · Container & trailer calculator · ${stamp}`, M, doc.pageHeight - 22, { size: 7.5, color: 'text-muted' });
+    doc.text(`Thinkneering Tools · Container & trailer calculator · ${stamp}`, M, doc.pageHeight - 22, { size: 7.5, color: 'text-muted' });
     doc.text(`Page ${pageNo}`, doc.pageWidth - M, doc.pageHeight - 22, { size: 7.5, color: 'text-muted', align: 'right' });
   };
 

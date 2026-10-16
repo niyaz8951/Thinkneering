@@ -286,7 +286,7 @@
     if (window.CMRows) window.CMRows.update(rows, sel ? { id: sel.productId, name: sel.productName } : null);
   }
 
-  /* DAME Tools Hub: every conversion is saved to the master compliance
+  /* Thinkneering Tools: every conversion is saved to the master compliance
      library (cm-library.js), and lines the library already has an answer for
      come back filled in. The preview is shown first so a slow or failed save
      never blocks the user from their matrix. */

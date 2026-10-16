@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DAME Tools Hub — psychrometric chart renderer
+   Thinkneering Tools — psychrometric chart renderer
 
    Draws an ASHRAE-style chart as inline SVG: dry-bulb temperature along the
    bottom, humidity ratio up the right-hand edge, and the five families of

@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - small Excel reader / writer (no library).
+   Thinkneering Tools - small Excel reader / writer (no library).
    HubXlsx.read(file)  -> Promise of rows (array of arrays) from the first sheet of an .xlsx
    HubXlsx.build(rows, sheetName, widths) -> Blob of a one-sheet .xlsx
    Same code as tools/container-calculator/js/xlsx-io.js, exposed as a plain

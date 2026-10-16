@@ -1997,7 +1997,7 @@
       function len(mm) { return isFinite(mm) ? tidy(mm / lenF(), ld) : ''; }
       function mass(kg, d) { return isFinite(kg) ? tidy(kg / massF(), d) : ''; }
 
-      row(['Centre of gravity calculator - DAME Tools Hub']);
+      row(['Centre of gravity calculator - Thinkneering Tools']);
       row(['Method', METHOD_NOTE]);
       row(["A block's position means", state.posMode === 'centre' ? 'its centre' : 'its lowest corner']);
       row(['Redistribute load if a support lifts off', state.redistribute ? 'yes' : 'no']);
@@ -2071,7 +2071,7 @@
       var scheme = global.matchMedia('(prefers-color-scheme: dark)');
       if (scheme.addEventListener) { scheme.addEventListener('change', draw); }
     }
-    // DAME Tools Hub: redraw when the day/night button is pressed.
+    // Thinkneering Tools: redraw when the day/night button is pressed.
     global.document.addEventListener('hub:theme', function () { draw(); });
 
     if (!restore()) {

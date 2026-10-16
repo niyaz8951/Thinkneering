@@ -3,7 +3,7 @@
    Pages never talk to the server directly; they call Api.*.
    Every method posts JSON to /api/rpc/<name> on the same site
    (the Cloudflare Worker in worker/src). The names and the
-   parameters are those of the DAME database functions, so the
+   parameters are those of the database functions of the earlier site, so the
    pages did not change in the move.
    ============================================================ */
 (function () {

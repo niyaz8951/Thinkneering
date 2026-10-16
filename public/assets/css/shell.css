@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - shell
+   Thinkneering Tools - shell
    Colour tokens (day/night), page base, top bar, toast.
    Loaded by EVERY page: native pages get it through theme.css,
    tools brought over from Quicktools load it directly.
@@ -108,10 +108,20 @@ html.hub-away .topbar { transform: translateY(-102%); }
   font-family: var(--font); font-weight: 650; font-size: 16px; letter-spacing: 0;
   text-decoration: none; color: var(--text);
 }
+/* The Thinkneering mark (16 Oct 2026): the "layers" mark of the Thinkneering v3 site, on the brand blue.
+   Drawn from the tokens: the shape is assets/logo-glyph.svg used as a mask, so no colour lives in the CSS.
+   assets/favicon.svg and assets/icons/*.png are the same mark in fixed colours (browsers and phones need an image). */
 .brand-mark {
-  width: 30px; height: 30px; border-radius: 8px; flex: none;
-  background: linear-gradient(135deg, var(--brand) 0 50%, var(--brand-sky) 50% 100%);
+  position: relative; width: 30px; height: 30px; border-radius: 8px; flex: none; background: var(--brand);
 }
+.brand-mark::after {
+  content: ""; position: absolute; inset: 0; background: var(--on-brand);
+  -webkit-mask: url("../logo-glyph.svg") center / 100% 100% no-repeat;
+          mask: url("../logo-glyph.svg") center / 100% 100% no-repeat;
+}
+/* Word mark: the first word of SITE_NAME strong and tight, the rest quiet ("Thinkneering Tools"). */
+.brand .brand-name { letter-spacing: -0.02em; }
+.brand .brand-sub { font-weight: 500; color: var(--text-soft); margin-left: .3em; letter-spacing: 0; }
 .topbar .spacer { flex: 1; }
 /* Back button: a tinted pill right after the site name, in view on every page while scrolling.
    Tinted, not solid (design pass, 16 Oct 2026): the page's own primary action is the one solid blue thing. */

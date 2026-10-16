@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DAME Tools Hub — psychrometric engine
+   Thinkneering Tools — psychrometric engine
 
    Equations are from the ASHRAE Handbook — Fundamentals, Chapter 1,
    "Psychrometrics" (2017/2021 editions carry the same equation numbers).

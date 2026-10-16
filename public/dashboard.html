@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Dashboard - DAME Tools Hub</title>
+<title>Dashboard - Thinkneering Tools</title>
 <link rel="icon" href="assets/favicon.svg">
 <link rel="stylesheet" href="assets/css/theme.css">
 <script src="assets/js/config.js"></script>
@@ -72,7 +72,7 @@
     Hub.setBack(only ? null : "Dashboard", back);
     document.getElementById("toolsTitle").textContent = only ? document.getElementById("hello").textContent : c.name;
     document.getElementById("toolsSub").textContent = c.description;
-    document.title = (only ? "Dashboard" : c.name) + " - DAME Tools Hub";
+    document.title = (only ? "Dashboard" : c.name) + " - Thinkneering Tools";
     var host = document.getElementById("tools"); host.textContent = "";
     if (!c.tools.length) {
       host.appendChild(Hub.emptyState(el("div", { "class": "empty", style: "grid-column:1/-1" }), { title: "No tools in " + c.name + " yet",
@@ -99,7 +99,7 @@
     var c = only ? open[0] : open.filter(function (x) { return x.id === selected(); })[0];
     document.getElementById("homeView").hidden = !!c;
     document.getElementById("toolsView").hidden = !c;
-    if (c) renderTools(c, only); else { document.title = "Dashboard - DAME Tools Hub"; Hub.setBack(null); renderTiles(); }
+    if (c) renderTools(c, only); else { document.title = "Dashboard - Thinkneering Tools"; Hub.setBack(null); renderTiles(); }
     window.scrollTo(0, 0);
   }
 

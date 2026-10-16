@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - shared theme (components)
+   Thinkneering Tools - shared theme (components)
    Every native page and new tool loads this file. Colours, the
    top bar and the toast live in shell.css, imported below.
    Do not hard-code colours in a tool: use the variables.

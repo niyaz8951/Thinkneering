@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Sign in - DAME Tools Hub</title>
+<title>Sign in - Thinkneering Tools</title>
 <link rel="icon" href="assets/favicon.svg">
 <link rel="stylesheet" href="assets/css/theme.css">
 <script src="assets/js/config.js"></script>
@@ -16,7 +16,7 @@
 <main class="auth">
   <div class="auth-theme" id="themeSlot"></div>
   <div class="card auth-card">
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="siteName">DAME Tools Hub</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="siteName"><span class="brand-name">Thinkneering</span><span class="brand-sub">Tools</span></span></div>
 
     <!-- sign in -->
     <form id="loginForm" class="stack" autocomplete="on">
@@ -63,7 +63,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var loginForm = $("loginForm"), requestForm = $("requestForm");
-  $("siteName").textContent = (window.HUB_CONFIG || {}).SITE_NAME || "Tools Hub";
+  var sn = $("siteName"); sn.textContent = ""; Hub.brandName().forEach(function (n) { sn.appendChild(n); });
   $("themeSlot").appendChild(Hub.themeButton()); Hub.applyTheme(Hub.currentTheme());
   $("demoBar").hidden = !Api.isDemo;
 

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DAME Tools Hub — psychrometric chart, page logic
+   Thinkneering Tools — psychrometric chart, page logic
 
    Holds the list of air states, keeps the chart and the tables in step with
    it, and handles input, examples, mixing, export and persistence. All
@@ -237,7 +237,7 @@
 
   /* ------------------------------------------------------------ examples */
 
-  /* Deliberately weighted to the region DAME designs in: high ambient, high
+  /* Deliberately weighted to the region these units are designed for: high ambient, high
      altitude and the two-coil sequences those force. */
   /* A row can be given as typed figures, or worked out when the example is
      loaded so that it cannot drift from the rows it depends on:
@@ -946,7 +946,7 @@
   function toCSV(solved, segments) {
     var rows = [];
     var flowLabel = FLOW_UNITS[model.flowUnit].label;
-    rows.push(['DAME Tools Hub — psychrometric chart (ASHRAE Fundamentals Ch. 1, with enhancement factor)']);
+    rows.push(['Thinkneering Tools — psychrometric chart (ASHRAE Fundamentals Ch. 1, with enhancement factor)']);
     rows.push(['Barometric pressure (' + pressUnit() + ')', +pressFrom(pressureKPa()).toFixed(3)]);
     if (model.pressureMode === 'altitude') {
       rows.push(['Altitude (' + (isIP() ? 'ft' : 'm') + ')', Math.round(isIP() ? P.ip.lengthToFt(altitudeM()) : altitudeM())]);

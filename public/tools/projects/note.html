@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Datasheet notes - DAME Tools Hub</title>
+<title>Datasheet notes - Thinkneering Tools</title>
 <link rel="icon" href="../../assets/favicon.svg">
 <link rel="stylesheet" href="../../assets/css/theme.css">
 <script src="../../assets/js/config.js"></script>
@@ -145,7 +145,7 @@
     note = res;
     if (note.project_id) Hub.setBack(note.project, "project.html?id=" + encodeURIComponent(note.project_id));
     var units = note.columns.length, rows = note.rows.filter(function (r) { return r.kind !== "sub"; }), diff = rows.filter(differs).length;
-    document.title = bare(note.file_names) + " - DAME Tools Hub";
+    document.title = bare(note.file_names) + " - Thinkneering Tools";
     $("nt-name").textContent = bare(note.file_names);
     var facts = $("nt-facts");
     [note.project, note.product, units + (units === 1 ? " unit" : " units"), rows.length + " rows", "Read by " + note.user + ", " + when(note.created_at)]

@@ -1,5 +1,5 @@
 /* ============================================================
-   DAME Tools Hub - Quicktools compatibility helpers
+   Thinkneering Tools - Quicktools compatibility helpers
    Tools brought over from Quicktools call TN.icon / TN.esc /
    TN.toast. This file provides them on top of the hub shell.
    Load after hub.js. New tools should use Hub.* instead.

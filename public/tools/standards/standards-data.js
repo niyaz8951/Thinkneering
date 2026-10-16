@@ -1,4 +1,4 @@
-/* DAME Tools Hub - Standards library content.
+/* Thinkneering Tools - Standards library content.
    One object per standard. To add a standard, add an object here; nothing else changes.
      id       address of the page (standard.html#id), lower case, no spaces
      code     short name shown on the tile

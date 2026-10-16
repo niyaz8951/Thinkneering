@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Standard - DAME Tools Hub</title>
+<title>Standard - Thinkneering Tools</title>
 <link rel="icon" href="../../assets/favicon.svg">
 <link rel="stylesheet" href="../../assets/css/theme.css">
 <link rel="stylesheet" href="standards.css">
@@ -51,7 +51,7 @@
     var id = Std.idFromAddress(location), s = Std.byId[id];
     var body = $("body"), nav = $("nav"); body.textContent = ""; nav.textContent = ""; $("badges").textContent = "";
     if (!s) {
-      document.title = "Standard not found - DAME Tools Hub";
+      document.title = "Standard not found - Thinkneering Tools";
       $("code").textContent = "Standard not found";
       $("title").textContent = "";
       body.appendChild(el("div", { "class": "empty" }, [
@@ -60,7 +60,7 @@
       ]));
       return;
     }
-    document.title = s.code + " - Standards - DAME Tools Hub";
+    document.title = s.code + " - Standards - Thinkneering Tools";
     $("code").textContent = s.code;
     $("title").textContent = s.title;
     var b = $("badges");

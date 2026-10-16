@@ -1,4 +1,4 @@
-# Psychrometric chart — DAME Tools Hub
+# Psychrometric chart — Thinkneering Tools
 
 Tool id: `psychrometric-chart` · Tile: General · Pattern: Quicktools legacy layer (STANDARDS.md § 2a)
 
