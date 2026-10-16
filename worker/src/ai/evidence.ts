@@ -75,7 +75,8 @@ export function operatorOf(before: string, after: string): ">=" | "<=" | "=" {
 
 /* ---------- loading (once per request) ---------- */
 
-export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], usage?: AiUsage): Promise<Context> {
+/* opts.cache false: the clause-to-row match is worked out but not kept (Check the AI, a record that does not exist). */
+export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], usage?: AiUsage, opts: { cache?: boolean } = {}): Promise<Context> {
   const specRows = rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text }));
   const place = placeRows(specRows);
   type MapRow = MapRule & { row_key: string };
@@ -121,7 +122,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const aiNotes = extras.filter((x) => x.kind === "ai").map((x) => ({ section: x.section, key: x.row_key, body: x.body }));
   // the clause-to-row match, the same as the chips (kept per record: see matchFor)
   const sheet = new Map<number, SheetHit[]>(), options = new Map<number, OptionInfo>();
-  const matched = await matchFor(env, run.id, specRows, rules);
+  const matched = await matchFor(env, run.id, specRows, rules, opts.cache !== false);
   for (const m of matched) {
     if (!m.found) continue;
     const cells = look.values({ key: m.key, section: m.section, component: m.rule.component });
@@ -166,11 +167,15 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
 interface Matched { key: string; section: string; component: string; found: boolean; seqs: number[]; entries: string[][]; rule: MapRule }
 const matchMemo = new Map<string, { stamp: string; byKey: Record<string, number[]> }>();
 
-async function matchFor(env: Env, runId: string, specRows: { seq: number; type: string; sr: string; spec: string }[], rules: MapRule[]): Promise<Matched[]> {
+async function matchFor(env: Env, runId: string, specRows: { seq: number; type: string; sr: string; spec: string }[], rules: MapRule[], cache = true): Promise<Matched[]> {
   const stamp = (await sha256(JSON.stringify([specRows.map((r) => [r.seq, r.type, r.sr, r.spec]), rules.map((r) => [r.key, r.section, r.component, r.label, r.show, r.keywords])]))).slice(0, 24);
   let byKey: Record<string, number[]> | null = null;
-  const mem = matchMemo.get(runId);
+  const mem = cache ? matchMemo.get(runId) : undefined;
   if (mem && mem.stamp === stamp) byKey = mem.byKey;
+  if (!byKey && !cache) {
+    byKey = {};
+    for (const m of match(specRows, rules)) if (m.found) byKey[m.key] = m.lines.map((i) => specRows[i].seq);
+  }
   if (!byKey) {
     const row = await env.DB.prepare("SELECT stamp, payload FROM ai_match_cache WHERE run_id = ?").bind(runId).first<{ stamp: string; payload: string }>();
     if (row && row.stamp === stamp) { try { byKey = JSON.parse(row.payload); } catch { byKey = null; } }
@@ -181,8 +186,10 @@ async function matchFor(env: Env, runId: string, specRows: { seq: number; type: 
     await env.DB.prepare("INSERT INTO ai_match_cache (run_id, stamp, payload, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (run_id) DO UPDATE SET stamp = excluded.stamp, payload = excluded.payload, created_at = excluded.created_at")
       .bind(runId, stamp, JSON.stringify(byKey), new Date().toISOString()).run();
   }
-  if (matchMemo.size > 200) matchMemo.clear();
-  matchMemo.set(runId, { stamp, byKey });
+  if (cache) {
+    if (matchMemo.size > 200) matchMemo.clear();
+    matchMemo.set(runId, { stamp, byKey });
+  }
   const words = (s: string) => { const n = s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return n ? n.split(" ") : []; };
   return rules.filter((r) => byKey![r.key]).map((r) => ({ key: r.key, section: r.section, component: String(r.label || "").trim() || r.component, found: true, seqs: byKey![r.key],
     entries: String(r.keywords || "").split(";").map(words).filter((e) => e.length), rule: r }));

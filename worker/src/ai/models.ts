@@ -4,12 +4,39 @@
 import type { Env } from "../env";
 import { fail } from "../errors";
 
+/* Drafting uses the small model (owner, 16 Oct 2026): code does the comparing, the rules and the source checks, so
+   the model only picks one of six answers from cited sources and writes a short remark. The small model is about
+   8 times cheaper in neurons and several times faster; the old Thinkneering v3 site ran on it. The rule book can
+   choose another per product ("AI model: large", or a model id) and "Check the AI" shows which does better. */
 export const MODELS = {
   embed: "@cf/baai/bge-m3",                               // 1024 dims, cosine, Vectorize index hub-vectors
   rerank: "@cf/baai/bge-reranker-base",
-  draft: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",      // drafting answers, chat
-  extract: "@cf/meta/llama-3.1-8b-instruct"               // requirement extraction
+  draft: "@cf/meta/llama-3.1-8b-instruct-fast",           // drafting answers (small: the default)
+  large: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",      // "AI model: large" in the rule book
+  extract: "@cf/meta/llama-3.1-8b-instruct-fast"          // requirement extraction (the plain 8B id is retired)
 } as const;
+
+/* The model a rule book asks for: "small" / "large" / a Workers AI id ("@cf/..."); anything else = the default. */
+export function draftModel(setting?: string): string {
+  const v = String(setting || "").trim();
+  if (/^large$/i.test(v)) return MODELS.large;
+  if (/^@(cf|hf)\/[\w.\-\/]{3,80}$/.test(v)) return v;
+  return MODELS.draft;
+}
+
+/* Workers AI neurons per 1,000 tokens (in, out), from Cloudflare's price list (Oct 2026; USD 0.011 per 1,000
+   neurons above the free 10,000 a day). An estimate kept per call; the dashboard has the real figure. A model not
+   listed is counted at the large model's rate, so the daily budget errs on the safe side. */
+const RATES: Record<string, [number, number]> = {
+  "@cf/meta/llama-3.1-8b-instruct-fast": [4.119, 34.868],
+  "@cf/meta/llama-3.1-8b-instruct-fp8-fast": [4.119, 34.868],
+  "@cf/meta/llama-3.1-8b-instruct-fp8": [13.778, 26.128],
+  "@cf/meta/llama-3.1-8b-instruct": [25.608, 75.147],
+  "@cf/meta/llama-3.2-3b-instruct": [4.625, 30.475],
+  "@cf/meta/llama-3.3-70b-instruct-fp8-fast": [26.668, 204.805],
+  "@cf/baai/bge-m3": [1.075, 0]
+};
+export function neuronRate(model: string): [number, number] { return RATES[model] || RATES["@cf/meta/llama-3.3-70b-instruct-fp8-fast"]; }
 
 export const NOT_AVAILABLE = "AI review is not available on this environment (no Workers AI binding). On the live site it is; locally run `npm run dev` with a Cloudflare login.";
 
@@ -25,10 +52,10 @@ async function fakeRun(model: string, input: Record<string, unknown>): Promise<u
     reason: "Offline stand-in: this copy of the site has no AI model, so the clause was only marked Noted." }) };
 }
 
-export interface AiUsage { prompt: number; completion: number }
+export interface AiUsage { prompt: number; completion: number; neurons?: number }
 
 /* Why a model call failed, in words for the person, and whether trying more clauses is pointless. */
-export const QUOTA = "The free Workers AI allowance for today is used up (10,000 neurons a day, about 140 clauses). It resets at 04:00 Dubai time (00:00 UTC). For whole specifications switch Workers to the Paid plan (USD 5 a month) in the Cloudflare dashboard.";
+export const QUOTA = "The free Workers AI allowance for today is used up (10,000 neurons a day: about 1,000 clauses with the small model, about 120 with the large one). It resets at 04:00 Dubai time (00:00 UTC). For whole specifications switch Workers to the Paid plan (USD 5 a month) in the Cloudflare dashboard.";
 export function aiErrorText(e: unknown): { text: string; stop: boolean } {
   const m = e instanceof Error ? e.message : String(e);
   if (/4006|neuron|daily free|allocation|upgrade to/i.test(m)) return { text: QUOTA, stop: true };
@@ -58,6 +85,7 @@ export async function aiRun<T = unknown>(env: Env, model: string, input: Record<
       out = (await ai.run(model, input, opts)) as Out;
     } catch (e) {
       if (aiErrorText(e).stop && !/gateway/i.test(String(e))) throw e;          // the model refused: no point in a second call
+      if (/json mode|response_format|json_schema/i.test(String(e))) throw e;     // the request, not the gateway: complete() asks again
       console.warn("AI Gateway '" + env.AI_GATEWAY_ID + "' failed; calling Workers AI directly from now on.", e);
       gatewayBroken = true;
       out = (await ai.run(model, input)) as Out;
@@ -66,8 +94,10 @@ export async function aiRun<T = unknown>(env: Env, model: string, input: Record<
     out = (await ai.run(model, input)) as Out;
   }
   if (usage && out && typeof out === "object" && out.usage) {
-    usage.prompt += out.usage.prompt_tokens || 0;
-    usage.completion += out.usage.completion_tokens || 0;
+    const pt = out.usage.prompt_tokens || 0, ct = out.usage.completion_tokens || 0, [ri, ro] = neuronRate(model);
+    usage.prompt += pt;
+    usage.completion += ct;
+    usage.neurons = (usage.neurons || 0) + (pt * ri + ct * ro) / 1000;
   }
   return out;
 }
@@ -81,12 +111,30 @@ export async function embed(env: Env, texts: string[], usage?: AiUsage): Promise
   return data;
 }
 
-/* A chat completion as plain text. */
-export async function complete(env: Env, model: string, system: string, user: string, usage?: AiUsage, maxTokens = 600): Promise<string> {
-  const out = await aiRun<{ response?: unknown }>(env, model, {
+/* Models that refused a JSON schema once (JSON mode is not on every model): asked without one from then on. */
+const noJsonMode = new Set<string>();
+
+/* A chat completion as plain text. With a schema, the reply's shape is held to it by Workers AI (JSON mode): a small
+   model then cannot answer outside the six answers or forget a field. A model that does not support it is asked
+   again without, and not asked with one again for the life of this Worker instance. */
+export async function complete(env: Env, model: string, system: string, user: string, usage?: AiUsage, maxTokens = 600, schema?: Record<string, unknown>): Promise<string> {
+  const input: Record<string, unknown> = {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     max_tokens: maxTokens, temperature: 0.1
-  }, usage);
+  };
+  let out: { response?: unknown };
+  if (schema && !noJsonMode.has(model)) {
+    try {
+      out = await aiRun<{ response?: unknown }>(env, model, { ...input, response_format: { type: "json_schema", json_schema: schema } }, usage);
+    } catch (e) {
+      if (aiErrorText(e).stop) throw e;
+      console.warn("JSON mode refused by " + model + "; asking without it.", e);
+      noJsonMode.add(model);
+      out = await aiRun<{ response?: unknown }>(env, model, input, usage);
+    }
+  } else {
+    out = await aiRun<{ response?: unknown }>(env, model, input, usage);
+  }
   const r = out && out.response;
   // some models hand back already-parsed JSON
   return r && typeof r === "object" ? JSON.stringify(r) : String(r ?? "");

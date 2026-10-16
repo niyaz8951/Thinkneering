@@ -41,6 +41,11 @@ test.describe("AI", () => {
     // the rule book can be brought up to date with the template (rules someone edited stay as they are)
     await links.getByRole("button", { name: "Update from template" }).click();
     await expect(page.locator(".toast")).toContainText(/Done: |up to date|cannot edit/);
+    // Check the AI: people's answers replayed with the answer hidden (offline: the stand-in model)
+    await expect(page.locator("#mapSettings")).toContainText("AI model: small (8B)");
+    await page.selectOption("#evalN", "10");
+    await page.click("#btnEval");
+    await expect(page.locator("#evalOut")).toContainText(/agrees with people on \d+ of \d+ clauses|no answered clauses/, { timeout: 30000 });
     await page.fill("#tryText", "Units shall be set level and plumb on the concrete base.");
     await page.selectOption("#tryPart", "3");
     await page.click("#btnTry");

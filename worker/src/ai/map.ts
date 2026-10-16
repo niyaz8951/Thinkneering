@@ -34,10 +34,11 @@ import type { AiRule } from "./rules";
 export interface AiSettings {
   copyAt: number; useModel: boolean; budget: number; suggest: boolean; datasheetWins: boolean; projectAnswers: boolean;
   unsourced: boolean;      // false (strict, the default): an answer that needs a source and cites none is not drafted
+  model: string;           // "AI model:" small (default, 8B) | large (70B) | a Workers AI id; models.ts draftModel
   // the decision steps (Decision steps branch; a step "to verify" = off)
   useDatasheet: boolean; useOptions: boolean; useKnowledge: boolean; useLibrary: boolean; useRecord: boolean; useRules: boolean;
 }
-export const DEFAULT_SETTINGS: AiSettings = { copyAt: 0.9, useModel: true, budget: 9000, suggest: true, datasheetWins: true, projectAnswers: true, unsourced: false,
+export const DEFAULT_SETTINGS: AiSettings = { copyAt: 0.9, useModel: true, budget: 9000, suggest: true, datasheetWins: true, projectAnswers: true, unsourced: false, model: "",
   useDatasheet: true, useOptions: true, useKnowledge: true, useLibrary: true, useRecord: true, useRules: true };
 
 /* The decision steps, by what their title names (the order is fixed in draft.ts). */
@@ -63,7 +64,8 @@ const SETTINGS: { re: RegExp; set: (s: AiSettings, v: string) => boolean; line: 
   { re: /^suggest in focus/i, set: (s, v) => { s.suggest = yes(v); return true; }, line: (s) => `Suggest in focus mode: ${s.suggest ? "yes" : "no"}` },
   { re: /^datasheet wins/i, set: (s, v) => { s.datasheetWins = yes(v); return true; }, line: (s) => `Datasheet wins over the library: ${s.datasheetWins ? "yes" : "no"}` },
   { re: /^use answers from other projects/i, set: (s, v) => { s.projectAnswers = yes(v); return true; }, line: (s) => `Use answers from other projects: ${s.projectAnswers ? "yes" : "no"}` },
-  { re: /^answer without a source/i, set: (s, v) => { s.unsourced = yes(v); return true; }, line: (s) => `Answer without a source: ${s.unsourced ? "yes" : "no"}` }
+  { re: /^answer without a source/i, set: (s, v) => { s.unsourced = yes(v); return true; }, line: (s) => `Answer without a source: ${s.unsourced ? "yes" : "no"}` },
+  { re: /^ai model$/i, set: (s, v) => { const t = v.trim(); if (!/^(small|large|@(cf|hf)\/[\w.\-\/]{3,80})$/i.test(t)) return false; s.model = /^small$/i.test(t) ? "" : t; return true; }, line: (s) => `AI model: ${s.model || "small"}` }
 ];
 function yes(v: string): boolean { return /^(y|yes|on|true|1)\b/i.test(v.trim()); }
 
@@ -269,7 +271,7 @@ const STEP_SEEDS: Seed = { title: "Decision steps", notes: "What the AI goes thr
   { title: "5. Other projects", notes: "IF the same clause was answered in another project of this factory -> proposed, marked \"not yet approved\" (below the library)." },
   { title: "6. Product Options and AI notes", notes: "Values seen on this factory's datasheets, special options, notes and AI notes (Product Options > + AI note) for the rows of the clause, and AI notes that share telling words with it. They go to the model as facts it may quote." },
   { title: "7. Knowledge maps", notes: "The verified branches of the knowledge maps linked in Compliance review > AI rules (process or product understanding) that share telling words with the clause. They go to the model as facts it may quote. A branch \"to verify\" is not a fact yet and is left out." },
-  { title: "8. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [K1] knowledge branch, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person.", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons", "Answer without a source: no"] },
+  { title: "8. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [K1] knowledge branch, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person. The small model (AI model: small, 8B) is the default: fast, and about 8 times cheaper than the large one (AI model: large, 70B). Compare them with Check the AI.", special: ["Use the AI model: yes", "AI model: small", "Daily AI budget: 9000 neurons", "Answer without a source: no"] },
   { title: "9. Checks (always on)", notes: "Code checks every model answer: one of the six answers (else one retry); Comply, Comply with Remarks, Not Comply and Not Applicable must cite at least one source id that was in the prompt (else one retry, then the clause waits for a person, unless Answer without a source is yes); a number with a unit must appear in a cited source, otherwise it becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." },
   { title: "How to write a rule", notes: "Add a branch under a Part. Title = a name. Notes = what the AI should do, in a plain sentence. Special notes, one per line:\n  When: words or phrases, commas between (the clause mentions one; \"install\" also finds installation)\n  Unless: words or phrases (the rule stays off a clause that mentions one; passes to the branches under it)\n  Section: words or phrases (the section title mentions one)\n  Answer: one of the six answers\n  Remark: the exact remark\nWith Answer and Remark the rule answers by itself. When and Section pass to the branches under it. Mark a branch \"to verify\" to switch it off. Compliance review > AI rules > Try a clause shows what applies and the exact text the AI reads." }
 ] };
@@ -323,6 +325,8 @@ const OLD_TEMPLATE: { title: string; special: string[]; notes?: string }[] = [
   { title: "Concrete bases", special: ["When: concrete base, housekeeping pad, plinth", "Answer: In Contractor's Scope", SITE] },
   { title: "8. AI model", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons"],
     notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, and writes the answer, the remark and the reason." },
+  { title: "8. AI model", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons", "Answer without a source: no"],
+    notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [K1] knowledge branch, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person." },
   { title: "9. Checks (always on)", special: [],
     notes: "Code checks every model answer: one of the six answers (else one retry); a number with a unit no source gives becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." }
 ];

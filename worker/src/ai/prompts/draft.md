@@ -1,4 +1,4 @@
-# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16d
+# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16e
 
 Used by `ai_review_run` for a clause that is neither copied from a >= 0.90 library match nor answered by a site
 rule with a fixed answer. The text below is a copy of `systemPrompt()` / `userPrompt()`; the code is the source
@@ -16,8 +16,14 @@ Hard rules: no number with a unit unless a source gives it (else "[value]", low)
 the remark never repeats the answer; no hedging words; never mention datasheets, libraries, rules, notes or files;
 internal notes are never quoted; Part 1 / 3 usually Noted or In Contractor's Scope; "high" only with a direct source.
 
+## Model and reply shape (draft-2026-10-16e, 16 Oct 2026 night)
+Model: `@cf/meta/llama-3.1-8b-instruct-fast` (small) unless the rule book says `AI model: large` or a model id.
+JSON mode: `response_format: { type: "json_schema", json_schema: REPLY_SCHEMA }`, keys in this order: `cites`,
+`reason`, `compliance` (enum: the six answers or ""), `remarks`, `confidence` (enum). The frame tells the model to work
+in that order. A model without JSON mode is asked again without it. Empty source blocks are left out of the prompt.
+
 ## Reply and sources (draft-2026-10-16d, 16 Oct 2026 night)
-Reply: `{"compliance", "remarks", "reason", "confidence", "cites": [ids]}`; compliance may be empty (= declined, the
+Reply: `{"cites": [ids], "reason", "compliance", "remarks", "confidence"}`; compliance may be empty (= declined, the
 clause goes to a person). Every source in the user message is shown as `[ID] text`: D datasheet row, L library answer,
 O Product Options, N AI note, K knowledge branch, R rule, C rule of this clause, F fact, M correction people made,
 E earlier answer in this spec, P another project. Comply / Comply with Remarks / Not Comply / Not Applicable must cite

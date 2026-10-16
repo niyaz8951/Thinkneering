@@ -18,6 +18,10 @@
    ai_map_upgrade(token, product_id, factory_id)  adds the template's Instructions / Decision steps / Learned to a linked map
    ai_quality(token, product_id)                  what people did with proposals, last 30 days; often-changed patterns
    ai_learn(token, product_id)                    writes those patterns into the maps, as "to verify" branches under Learned
+   ai_eval(token, product_id, factory_id, check, n, seen)
+                                                  Check the AI: n answered library clauses replayed with their answer
+                                                  hidden; the AI's answer compared with the person's (ai/eval.ts)
+   ai_eval_history(token, product_id, factory_id) the earlier checks: model, prompt version, agreement
    AI map and quality: admins of the Compliance Maker tile and the super user. */
 import type { Env, Params } from "../env";
 import type { Routes } from "../router";
@@ -36,6 +40,7 @@ import { learnToMaps } from "../ai/learn";
 import { mpRights, type MapRow } from "./mp";
 import { pickRules, directRule, splitComments, notesMatching, prepareKnowledge, knowledgeMatching } from "../ai/rules";
 import { standardChoice, systemPrompt, userPrompt, promptVersionOf } from "../ai/draft";
+import { pickLines, runEval, tally } from "../ai/eval";
 
 type Row = RunRowFull & { draft_at: string | null };
 type Run = RunRow & { product: string; factory: string; project: string };
@@ -369,6 +374,53 @@ export const routes: Routes = {
     const added = await upgradeAiMap(env, s.id, link.id, prod.name, fac ? fac.name : null);
     await audit(env, s.id, "ai_map_upgrade", link.id, "", { added });
     return { ok: true, added };
+  },
+
+  /* Check the AI: up to 8 answered library clauses of the factory per call, each answered by the AI as if new (its own
+     answer hidden), compared with the person's. The page calls again with the ids already checked until the check
+     has its number. Every call is logged with its model, prompt version and neurons. */
+  async ai_eval(env, p) {
+    const s = requireRulesEditor(await sessionUser(env, p.p_token));
+    if (!aiAvailable(env)) fail(NOT_AVAILABLE, 503);
+    const prod = await productRow(env, p.p_product_id);
+    const fac = await factoryRow(env, prod.id, p.p_factory_id);
+    if (!fac) fail("Choose a factory.");
+    const check = /^[a-z0-9-]{8,40}$/.test(String(p.p_check || "")) ? String(p.p_check) : uuid();
+    const n = Math.min(Math.max(int(p.p_n, 5), 1), 8);
+    const seen = (Array.isArray(p.p_seen) ? p.p_seen : []).map((v) => String(v)).filter((v) => /^[\w-]{1,60}$/.test(v)).slice(0, 400);
+    const { lines, total } = await pickLines(env, fac.id, n, seen);
+    if (!lines.length) return { ok: true, check, results: [], total, remaining: 0, model: "", prompt_version: "", model_note: total ? "" : "The library of " + fac.name + " has no answered clauses to check against yet.", stopped: "" };
+    const usage: AiUsage = { prompt: 0, completion: 0 };
+    const run = { id: "eval-" + check, product_id: prod.id, factory_id: fac.id, project_id: null, product: prod.name, factory: fac.name };
+    const r = await runEval(env, run, lines, usage);
+    const t = tally(r.results);
+    await audit(env, s.id, "ai_eval", check, "", { product: prod.id, factory: fac.id, model: r.model, prompt: r.prompt, ...t, stopped: r.stopped }, neuronsOf(usage));
+    return { ok: true, check, results: r.results, total, remaining: Math.max(0, total - seen.length - r.results.length),
+             model: r.model, prompt_version: r.prompt, model_note: r.modelNote, stopped: r.stopped, neurons: neuronsOf(usage) };
+  },
+
+  /* The checks made for a product and factory (newest first, last 180 days), summed per check. */
+  async ai_eval_history(env, p) {
+    requireRulesEditor(await sessionUser(env, p.p_token));
+    const prod = await productRow(env, p.p_product_id);
+    const fac = await factoryRow(env, prod.id, p.p_factory_id);
+    if (!fac) fail("Choose a factory.");
+    const since = new Date(Date.now() - 180 * 86400000).toISOString();
+    const rows = await all<{ target: string; after: string; neurons: number; created_at: string }>(env.DB.prepare(
+      "SELECT target, after, neurons, created_at FROM app_audit WHERE created_at >= ? AND action = 'ai_eval' ORDER BY created_at").bind(since));
+    type Sum = { check: string; at: string; model: string; prompt: string; tested: number; agree: number; differ: number; left: number; neurons: number };
+    const by = new Map<string, Sum>();
+    for (const r of rows) {
+      let a: Record<string, unknown> = {};
+      try { a = JSON.parse(r.after || "{}"); } catch { continue; }
+      if (a.product !== prod.id || a.factory !== fac.id) continue;
+      const c = by.get(r.target) || { check: r.target, at: r.created_at, model: "", prompt: "", tested: 0, agree: 0, differ: 0, left: 0, neurons: 0 };
+      c.model = String(a.model || c.model); c.prompt = String(a.prompt || c.prompt);
+      c.tested += Number(a.tested) || 0; c.agree += Number(a.agree) || 0; c.differ += Number(a.differ) || 0; c.left += Number(a.left) || 0;
+      c.neurons += Number(r.neurons) || 0;
+      by.set(r.target, c);
+    }
+    return { ok: true, checks: [...by.values()].filter((c) => c.tested > 0).reverse().slice(0, 12).map((c) => ({ ...c, neurons: Math.round(c.neurons) })) };
   },
 
   /* Writes what people changed the same way 3 times or more into the linked maps (under Learned, "to verify"). */

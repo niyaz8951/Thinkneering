@@ -95,6 +95,9 @@ what step 1 compares. A chip that keeps landing on the wrong clause is fixed the
 `# project-specific, do not reuse` stops a library answer from being copied into other projects.
 
 ## 5. Cost and limits (Workers Free plan)
+- **The model is the small one** (Llama 3.1 8B, fast): about 8 neurons a clause, so the free 10,000 a day cover about
+  1,000 clauses. The large one (Llama 3.3 70B) costs about 80 a clause; a rule book can ask for it with
+  `AI model: large` under Decision steps > 8. AI model. Check the AI shows whether it is worth it.
 - The model is used only in step 6. Steps 1-5 cost nothing. A 486-clause spec with a datasheet, a filled library and the
   starter rules typically needs the model for well under half its clauses.
 - Daily budget (Settings) protects the free 10,000 neurons a day; when it is used up, proposals and the review continue
@@ -124,4 +127,20 @@ Three ways, all from what people do in the record:
    without the model.
 
 So: always correct a wrong draft in the record (do not just delete it), and verify the Learned branches now and then.
+
+## 8. Check the AI (how you see it learning)
+Compliance review > AI rules > **Check the AI**: choose 10, 20 or 40 clauses and press **Run the check**. The site takes
+clauses people answered in the library of that factory, hides each answer (and any correction on that same clause),
+and lets the AI answer it as if it came in a new specification. Then it compares:
+- **agrees**: the AI chose the same answer as people;
+- **differs**: listed with the clause, both answers and the AI's reason. Each one is a lesson: write it as a rule in
+  the rule book, an AI note in Product Options, or a branch in the knowledge map;
+- **left for a person**: nothing on file supports an answer. Each one is a gap in what the AI knows.
+
+Every check is kept (Earlier checks: date, model, prompt version, agreement). Run it after each change: the
+agreement going up is the AI learning. 20 clauses cost about 200 neurons with the small model.
+
+A fine-tune of the small model (a LoRA adapter) is the step after this, when rules and notes stop raising the
+agreement and there are several hundred corrected or approved answers to train on. Training runs outside Cloudflare,
+so it is a decision for the owner and the company.
 

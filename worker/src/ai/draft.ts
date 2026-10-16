@@ -21,14 +21,14 @@
    This is enforced here, in code, whatever the instructions in the map say. */
 import type { Env } from "../env";
 import { CHOICES } from "../lib/cm";
-import { complete, firstJson, MODELS, type AiUsage } from "./models";
+import { complete, firstJson, draftModel, type AiUsage } from "./models";
 import type { Similar } from "./search";
 import { splitComments, directRule, type RuleHit, type DatasheetField } from "./rules";
 import { groundRemarks, trimAnswerEcho, hedges } from "./guard";
 import { instructionsText, type Section } from "./map";
 import { SECTION_GUIDANCE, type SectionKind } from "./sections";
 
-export const PROMPT_VERSION = "draft-2026-10-16d";
+export const PROMPT_VERSION = "draft-2026-10-16e";
 export const RULE_VERSION = "rule-2026-10-16";
 
 export interface PastAnswerIn { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
@@ -54,6 +54,7 @@ export interface DraftInput {
   absent?: string[];                     // unit sections the clause is about that this project's datasheet lacks
   corrections?: CorrectionIn[];          // what people answered instead of the AI on similar clauses (learning)
   unsourced?: boolean;                   // AI map > Settings > Answer without a source (default no: strict)
+  model?: string;                        // AI map > Decision steps > 8. AI model > "AI model:" (default small, 8B)
 }
 export interface CorrectionIn { spec: string; suggested: string; suggested_remarks: string; final: string; final_remarks: string; score: number }
 export type DraftSource = "datasheet" | "library-similar" | "record" | "rule" | "project" | "model";
@@ -100,7 +101,8 @@ export function systemPrompt(product: string, factory: string, instructions?: Se
 
 REPLY (fixed by the site)
 Answer with ONE JSON object and nothing else:
-{"compliance": "<one of the six answers, or empty>", "remarks": "<one or two short sentences for the consultant, or empty>", "reason": "<one sentence a reviewer can check: what the sources say and what needs checking>", "confidence": "high" | "medium" | "low", "cites": ["<the ids of the sources you used>"]}
+{"cites": ["<the ids of the sources you used, first>"], "reason": "<one sentence a reviewer can check: what those sources say and what needs checking>", "compliance": "<one of the six answers, or empty>", "remarks": "<one or two short sentences for the consultant, or empty>", "confidence": "high" | "medium" | "low"}
+Work in that order: find the sources that apply, say what they show, then choose the answer they support.
 The six answers, written exactly: ${CHOICES.map((c) => '"' + c + '"').join(", ")}.
 SOURCES: every source in the message has an id in square brackets: [D] project datasheet row, [L] library answer, [O] Product Options of the factory, [N] AI note, [K] knowledge map, [R] rule, [C] rule of this clause, [F] factory fact, [M] a correction people made to an AI answer on a similar clause, [E] an answer given earlier in this specification, [P] an answer in another project. Nothing else is a source: not your general knowledge, not the clause itself.
 - "Comply", "Comply with Remarks", "Not Comply" and "Not Applicable" must cite at least one id that supports them.
@@ -110,6 +112,20 @@ SOURCES: every source in the message has an id in square brackets: [D] project d
 Never write a number with a unit (mm, kW, Pa, m/s, %, hours ...) that is not in a source you cite: the clause says what is REQUIRED, not what the product IS. Write "[value]" where an unknown value belongs and set confidence "low".`;
 }
 
+/* The reply's shape, held by Workers AI where the model supports JSON mode: a small model cannot then answer
+   outside the six answers or leave a field out. Sources come first so the answer follows from them. */
+export const REPLY_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    cites: { type: "array", items: { type: "string" } },
+    reason: { type: "string" },
+    compliance: { type: "string", enum: [...CHOICES, ""] },
+    remarks: { type: "string" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] }
+  },
+  required: ["cites", "reason", "compliance", "remarks", "confidence"]
+};
+
 /* What the brief is, for the drafts: the code's version, or the map's (a change to the map makes a new one). */
 export function promptVersionOf(instructions?: Section[] | null): string {
   if (!instructions || !instructions.length) return PROMPT_VERSION;
@@ -118,8 +134,9 @@ export function promptVersionOf(instructions?: Section[] | null): string {
   return "map-" + (h >>> 0).toString(16).padStart(8, "0");
 }
 
+/* A block of sources; an empty one is left out of the prompt (a small model reads every "(none)" as something). */
 function block(title: string, lines: string[]): string {
-  return `${title}:\n${lines.length ? lines.join("\n") : "(none)"}`;
+  return lines.length ? `${title}:\n${lines.join("\n")}` : "";
 }
 
 /* One source the model may cite. id = what the prompt shows ([D1]); kind = the letter; ref = what it points at
@@ -172,7 +189,7 @@ export function userPrompt(d: DraftInput): string {
   if ((d.absent || []).length) parts.push(`Not in this unit: the project's datasheet has no ${d.absent!.join(", ")} section. The selected unit may not include it. Do not answer Comply on configuration grounds: unless a library answer shows how such a clause is answered, set confidence "low" and say in the reason which section is missing (whether to offer it is a commercial question).`);
   if (!ev.length) parts.push(`Sources on file for this clause: none. Only "Noted" or "In Contractor's Scope" (citing "I") can be answered without a source; otherwise reply with an empty compliance.`);
   parts.push(block("AI rules for this clause (library team, follow them)", of("C")));
-  parts.push(`Internal note for this clause (library team, guidance, never quote it): ${own.note || "(none)"}`);
+  if (own.note) parts.push(`Internal note for this clause (library team, guidance, never quote it): ${own.note}`);
   parts.push(block("Site rules that apply to this clause", of("R")));
   const units = (d.units || []).filter(Boolean);
   parts.push(block(`Project datasheet rows${units.length ? " (units: " + units.join(", ") + ")" : ""}`, of("D")));
@@ -185,7 +202,7 @@ export function userPrompt(d: DraftInput): string {
   if (d.conflict) parts.push("Conflict: " + d.conflict + " The project's datasheet wins.");
   parts.push(block("Answers given earlier in this section of this specification (keep to them)", of("E")));
   parts.push(block("Answers to similar clauses in other projects of this factory", of("P")));
-  return parts.join("\n\n");
+  return parts.filter(Boolean).join("\n\n");
 }
 
 interface Reply { compliance?: unknown; remarks?: unknown; reason?: unknown; confidence?: unknown; cites?: unknown }
@@ -275,13 +292,14 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
 
   // 6. the model, once more if its first reply cannot be used (not JSON, not one of the six, or no source cited)
   const sys = systemPrompt(d.product, d.factory, d.instructions), user = userPrompt(d);
-  let text = await complete(env, MODELS.draft, sys, user, usage, 500);
+  const model = draftModel(d.model);
+  let text = await complete(env, model, sys, user, usage, 500, REPLY_SCHEMA);
   let got = checkReply(text, ev, strict);
   if (!got.ok) {
     const again = got.noSource
       ? `\n\nYour previous reply could not be used: ${got.why}. Cite the ids of the sources that support your answer, or, if none does, reply with an empty "compliance" and say in "reason" what is missing.`
       : `\n\nYour previous reply could not be used: ${got.why}. Reply again with ONE JSON object only, "compliance" being one of: ${CHOICES.join(", ")}, and "cites" the ids you used.`;
-    text = await complete(env, MODELS.draft, sys, user + again, usage, 500);
+    text = await complete(env, model, sys, user + again, usage, 500, REPLY_SCHEMA);
     got = checkReply(text, ev, strict);
     if (!got.ok) {
       if (got.noSource) throw new NeedsSource("No source supports an answer (the model cited none). Left for a person.");
@@ -324,7 +342,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const base = String(j.reason ?? "").trim().slice(0, 400) || "Drafted by the model from the sources shown to it.";
   const used = cited.length ? " Used: " + cited.map((e) => e.label).join("; ") + "." : "";
   return {
-    compliance, remarks, confidence, source: "model", model: MODELS.draft, promptVersion: promptVersionOf(d.instructions),
+    compliance, remarks, confidence, source: "model", model, promptVersion: promptVersionOf(d.instructions),
     reason: (lead + base + used + (notes.length ? " Check: " + notes.join("; ") + "." : "")).slice(0, 700),
     sources: cited.map((e) => ({ kind: KIND_NAMES[e.kind] || e.kind, id: e.ref, text: e.text.slice(0, 200), score: e.score }))
   };

@@ -49,7 +49,7 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 | 2 (1 week) | Feature A | Benchmark spec + the 3-unit datasheet: every numeric clause drafted with a reason; golden set agreed with the owner |
 | 3 (1 week) | Feature B, draft badges, Accept / Edit / Reject, audit | A fresh spec of a known product comes back mostly drafted; nothing overwritten |
 | 4 (1 week) | Feature C | Scoped, cited answers for users and admins; chats stored |
-| 5 | Feature D, prompt tuning against `golden.json`, cost report, decision on a stronger model via AI Gateway | Quality numbers agreed before rollout to the whole team |
+| 5 | Feature D, prompt tuning against `golden.json` and Check the AI, cost report, decision on a stronger model via AI Gateway or a LoRA fine-tune of the 8B | Quality numbers agreed before rollout to the whole team |
 
 ## Suggestions for the owner (not decided)
 - Keep the old GitHub Pages site alive for 30 days after cut-over with a one-page redirect, so bookmarks still work.
@@ -59,6 +59,20 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 - When the company agrees to a stronger model for drafting, route only `draft.ts` through AI Gateway to it; search, extraction and chat can stay on Workers AI.
 
 ## Progress (kept by Claude; newest first)
+
+### 16 Oct 2026, night (later) - the small model, and Check the AI (built)
+Owner: "8B should be more than enough for this simple task; focus on making it learn patterns." The neuron limit was
+hit because drafting ran on the 70B (about 80 neurons a clause, about 120 clauses a day free); v3 ran on the 8B.
+- Drafting on `@cf/meta/llama-3.1-8b-instruct-fast` (about 8 neurons a clause, about 1,000 a day free), JSON mode
+  with the six answers as an enum and the sources first, empty blocks left out of the prompt. `AI model: large` in
+  the rule book switches a product back. Neurons counted per model.
+- **Check the AI**: people's library answers replayed with the answer hidden; agreement, differences and clauses left
+  for a person, kept per check with model and prompt version. This is the learning curve.
+- How the small model learns, in order of effort: (1) corrections shown as `[M]` sources on similar clauses (at once);
+  (2) the differences Check the AI lists, fixed as a rule, an AI note in Product Options or a knowledge branch;
+  (3) Learned branches from repeated corrections (nightly, to verify); (4) later, a LoRA fine-tune of the 8B when (1)-(3)
+  stop raising the agreement and there are several hundred corrected or approved answers. Training would run outside
+  Cloudflare (Workers AI only serves adapters): the owner's decision.
 
 ### 16 Oct 2026, night - strict directions and learning from corrections (built)
 From the AHU_Specs walkthrough (`Compliance-AI-Walkthrough.md`, gaps G1-G16). Owner's aim: answers only from the

@@ -4,14 +4,17 @@ import { draftAnswer, NoFreeAnswer, type Draft } from "./draft";
 import { evidenceFor, type Context, type RunRowFull, type ClauseEvidence } from "./evidence";
 import type { AiUsage } from "./models";
 
-/* Workers AI neurons of llama-3.3-70b-instruct-fp8-fast (Cloudflare price list: USD 0.29 / M input tokens,
-   USD 2.25 / M output tokens, USD 0.011 per 1,000 neurons). An estimate; the dashboard has the real figure. */
-export function neuronsOf(u: AiUsage): number { return Math.round(u.prompt * 26.668 / 1000 + u.completion * 204.805 / 1000); }
+/* Workers AI neurons of the calls counted in u: each call adds its own model's rate (models.ts neuronRate); usage
+   without that figure is counted at the large model's rate. An estimate; the dashboard has the real figure. */
+export function neuronsOf(u: AiUsage): number {
+  if (u.neurons != null) return Math.round(u.neurons * 10) / 10;
+  return Math.round(u.prompt * 26.668 / 1000 + u.completion * 204.805 / 1000);
+}
 
 /* Neurons spent today (UTC day, as Workers AI counts it) by the review and the suggestions. */
 export async function neuronsToday(env: Env): Promise<number> {
   const day = new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
-  const r = await env.DB.prepare("SELECT coalesce(sum(neurons), 0) AS n FROM app_audit WHERE created_at >= ? AND action IN ('ai_review_run', 'ai_suggest', 'ai_check')").bind(day).first<{ n: number }>();
+  const r = await env.DB.prepare("SELECT coalesce(sum(neurons), 0) AS n FROM app_audit WHERE created_at >= ? AND action IN ('ai_review_run', 'ai_suggest', 'ai_check', 'ai_eval')").bind(day).first<{ n: number }>();
   return r?.n || 0;
 }
 
@@ -42,7 +45,7 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
     absent: sheetOn ? ev.absent : [],
     // what people corrected on similar clauses: shown as sources [M1] the model may cite (learning from mistakes)
     corrections: ev.corrections.map((c) => ({ spec: c.spec, suggested: c.suggested, suggested_remarks: c.suggested_remarks, final: c.final, final_remarks: c.final_remarks, score: c.score })),
-    unsourced: s.unsourced
+    unsourced: s.unsourced, model: s.model
   };
 }
 

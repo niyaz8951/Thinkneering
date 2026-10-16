@@ -59,6 +59,13 @@
   .step-list li.hit { background: color-mix(in srgb, var(--brand-sky) 18%, var(--surface)); }
   .try-hit { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 14px; overflow-wrap: anywhere; }
   .try-hit b { font-weight: 650; }
+  .eval-sum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  .eval-sum .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .eval-row { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 14px; overflow-wrap: anywhere; }
+  .eval-row .who { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .eval-row .who b { font-weight: 650; }
+  #evalOut details > summary { margin-bottom: 8px; }
+  #evalOut details > .eval-row + .eval-row { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -199,6 +206,20 @@
           <button class="btn ghost" type="button" id="btnTry">Try</button>
         </div>
         <div id="tryOut" class="stack" aria-live="polite"></div>
+      </div>
+      <div class="card stack">
+        <div>
+          <h2>Check the AI</h2>
+          <p class="muted small" style="margin:4px 0 0">Takes clauses people answered in the library of this factory, hides each answer, and lets the AI answer the clause from everything else: the rule book, Product Options and AI notes, knowledge maps, the rest of the library and people's corrections. Then compares. Run it after you change the rule book, the notes or the model, and see whether the AI gets closer to your answers. 20 clauses use about 200 neurons with the small model.</p>
+        </div>
+        <div class="row">
+          <select class="input" id="evalN" aria-label="How many clauses to check" style="width:auto">
+            <option value="10">10 clauses</option><option value="20" selected>20 clauses</option><option value="40">40 clauses</option>
+          </select>
+          <button class="btn ghost" type="button" id="btnEval">Run the check</button>
+        </div>
+        <div id="evalOut" class="stack" aria-live="polite"></div>
+        <div id="evalHistory"></div>
       </div>
       <div class="card stack">
         <div>
@@ -630,6 +651,7 @@
       drawLinks(res);
     }, function (err) { host.textContent = ""; host.appendChild(el("div", { "class": "notice error", text: err.message })); });
     loadQuality();
+    if (loadEvalHistory.scope !== want) { $("evalOut").textContent = ""; loadEvalHistory(); }
   }
   function drawLinks(res) {
     var host = $("mapLinks"); host.textContent = "";
@@ -678,7 +700,7 @@
     if (!st.useDatasheet) off.push("datasheet"); if (!st.useLibrary) off.push("library copy"); if (!st.useRecord) off.push("earlier answers");
     if (!st.useRules) off.push("rules that answer by themselves"); if (!st.projectAnswers) off.push("other projects"); if (!st.useOptions) off.push("Product Options");
     if (!st.useKnowledge) off.push("knowledge maps"); if (!st.useModel) off.push("AI model");
-    $("mapSettings").textContent = "The AI reads " + (res.instructions ? res.instructions.length + " instruction sections from the rule book (" + res.instructions.join(", ") + ")" : "its built-in instructions") +
+    $("mapSettings").textContent = "AI model: " + modelName(st.model ? (st.model === "large" ? LARGE_ID : st.model) : SMALL_ID) + " · The AI reads " + (res.instructions ? res.instructions.length + " instruction sections from the rule book (" + res.instructions.join(", ") + ")" : "its built-in instructions") +
       " · copies from the library at " + Math.round(st.copyAt * 100) + "% similar · daily budget " + st.budget + " neurons (" + (res.used_today || 0) + " used today) · focus-mode suggestions " + (st.suggest ? "on" : "off") +
       " · datasheet wins over the library: " + (st.datasheetWins ? "yes" : "no") + (off.length ? " · steps switched off: " + off.join(", ") : " · all decision steps on") + ".";
   }
@@ -721,6 +743,85 @@
         el("pre", { text: res.prompt.system }), el("pre", { text: res.prompt.user })]));
     }, function (err) { btn.disabled = false; out.appendChild(el("div", { "class": "notice error", text: err.message })); });
   });
+
+  // ---------- Check the AI: people's answers replayed with the answer hidden ----------
+  var SMALL_ID = "@cf/meta/llama-3.1-8b-instruct-fast", LARGE_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  function modelName(id) { return id === SMALL_ID ? "small (8B)" : id === LARGE_ID ? "large (70B)" : id ? id.replace(/^@\w+\//, "") : "none (model off)"; }
+  function pct(a, b) { return b ? Math.round(100 * a / b) + "%" : "-"; }
+  function newCheckId() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID().toLowerCase(); } catch (e) { /* older browser */ }
+    return ("c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).toLowerCase();
+  }
+  $("btnEval").addEventListener("click", function () {
+    var total = +$("evalN").value, out = $("evalOut"), btn = $("btnEval"), want = productId() + "|" + factoryId();
+    var check = newCheckId(), seen = [], results = [], note = "", model = "", prompt = "", neurons = 0;
+    btn.disabled = true; out.textContent = "";
+    var prog = el("p", { "class": "small muted", text: "Checking the first clauses…" }); out.appendChild(prog);
+    function finish() {
+      btn.disabled = false;
+      if (want !== productId() + "|" + factoryId()) return;
+      drawEval(results, note, model, prompt, neurons); loadEvalHistory();
+    }
+    function step() {
+      var n = Math.min(5, total - results.length);
+      if (n <= 0) return finish();
+      Api.aiEval(Hub.token(), { productId: productId(), factoryId: factoryId(), check: check, n: n, seen: seen }).then(function (r) {
+        r.results.forEach(function (x) { results.push(x); seen.push(x.id); });
+        note = r.model_note || note; model = r.model || model; prompt = r.prompt_version || prompt; neurons += r.neurons || 0;
+        prog.textContent = "Checked " + results.length + " of " + total + "…";
+        if (r.stopped) { note = r.stopped; return finish(); }
+        if (!r.results.length || r.remaining <= 0) return finish();
+        step();
+      }, function (err) { btn.disabled = false; out.textContent = ""; out.appendChild(el("div", { "class": "notice error", text: err.message })); });
+    }
+    step();
+  });
+  function drawEval(results, note, model, prompt, neurons) {
+    var out = $("evalOut"); out.textContent = "";
+    if (!results.length) { out.appendChild(el("div", { "class": "notice", text: note || "Nothing to check: the library of this factory has no answered clauses yet." })); return; }
+    var agree = results.filter(function (x) { return x.verdict === "agree"; }), differ = results.filter(function (x) { return x.verdict === "differ"; }),
+        left = results.filter(function (x) { return x.verdict === "left"; });
+    out.appendChild(el("div", { "class": "eval-sum" }, [
+      el("span", { "class": "big", text: pct(agree.length, results.length) }),
+      el("span", { text: "agrees with people on " + agree.length + " of " + results.length + " clauses · differs on " + differ.length + " · left for a person " + left.length }),
+      el("span", { "class": "small muted", text: "Model " + modelName(model) + " · prompt " + (prompt || "-") + " · about " + Math.round(neurons) + " neurons" })]));
+    if (note) out.appendChild(el("div", { "class": "notice warn", text: note }));
+    function rows(list, title, open) {
+      if (!list.length) return;
+      var d = el("details", { "class": "try-prompt" }, [el("summary", { text: title + " (" + list.length + ")" })]);
+      if (open) d.open = true;
+      list.forEach(function (x) {
+        d.appendChild(el("div", { "class": "eval-row" }, [
+          el("div", { "class": "small muted", text: (x.part ? "Part " + x.part + " · " : "") + (x.section || "no section") + (x.sr ? " · " + x.sr : "") }),
+          el("div", { text: x.spec }),
+          el("div", { "class": "who" }, [
+            el("span", {}, [el("b", { text: "People: " }), x.person.compliance + (x.person.remarks ? " | " + x.person.remarks : "")]),
+            el("span", {}, [el("b", { text: "AI: " }), x.ai ? x.ai.compliance + (x.ai.remarks ? " | " + x.ai.remarks : "") + " (" + x.ai.confidence + ", " + (SOURCE[x.ai.source] || x.ai.source) + ")" : "left for a person"])]),
+          el("div", { "class": "small muted", text: x.ai ? x.ai.reason : x.why })]));
+      });
+      out.appendChild(d);
+    }
+    rows(differ, "Where the AI differs from people: correct these in a rule, an AI note or a knowledge branch", true);
+    rows(left, "Left for a person: nothing on file supports an answer", false);
+    rows(agree, "Where the AI agrees", false);
+  }
+  function loadEvalHistory() {
+    var host = $("evalHistory"), want = productId() + "|" + factoryId();
+    loadEvalHistory.scope = want;
+    if (!factoryId()) { host.textContent = ""; return; }
+    Api.aiEvalHistory(Hub.token(), { productId: productId(), factoryId: factoryId() }).then(function (r) {
+      if (loadEvalHistory.scope !== want) return;
+      host.textContent = "";
+      if (!r.checks.length) return;
+      host.appendChild(el("p", { "class": "small", style: "font-weight:650;margin:4px 0", text: "Earlier checks" }));
+      host.appendChild(el("div", { "class": "table-wrap" }, [el("table", { "class": "table q-table" }, [
+        el("thead", {}, [el("tr", {}, ["When", "Model", "Prompt", "Clauses", "Agrees", "Left for a person"].map(function (h) { return el("th", { text: h }); }))]),
+        el("tbody", {}, r.checks.map(function (c) {
+          return el("tr", {}, [el("td", { style: "white-space:nowrap", text: Hub.date(c.at, true) }), el("td", { style: "white-space:nowrap", text: modelName(c.model) }), el("td", { style: "white-space:nowrap", text: c.prompt || "-" }),
+            el("td", { text: String(c.tested) }), el("td", { text: pct(c.agree, c.tested) }), el("td", { text: pct(c.left, c.tested) })]);
+        }))])]));
+    }, function () { host.textContent = ""; });
+  }
 
   var SOURCE = { datasheet: "Project datasheet", "library-similar": "Library (similar clause)", record: "Same clause earlier in the record", project: "Other projects", rule: "AI rules (map)", model: "AI model" };
   function loadQuality() {
