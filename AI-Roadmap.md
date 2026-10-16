@@ -60,6 +60,16 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, night (last) - the AHU rule book, and Facts (built)
+Owner: "upgrade the AHU AI rule book with the logic and rules of the walkthrough, based on Product Options and the specs."
+- `ai/template-ahu.ts`: 27 AHU rules (Part 1: fan selection, seismic design by others, submittals, contractor's
+  documents, QA and listings, delivery and site storage, extra materials, warranty; Part 2: manufacturer, casing and
+  panels with the EN 1886 scales, insulation, drain pans, doors and lights, fans (EC plug versus belt), motors, coils,
+  dampers, filters (MERV versus ISO 16890), energy recovery, controls, factory tests, options; Part 3: field tests,
+  manufacturer's service, training) and 13 facts (3 on, 10 to verify), plus the KSA defaults for a Riyadh rule book.
+- Facts are a new branch kind; an instruction rule no longer backs a product answer by itself.
+- Next: the owner verifies the facts in Maps; Check the AI before and after, on the Riyadh library.
+
 ### 16 Oct 2026, night (later) - the small model, and Check the AI (built)
 Owner: "8B should be more than enough for this simple task; focus on making it learn patterns." The neuron limit was
 hit because drafting ran on the 70B (about 80 neurons a clause, about 120 clauses a day free); v3 ran on the 8B.

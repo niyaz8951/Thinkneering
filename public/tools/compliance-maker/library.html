@@ -731,6 +731,10 @@
         var hit = /copied|answers it by itself|match/.test(st.result) && !/^No /.test(st.result);
         return el("li", { "class": hit ? "hit" : "" }, [el("b", { text: (k + 1) + ". " + st.step }), st.result]);
       })));
+      (res.facts || []).forEach(function (r) {
+        out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: "Fact: " + r.title }), " · found: " + r.matched.join(", ") + " · " + r.instruction.slice(0, 300),
+          el("div", { "class": "small muted", text: r.where })]));
+      });
       res.rules.forEach(function (r) {
         out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: r.title }), " · " + (r.matched.length ? "found: " + r.matched.join(", ") : "applies to every clause of its Part"),
           r.answer ? " · " + r.answer + (r.remark ? ": " + r.remark : "") : "", el("div", { "class": "small muted", text: r.where })]));

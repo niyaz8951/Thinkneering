@@ -213,7 +213,7 @@ describe("AI rules: routes", () => {
     expect(made.name).toBe("AI rules: AHU");
     let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     expect(got.all).toMatchObject({ id: made.id, name: "AI rules: AHU" });
-    expect(got.all.rules).toBe(9);                                              // the template's starter rules (with "Coordination by the contractor")
+    expect(got.all.rules).toBe(39);                                    // 9 for every product + 27 AHU rules + 3 verified AHU facts (template-ahu.ts)                                              // the template's starter rules (with "Coordination by the contractor")
     expect(got.all.direct).toBeGreaterThanOrEqual(4);
     expect(got.own).toBeNull();
     expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
@@ -467,7 +467,10 @@ describe("AI rule book and knowledge maps", () => {
     // an older rule book (no Instructions) gets the new parts with one press, its rules untouched
     await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND title IN ('Instructions', 'Decision steps', 'Learned')").bind(rb.id).run();
     expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).instructions).toBeNull();
-    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual(["Instructions", "Decision steps", "Learned"]);
+    // (a rule book made in Maps has no product yet: the AHU rules and facts come with the first update for AHU)
+    const firstUp = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added;
+    expect(firstUp.slice(0, 3)).toEqual(["Instructions", "Decision steps", "Learned"]);
+    expect(firstUp).toEqual(expect.arrayContaining(["Fans (added under Part 2 Products)", "Eurovent certification (fact added)", "Warranty period (fact added, to verify)"]));
     expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
     expect(await tops(rb.id)).toEqual(expect.arrayContaining(["Part 3 Execution", "Instructions", "Learned"]));
 

@@ -1,4 +1,4 @@
-# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16e
+# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16f
 
 Used by `ai_review_run` for a clause that is neither copied from a >= 0.90 library match nor answered by a site
 rule with a fixed answer. The text below is a copy of `systemPrompt()` / `userPrompt()`; the code is the source
@@ -15,6 +15,11 @@ rule, datasheet row or library answer). Sources strongest first: 1. AI rules for
 Hard rules: no number with a unit unless a source gives it (else "[value]", low); read a list item with its parent;
 the remark never repeats the answer; no hedging words; never mention datasheets, libraries, rules, notes or files;
 internal notes are never quoted; Part 1 / 3 usually Noted or In Contractor's Scope; "high" only with a direct source.
+
+## Facts versus instructions (draft-2026-10-16f, 16 Oct 2026 night)
+Facts of the rule book ([F]) are shown with the other sources. A rule [R] is an instruction: it backs an answer only
+when its Answer is that answer (or Not Comply when it says the item is not offered). When the only sources are
+instruction rules the prompt says "Facts on file for this clause: none ..."; a Part 2 clause in that state is not sent.
 
 ## Model and reply shape (draft-2026-10-16e, 16 Oct 2026 night)
 Model: `@cf/meta/llama-3.1-8b-instruct-fast` (small) unless the rule book says `AI model: large` or a model id.

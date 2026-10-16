@@ -144,3 +144,25 @@ A fine-tune of the small model (a LoRA adapter) is the step after this, when rul
 agreement and there are several hundred corrected or approved answers to train on. Training runs outside Cloudflare,
 so it is a decision for the owner and the company.
 
+## 9. Facts, and the AHU rule book
+A rule book now has a **Facts** branch next to the Parts. A fact is something true about the units, written as it may
+be quoted ("Daikin AHUs are Eurovent certified ..."), with a When line naming the clauses it is about. The AI cites
+facts ([F1]) for Comply, Comply with Remarks, Not Comply and Not Applicable. A rule under a Part is an instruction
+("state the offered insulation rather than Not Comply"): it tells the AI how to answer, but is never enough on its own
+for an answer about the product. A Part 2 clause with only instructions on file waits for a person.
+
+**Update from template** gives an AHU rule book:
+- 27 AHU rules from the Riyadh Metro walkthrough and the v3 AHU library. Fixed answers only for scope (seismic and
+  vibration-isolation design, contractor's documents, site storage, controls specified elsewhere, field tests); the
+  others say how to answer fans, motors, casing and EN 1886 classes, insulation, coils, filters, dampers, drain pans,
+  options, factory tests, submittals, warranty, spare parts, manufacturer's service and training.
+- 13 facts: Eurovent certification (ranges and classes), AHU datasheet contents and IOM manuals are on; AHRI coils,
+  AMCA, warranty period, factory acceptance test, spare parts, supervision, delivery and packing, insulation fire
+  rating, motor standards and manufacturing come in **to verify**: open the rule book in Maps, check each one, edit
+  it if needed and mark it verified. Until then the AI does not use it.
+- A Riyadh-only rule book gets the KSA defaults (Besta panels, AAF filters, ebm-papst / Yilida EC fans, controls,
+  filter bypass F9 / F7), to verify.
+
+Values that change per project or factory stay in the datasheet and Product Options: the rules tell the AI how to use
+them, the facts what is always true.
+

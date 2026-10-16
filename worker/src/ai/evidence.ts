@@ -357,7 +357,7 @@ export function notesFor(ctx: Context, x: RunRowFull): string[] {
 export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
   options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
-  similar: Similar[]; rules: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
+  similar: Similar[]; rules: RuleHit[]; facts: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
   sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
@@ -376,7 +376,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
     knowledge: knowledgeMatching(ctx.knowledge, x.spec_text, ctx.place.get(x.seq)?.section || ""),
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
-    rules: picked.rules, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
+    rules: picked.rules, facts: picked.facts, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
     sectionKind: kind, absent: ctx.absent.get(x.seq) || [], corrections: correctionsFor(ctx, x)
   };
 }

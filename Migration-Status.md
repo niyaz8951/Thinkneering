@@ -32,7 +32,7 @@ Last updated: 16 Oct 2026, late - site renamed Thinkneering Tools with the v3 la
 | files | `GET /api/file/<key>` | `api/files.ts` | done |
 | cron | Vectorize indexing (idle until VECTORS exists), nightly backup to R2 | `jobs.ts` | done, not yet run on a real account |
 
-134 Vitest tests green (`npm test`), 9 Playwright flows green and 7 skipped by device (`npm run test:e2e`, desktop + phone), 16 Oct 2026 night.
+140 Vitest tests green (`npm test`), 9 Playwright flows green and 7 skipped by device (`npm run test:e2e`, desktop + phone), 16 Oct 2026 night.
 
 ## Design brief (16 Oct 2026) - where we are
 
@@ -57,7 +57,9 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 ## Next pieces of work, in order
 
 0. Owner (16 Oct night push): `npm run deploy` (no migration, no secret), then Compliance review > AI rules > **Update from
-   template** once per product rule book, then **Check the AI** with 20 clauses to get the first agreement figure. Put factory capabilities in Product Options AI notes and verified knowledge-map
+   template** once per product rule book (the AHU one also gets the AHU rules and Facts), verify the facts marked "to
+   verify" in Maps that hold for your units, then **Check the AI** with 20 clauses to get the first agreement figure.
+   For Riyadh-only facts: Create from template under "Riyadh only" (or Update it) to get the KSA defaults to verify. Put factory capabilities in Product Options AI notes and verified knowledge-map
    branches: with strict mode on, a product clause is drafted only when something on file supports it.
 1. Owner: upload the 16 Oct AI rules files, `npx wrangler d1 migrations apply DB --remote`, `npx wrangler deploy`; upload
    `compliance-library-ahu-riyadh.xlsx` into AHU / Riyadh; load `starter-rules-ahu-riyadh.sql`; run AI review on one known spec.
@@ -75,6 +77,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 16 Oct 2026 (night, last): rule books have a Facts branch; an instruction rule is not a fact. The AHU rule book template holds the walkthrough's logic as rules and the v3 library's certifications and practice as facts (commercial ones to verify).
 - 16 Oct 2026 (night, later): drafting runs on the small model (`llama-3.1-8b-instruct-fast`), not the 70B: code compares and checks, the model only chooses from cited sources. A rule book can ask for `AI model: large`. Learning is measured with **Check the AI** (people's library answers replayed with the answer hidden). A LoRA fine-tune is a later decision.
 - 16 Oct 2026 (night): the AI answers about the product only from a source it cites (datasheet, Product Options, AI notes, knowledge maps, rules, library, corrections, earlier answers); otherwise the clause is left for a person. Strict is the default; the rule-book setting `Answer without a source: yes` relaxes it. People's corrections to AI drafts are shown to the model as sources for similar clauses. Template rules nobody edited are updated by **Update from template**; edited rules are never touched. No migration.
 

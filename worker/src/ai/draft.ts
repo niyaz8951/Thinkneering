@@ -28,7 +28,7 @@ import { groundRemarks, trimAnswerEcho, hedges } from "./guard";
 import { instructionsText, type Section } from "./map";
 import { SECTION_GUIDANCE, type SectionKind } from "./sections";
 
-export const PROMPT_VERSION = "draft-2026-10-16e";
+export const PROMPT_VERSION = "draft-2026-10-16f";
 export const RULE_VERSION = "rule-2026-10-16";
 
 export interface PastAnswerIn { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
@@ -70,6 +70,18 @@ export class NeedsSource extends NoFreeAnswer { constructor(why: string) { super
 
 /* The answers that state something about the product: they need a source the model cites. */
 export const NEEDS_SOURCE = ["Comply", "Comply with Remarks", "Not Comply", "Not Applicable"];
+
+/* What may back an answer about the product: a fact, a datasheet row, Product Options, an AI note, a knowledge branch,
+   a library or earlier answer, a correction, the clause's own rule - or a rule that gives that very answer. A rule
+   that only says how to answer ("compare the panel with the datasheet") is an instruction, not a fact: citing it
+   alone is not enough. */
+const NOT_OFFERED = /not comply|deviat|cannot|can not|not available|not offered|not possible/i;
+export function backs(e: EvItem, compliance?: string): boolean {
+  if (e.kind !== "R") return true;
+  if (e.answer) return compliance === undefined || e.answer === compliance;
+  // a rule that states something is not offered is a statement about the product (it backs Not Comply)
+  return (compliance === undefined || compliance === "Not Comply") && NOT_OFFERED.test(e.text);
+}
 
 /* Similarity from which an answered library clause is copied without asking the model. */
 export const COPY_AT = 0.9;
@@ -188,6 +200,7 @@ export function userPrompt(d: DraftInput): string {
   if (d.sectionKind) parts.push(`Kind of section (learned from ${d.sectionAnswers || 0} answers people gave in this section): ${d.sectionKind}. ${SECTION_GUIDANCE[d.sectionKind]}`);
   if ((d.absent || []).length) parts.push(`Not in this unit: the project's datasheet has no ${d.absent!.join(", ")} section. The selected unit may not include it. Do not answer Comply on configuration grounds: unless a library answer shows how such a clause is answered, set confidence "low" and say in the reason which section is missing (whether to offer it is a commercial question).`);
   if (!ev.length) parts.push(`Sources on file for this clause: none. Only "Noted" or "In Contractor's Scope" (citing "I") can be answered without a source; otherwise reply with an empty compliance.`);
+  else if (!ev.some((e) => backs(e))) parts.push(`Facts on file for this clause: none. The rules [R] below are instructions on how to answer, not facts about the product: they can support "Noted" or "In Contractor's Scope", or the answer a rule names; for anything else reply with an empty compliance.`);
   parts.push(block("AI rules for this clause (library team, follow them)", of("C")));
   if (own.note) parts.push(`Internal note for this clause (library team, guidance, never quote it): ${own.note}`);
   parts.push(block("Site rules that apply to this clause", of("R")));
@@ -222,6 +235,10 @@ function checkReply(text: string, ev: EvItem[], strict: boolean): Checked {
   if (!compliance) return { ok: false, why: `"${raw.slice(0, 40)}" is not one of the six answers` };
   if (strict && NEEDS_SOURCE.includes(compliance) && !cited.length)
     return { ok: false, noSource: true, why: `"${compliance}" cites no source id from the message (${ev.length ? ev.map((e) => e.id).join(", ") : "there is none"})` };
+  if (strict && NEEDS_SOURCE.includes(compliance) && !cited.some((e) => backs(e, compliance))) {
+    const facts = ev.filter((e) => backs(e, compliance)).map((e) => e.id);
+    return { ok: false, noSource: true, why: `"${compliance}" cites only instruction rules (${cited.map((e) => e.id).join(", ")}), which are not facts about the product (${facts.length ? "facts on file: " + facts.join(", ") : "no fact is on file"})` };
+  }
   return { ok: true, j, compliance, cited, declined: false };
 }
 
@@ -284,11 +301,14 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
     throw new NoFreeAnswer("The model is off or today's AI budget is used up, and nothing free answers this clause.");
   }
 
-  // strict: a Part 2 clause with nothing on file is not sent to the model (it could only guess)
+  // strict: a Part 2 clause with no fact on file is not sent to the model (it could only guess); instruction rules
+  // alone are not facts
   const ev = evidenceOf(d);
   const strict = !d.unsourced;
-  if (strict && d.part === 2 && !ev.length && !d.datasheetDecision)
-    throw new NeedsSource("No source on file for this clause (no datasheet row, library answer, Product Options entry, AI note, map branch, rule or earlier answer). Left for a person.");
+  if (strict && d.part === 2 && !ev.some((e) => backs(e)) && !d.datasheetDecision)
+    throw new NeedsSource(ev.length
+      ? "No fact on file for this clause: only instructions apply (" + ev.map((e) => e.label).join("; ").slice(0, 200) + "), no datasheet row, Product Options entry, AI note, fact, map branch or library answer. Left for a person."
+      : "No source on file for this clause (no datasheet row, library answer, Product Options entry, AI note, map branch, rule or earlier answer). Left for a person.");
 
   // 6. the model, once more if its first reply cannot be used (not JSON, not one of the six, or no source cited)
   const sys = systemPrompt(d.product, d.factory, d.instructions), user = userPrompt(d);
@@ -323,7 +343,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
 
   if (compliance === "Not Comply") {
     const backed = cited.some((e) => ["D", "O"].includes(e.kind) || e.answer === "Not Comply" ||
-      (["R", "C", "N", "K", "F"].includes(e.kind) && /not comply|deviat|cannot|can not|not available|not offered|not possible/i.test(e.text)));
+      (["R", "C", "N", "K", "F"].includes(e.kind) && NOT_OFFERED.test(e.text)));
     if (!backed) throw new Error("The model said Not Comply with no rule, datasheet row, library answer or Product Options entry behind it; answer this clause yourself.");
   }
 

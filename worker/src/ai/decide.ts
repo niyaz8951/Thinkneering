@@ -33,7 +33,7 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
   const sheetOn = s.useDatasheet, optOn = s.useOptions, recOn = s.useRecord;
   return {
     clause: x.spec_text, sr: x.sr, part: ev.part, section: ev.section, parent: ev.parent, product: ctx.run.product, factory: ctx.run.factory,
-    similar: ev.similar, comments: x.l_comments || "", rules: ev.rules,
+    similar: ev.similar, comments: x.l_comments || "", rules: ev.rules, facts: ev.facts,
     datasheet: sheetOn ? ev.sheet.map((h) => ({ label: h.label, value: h.value, key: h.key })) : [], units: sheetOn ? ctx.columns : [],
     datasheetDecision: sheetOn && cmp ? { compliance: cmp.compliance, remarks: cmp.remarks, reason: cmp.reason, keys: cmp.rows.map((r) => r.key), confidence: cmp.confidence } : null,
     conflict: sheetOn && s.datasheetWins ? ev.conflict : "",

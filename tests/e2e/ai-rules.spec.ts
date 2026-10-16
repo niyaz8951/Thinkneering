@@ -50,7 +50,7 @@ test.describe("AI", () => {
     await page.selectOption("#tryPart", "3");
     await page.click("#btnTry");
     await expect(page.locator("#tryOut")).toContainText("answers it by itself");
-    await expect(page.locator("#tryOut .step-list li")).toHaveCount(6);
+    await expect(page.locator("#tryOut .step-list li")).toHaveCount(7);
     await page.locator("#tryOut .try-prompt summary").click();
     await expect(page.locator("#tryOut .try-prompt")).toContainText("SCOPE OF SUPPLY");
 
