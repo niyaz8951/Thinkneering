@@ -18,7 +18,7 @@ For each clause, the first step that settles it wins:
 
 | # | Source | What happens | Model? |
 |---|---|---|---|
-| 1 | **Project datasheet** (Datasheet Notes saved in the project) | The same rows as the blue chips. A number in the clause ("minimum 50 mm", "not exceeding 2.5 m/s") is compared by code with the chip next to it in the same unit: met = **Comply**; asked without min/max and different = **Comply with Remarks**; a min/max not met = **Not Comply**. The remark is the datasheet value (the row's Response template filled in). | No |
+| 1 | **Project datasheet** (Datasheet Notes saved in the project) | The same rows as the blue chips. A number in the clause ("minimum 50 mm", "not exceeding 2.5 m/s") is compared by code with the chip next to it, converted to the clause's unit (l/s and cfm, Pa and in. wg, kW and TR ...): met = **Comply**; asked without min/max and different = **Comply with Remarks**, and the reason says whether the offer is better or worse for that property (a worse one is low confidence); a min/max not met = **Not Comply**. A class (EN 1886 TB / T / D / L, filter class) is a minimum on its scale: TB1 is best, F9 is better than F7. The remark is the datasheet value (the row's Response template filled in). Not used in a section people answer as site works or as standards (learned from the library, 5 answers or more). | No |
 | 2 | **Library** (Compliance review) | A clause at or above the copy threshold (Settings, default 90% similar) is copied. A library answer this project's datasheet contradicts is **reopened**: the datasheet wins, as a blue draft that names both values. | No |
 | 3 | **Same clause earlier in this record** | Proposed again: "Same clause as your answer to 1.04 H". | No |
 | 4 | **AI rule with Answer + Remark** (the AI maps) | Applied as written. | No |
@@ -84,3 +84,11 @@ what step 1 compares. A chip that keeps landing on the wrong clause is fixed the
 - The Free plan allows about 10 ms of work per request. The heavy parts (chip match, library index) are kept between
   requests; if the site ever shows "Worker exceeded resource limits" (error 1102) on large records, the Workers Paid
   plan (USD 5 a month) lifts it.
+
+## 6. Learned without being told (16 Oct 2026, from Thinkneering v3)
+- **What kind of section a clause is in**: from the answers people gave in the library, per section title. Mostly
+  "In Contractor's Scope" = site works; a standards / quality / submittals section citing standards = reference; the
+  rest = product. Needs 5 answered clauses; the AI is told the kind, and a site-works or reference section is never
+  answered from a datasheet figure.
+- **What this unit does not have**: when a clause is about a section the project's datasheet does not contain (a heat
+  wheel on a unit without one), the AI is told so and a Comply is shown as low confidence for a person to decide.
