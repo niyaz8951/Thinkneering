@@ -21,7 +21,7 @@ import { prProject, prLogHourly } from "../lib/project";
 import { placeRows, CHOICES } from "../lib/cm";
 import { all, now, uuid, int, bool, batched, str, trimmed, isObject } from "../lib/sql";
 import type { RunRow } from "./cm";
-import { aiAvailable, NOT_AVAILABLE, type AiUsage } from "../ai/models";
+import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, type AiUsage } from "../ai/models";
 import { ClauseSearch } from "../ai/search";
 import { draftAnswer, standardChoice } from "../ai/draft";
 import { pickRules, pickDatasheetRows, datasheetFields, parentOf, directRule, splitComments, type AiRule, type DatasheetField } from "../ai/rules";
@@ -197,6 +197,22 @@ export const routes: Routes = {
   },
 
 
+  /* One tiny model call (a few neurons) before a review starts, so a missing binding, a broken gateway or a
+     used-up allowance is said in plain words before 500 clauses are tried. */
+  async ai_check(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    s.requirePrAdmin();
+    if (!aiAvailable(env)) return { ok: true, working: false, message: NOT_AVAILABLE };
+    const t0 = Date.now();
+    try {
+      const out = await complete(env, MODELS.draft, "Reply with the single word OK.", "Are you there?", undefined, 5);
+      return { ok: true, working: true, model: MODELS.draft, ms: Date.now() - t0, reply: out.slice(0, 20) };
+    } catch (e) {
+      console.error("ai_check", e);
+      return { ok: true, working: false, model: MODELS.draft, message: aiErrorText(e).text };
+    }
+  },
+
   async ai_review_status(env, p) {
     const s = await sessionUser(env, p.p_token);
     const r = await runForAdmin(env, s, p.p_run_id);
@@ -211,7 +227,9 @@ export const routes: Routes = {
     // the page passes `since` back on every call of one review, so re-drafted rows are not drafted again
     const since = /^\d{4}-\d{2}-\d{2}T/.test(String(p.p_since || "")) ? String(p.p_since) : now();
     const rows = await rowsOf(env, r.id);
-    const todo = rows.filter((x) => open(x, replace, since));
+    // clauses that already failed in this review are not tried again in it (the page passes them back)
+    const skip = new Set((Array.isArray(p.p_skip) ? p.p_skip : []).slice(0, 2000).map((v) => Number(v)));
+    const todo = rows.filter((x) => open(x, replace, since) && !skip.has(x.seq));
     const batch = todo.slice(0, limit);
     const place = placeRows(rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text })));
     const usage: AiUsage = { prompt: 0, completion: 0 };
@@ -222,8 +240,8 @@ export const routes: Routes = {
     const siteRules = batch.length ? await rulesFor(env, r.product_id, r.factory_id) : [];
     const sheet = batch.length ? await datasheetOf(env, r.project_id!, r.product_id) : { fields: [], units: [] };
     const specRows = rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text }));
-    let drafted = 0, copied = 0, ruled = 0, failed = 0;
-    const errors: string[] = [];
+    let drafted = 0, copied = 0, ruled = 0, failed = 0, stopped = "";
+    const errors: string[] = [], failedSeqs: number[] = [];
     const stmts: D1PreparedStatement[] = [];
     for (const x of batch) {
       try {
@@ -246,16 +264,21 @@ export const routes: Routes = {
         stmts.push(env.DB.prepare(`UPDATE cm_run_lines SET compliance = ?, remarks = ?, answered_by = NULL, answered_at = ?, review = '', reviewed_by = NULL, reviewed_at = NULL, ai_draft = 1
                                    WHERE ${guard}`).bind(d.compliance.slice(0, 200), d.remarks.slice(0, 4000), at, r.id, x.seq, x.line_id));
       } catch (e) {
-        failed++;
-        if (errors.length < 3) errors.push(`${x.sr || "row " + x.seq}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200));
+        failed++; failedSeqs.push(x.seq);
+        const why = aiErrorText(e);
+        console.error("ai_review_run clause " + x.seq, e);
+        // the model cannot be reached or today's allowance is gone: the other clauses would fail the same way
+        if (why.stop) { stopped = why.text; break; }
+        if (errors.length < 3) errors.push(`${x.sr || "row " + x.seq}: ${why.text}`.slice(0, 240));
       }
     }
     if (stmts.length) await batched(env.DB, stmts);
     if (drafted + copied + ruled) await prLogHourly(env, r.project_id!, s.id, "AI drafts added", r.file_name || "pasted text");
-    await audit(env, s.id, "ai_review_run", r.id, "", { drafted, copied, ruled, failed, rules: siteRules.length, datasheet_rows: sheet.fields.length, prompt_tokens: usage.prompt, completion_tokens: usage.completion, errors });
+    await audit(env, s.id, "ai_review_run", r.id, "", { drafted, copied, ruled, failed, stopped, rules: siteRules.length, datasheet_rows: sheet.fields.length, prompt_tokens: usage.prompt, completion_tokens: usage.completion, errors });
     // clauses the model could not draft are reported, not retried in this loop (a later click tries them again)
     const remaining = todo.length - batch.length;
-    return { ok: true, done: batch.length - failed, drafted, copied, ruled, failed, remaining, errors, since,
+    const tried = drafted + copied + ruled + failed;
+    return { ok: true, done: drafted + copied + ruled, drafted, copied, ruled, failed, remaining: stopped ? todo.length - tried + failed : remaining, errors, failed_seqs: failedSeqs, since, stopped,
              ...counts(await rowsOf(env, r.id)) };
   },
 

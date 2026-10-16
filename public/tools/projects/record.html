@@ -591,26 +591,82 @@
     else ask = Hub.confirm("The AI drafts an answer for the " + open + (open === 1 ? " clause" : " clauses") + " that show no answer yet, from the company library for this factory and the model. Drafts are marked in blue; nothing goes to the library until a person checks them. Answers already given are never changed.", { title: "Draft answers with AI?", ok: "Start" });
     ask.then(function (yes) {
       if (!yes) return;
-      aiBusy = true; $("rc-ai").disabled = true; $("rc-ai-clear").disabled = true;
-      var done = 0, failed = 0, firstError = "", since = null;
+      aiRun(replace, n);
+    });
+  }
+
+  /* The review runs inside a window that holds the screen until it is over and the person presses OK:
+     nothing else can be changed on the record meanwhile (a person's edit would race the drafts). It checks
+     the AI first with one tiny call, then drafts in batches of 10, and says plainly why it stopped. */
+  function aiRun(replace, n) {
+    aiBusy = true; $("rc-ai").disabled = true; $("rc-ai-clear").disabled = true;
+    var stop = false, done = 0, drafted = 0, copied = 0, ruled = 0, failed = 0, errors = [], skip = [], since = null, t0 = Date.now();
+    var title = el("h2", { text: "AI review" });
+    var status = el("p", { text: "Checking the AI connection…" });
+    var bar = el("div", { "class": "meter2", style: "height:8px" }, [el("i", { "class": "ai" })]);
+    var counts = el("p", { "class": "hub-sheet-hint", text: "" });
+    var note = el("div", { "class": "notice", hidden: true, style: "white-space:pre-line" });
+    var btnStop = el("button", { type: "button", "class": "btn ghost", text: "Stop" });
+    var btnOk = el("button", { type: "button", "class": "btn", text: "OK", hidden: true });
+    var box = el("div", { "class": "hub-sheet", role: "alertdialog", "aria-modal": "true", "aria-label": "AI review", "aria-live": "polite" },
+      [title, status, bar, counts, note, el("div", { "class": "hub-sheet-actions" }, [btnStop, btnOk])]);
+    var back = el("div", { "class": "hub-sheet-back" }, [box]);
+    // no Esc, no click outside, no drag: only OK closes it
+    function swallow(e) { if (e.key === "Escape" || e.key === "Tab" && !box.contains(e.target)) { e.preventDefault(); e.stopPropagation(); } }
+    function leaving(e) { e.preventDefault(); e.returnValue = ""; }
+    document.addEventListener("keydown", swallow, true);
+    window.addEventListener("beforeunload", leaving);
+    document.body.appendChild(back);
+    btnStop.focus();
+    btnStop.addEventListener("click", function () { stop = true; btnStop.disabled = true; btnStop.textContent = "Stopping after this batch…"; });
+    btnOk.addEventListener("click", function () {
+      document.removeEventListener("keydown", swallow, true);
+      back.remove();
+      aiBusy = false; $("rc-ai").disabled = false; $("rc-ai-clear").disabled = false;
+      reload();
+    });
+    function paint() {
+      bar.firstChild.style.width = (n ? Math.min(100, Math.round(done / n * 100)) : 0) + "%";
+      var parts = [];
+      if (copied) parts.push(copied + " from similar library clauses");
+      if (ruled) parts.push(ruled + " by AI rules");
+      if (drafted) parts.push(drafted + " by the AI");
+      if (failed) parts.push(failed + " could not be drafted (left empty)");
+      counts.textContent = parts.join(" · ");
+    }
+    function finish(headline, message, kind) {
+      window.removeEventListener("beforeunload", leaving);
+      title.textContent = headline;
+      var mins = Math.round((Date.now() - t0) / 60000);
+      status.textContent = done + " of " + n + (n === 1 ? " clause" : " clauses") + " drafted" + (mins ? " in about " + mins + (mins === 1 ? " minute" : " minutes") : "") + ". Drafts are blue on the record: check them before sending.";
+      if (message) { note.textContent = message; note.className = "notice" + (kind ? " " + kind : ""); note.hidden = false; }
+      paint();
+      btnStop.hidden = true; btnOk.hidden = false; btnOk.focus();
+    }
+    Api.aiCheck(Hub.token()).then(function (c) {
+      if (!c.working) { finish("AI review could not start", c.message || "The AI did not answer.", "error"); return; }
       function step() {
-        aiProgress("AI review: " + done + " of " + n + " drafted…");
-        return Api.aiReviewRun(Hub.token(), { run: runId, limit: 10, replace: replace, since: since }).then(function (res) {
+        status.textContent = "Drafting… " + done + " of " + n + (n === 1 ? " clause" : " clauses") + ". Keep this page open.";
+        paint();
+        return Api.aiReviewRun(Hub.token(), { run: runId, limit: 10, replace: replace, since: since, skip: skip }).then(function (res) {
           since = res.since || since; done += res.done || 0; failed += res.failed || 0;
-          if (!firstError && res.errors && res.errors.length) firstError = res.errors[0];
-          if (res.remaining > 0 && (res.done || 0) > 0) return step();
+          skip = skip.concat(res.failed_seqs || []);
+          drafted += res.drafted || 0; copied += res.copied || 0; ruled += res.ruled || 0;
+          (res.errors || []).forEach(function (x) { if (errors.length < 3) errors.push(x); });
+          if (res.stopped) return { why: res.stopped };
+          if (stop) return { why: "Stopped by you. Press AI review again to go on with the rest." };
+          if (res.remaining > 0) return step();            // failed clauses are skipped next time, so this ends
+          return null;
         });
       }
-      step().then(function () {
-        aiBusy = false; $("rc-ai").disabled = false; $("rc-ai-clear").disabled = false;
-        Hub.toast(done + (done === 1 ? " answer" : " answers") + " drafted" + (failed ? ", " + failed + " could not be drafted" : "") + ".");
-        if (firstError) $("rc-sheet-note").textContent = "AI review: " + (failed === 1 ? "one clause" : failed + " clauses") + " could not be drafted (" + firstError + "). Press AI review again to try them once more.";
-        return reload();
-      }, function (err) {
-        aiBusy = false; $("rc-ai").disabled = false; $("rc-ai-clear").disabled = false;
-        Hub.tell((err && err.message) || "The AI review stopped.", { title: "AI review stopped" });
-        return reload();
+      return step().then(function (end) {
+        var detail = errors.length ? "Not drafted, for example:\n" + errors.join("\n") : "";
+        if (end) finish(done ? "AI review stopped" : "AI review could not draft", end.why + (detail ? "\n\n" + detail : ""), done ? "warn" : "error");
+        else if (!done && failed) finish("AI review could not draft", detail, "error");
+        else finish("AI review finished", detail || "", detail ? "warn" : "ok");
       });
+    })["catch"](function (err) {
+      finish("AI review stopped", (err && err.message) || "The AI review stopped.", "error");
     });
   }
   function aiClear() {

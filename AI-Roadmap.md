@@ -84,6 +84,10 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 - Library hygiene found (for Feature D): datasheet lines that became section names ("kW - 6.8 A Power - Nominal
   Current"), project-specific answers ("as per IFC schedule") in the company library, Internal Comments pasted on
   the wrong clause (AMCA 301 with the crating note).
+- Same day, after the first live try (no drafts, 0 neurons used): the review now runs in a window that holds the page
+  until OK, checks the AI first (`ai_check`), stops at once on a used-up allowance or a refused call with the reason
+  in words (`aiErrorText`), falls back from a missing AI Gateway to Workers AI directly, and skips clauses that failed
+  earlier in the same review (`p_skip`), so it always ends.
 - Open: golden set + `npm run eval:live`, the per-user daily cap, the 8 s timeout, the quality card (rest of Phase 3).
 
 ### 16 Oct 2026 - Design brief Phase 1 (no AI logic change)

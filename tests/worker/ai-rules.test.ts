@@ -288,3 +288,49 @@ describe("AI rules: routes", () => {
     expect(got.results.map((x) => x.compliance).sort()).toEqual(["", "Comply with Remarks", "EC external rotor motors", "In Contractor's Scope"]);
   });
 });
+
+describe("AI review: connection and allowance", () => {
+  beforeEach(async () => { await resetLogins(); });
+  afterEach(() => { delete (env as any).AI; delete (env as any).AI_GATEWAY_ID; });
+
+  it("ai_check says in plain words when the AI cannot be reached; plain users are refused", async () => {
+    const t = await login("admin");
+    (env as any).AI = { async run() { throw new Error("AiError: 4006: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan"); } };
+    const c = await ok("ai_check", { p_token: t });
+    expect(c).toMatchObject({ working: false });
+    expect(c.message).toMatch(/free Workers AI allowance for today is used up/);
+    (env as any).AI = fakeAi(() => "OK").ai;
+    expect(await ok("ai_check", { p_token: t })).toMatchObject({ working: true, reply: "OK" });
+    const sbu = await login("sbu");
+    expect(await refused("ai_check", { p_token: sbu })).toMatch(/Only an admin/);
+  });
+
+  it("a used-up allowance stops the batch at once; a broken gateway falls back to Workers AI; failed clauses are skipped", async () => {
+    const t = await login("admin");
+    const p = await ok("pr_save", { p_token: t, p_name: "Tower C", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
+    const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "pdf", p_file_name: "spec.pdf", p_lines: SPEC_LINES, p_project_id: p.id });
+    let calls = 0;
+    (env as any).AI = { async run() { calls++; throw new Error("4006: daily free allocation of 10,000 neurons used"); } };
+    const r = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
+    expect(r.stopped).toMatch(/allowance for today is used up/);
+    expect(calls).toBe(1);                                                     // not one call per clause
+    expect(r.remaining).toBe(4);
+    // the gateway does not exist: the call goes straight to Workers AI
+    (env as any).AI_GATEWAY_ID = "hub";
+    const seen: string[] = [];
+    (env as any).AI = { async run(_m: string, _i: any, opts?: any) {
+      if (opts && opts.gateway) { seen.push("gateway"); throw new Error("Gateway 'hub' not found"); }
+      seen.push("direct"); return { response: JSON.stringify({ compliance: "Noted", remarks: "", reason: "r", confidence: "low" }) };
+    } };
+    const r2 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 2 });
+    expect(r2).toMatchObject({ done: 2, failed: 0, stopped: "" });
+    expect(seen[0]).toBe("gateway");
+    expect(seen.slice(1).every((x) => x === "direct")).toBe(true);
+    // a clause that fails is reported and not tried again in the same review
+    (env as any).AI = fakeAi(() => "not json at all").ai;
+    const r3 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
+    expect(r3.failed).toBe(2);
+    const r4 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25, p_skip: r3.failed_seqs });
+    expect(r4).toMatchObject({ done: 0, failed: 0, remaining: 0 });
+  });
+});

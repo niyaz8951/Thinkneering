@@ -15,7 +15,21 @@ For the owner and the library admins. Plain words; the code is `worker/src/api/a
 
 ## 2. What one click does
 
-The page calls the server in batches (up to 25 clauses) until nothing is left. For each clause:
+A window opens and holds the page until the review is over and you press **OK** (Esc, a click outside or leaving
+the page do not close it; **Stop** ends it after the current batch). It first makes one tiny call to the AI
+(`ai_check`, a few neurons): if the AI cannot be reached or today's allowance is used up, it says so in plain words
+and nothing is tried. Then it drafts in batches of 10 and shows how many came from the library, from AI rules and
+from the AI, and which could not be drafted (those stay empty and are not tried again in the same review).
+
+**Allowance.** On the Workers Free plan Workers AI gives 10,000 neurons a day, about 140 clauses with the 70B model;
+it resets at 04:00 Dubai time. When it runs out the review stops at once and says so. Whole specifications need
+the Workers Paid plan (USD 5 a month; a 500-clause spec costs about USD 0.30).
+
+**AI Gateway.** Calls go through the gateway named in `AI_GATEWAY_ID` ("hub") so they are logged there. If that
+gateway does not exist or refuses the call, the Worker calls Workers AI directly instead (and says so in its log).
+Create the gateway in the dashboard (AI > AI Gateway > Create gateway, name `hub`) to see every call.
+
+For each clause:
 
 1. **Is it open?** Only clauses linked to a library line, with no person's answer and no library answer.
    A person's answer is never touched; the library is never written.

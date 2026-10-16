@@ -108,3 +108,13 @@ Workers Free: 100 k requests a day, 10 ms CPU a request (enough for the site; th
 which is not CPU), 50 subrequests a request (the AI review drafts 10 clauses a request for that reason: the page
 calls it again while there is work left). D1 Free: 5 GB, 100 k writes a day. Workers AI Free: 10 k neurons a day,
 about one 300-clause review. Paid ($5 a month) lifts all of these; see AI-Roadmap.md for the expected cost.
+
+## 8. AI review: connection and allowance (16 Oct 2026)
+
+- Workers AI needs nothing created; the Worker's `AI` binding is enough (Settings > Bindings shows it).
+- AI Gateway: AI > AI Gateway > Create gateway, name `hub` (the name in `wrangler.toml` `AI_GATEWAY_ID`). Without it
+  the Worker calls Workers AI directly; with it every call is logged and visible in the gateway's dashboard.
+- The review window checks the AI first and names the problem. To see the raw error: `npx wrangler tail --format pretty`
+  while pressing AI review (lines `ai_check`, `ai_review_run clause ...`).
+- Free plan: 10,000 neurons a day (about 140 clauses); Paid plan (USD 5 a month) for whole specifications.
+

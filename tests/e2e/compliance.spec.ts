@@ -96,6 +96,14 @@ test.describe("Compliance Maker on the new site", () => {
     await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered");
     await page.click("#rc-ai");
     await page.click(".hub-sheet button:has-text('Start')");
+    // the review runs in a window that holds the page until OK is pressed
+    const win = page.getByRole("alertdialog", { name: "AI review" });
+    await expect(win).toContainText("AI review finished", { timeout: 30000 });
+    await expect(win).toContainText("5 of 5 clauses drafted");
+    await page.keyboard.press("Escape");
+    await expect(win).toBeVisible();                                         // Esc does not close it
+    await win.getByRole("button", { name: "OK" }).click();
+    await expect(win).toBeHidden();
     await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered, 5 AI drafts to check", { timeout: 30000 });
     await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(5);
     await expect(page.locator("#rc-table tr.line.ai .state").first()).toContainText("AI draft, check it");
