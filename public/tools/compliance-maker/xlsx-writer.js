@@ -269,7 +269,8 @@
     if (r.auto.type === 'exact') return 'From library (exact match).';
     if (r.auto.type === 'fuzzy') return 'From library (' + Math.round((r.auto.score || 0) * 100) + '% similar).';
     if (r.auto.type === 'rule')  return 'Scope rule: site-execution clause.';
-    if (r.auto.type === 'ai')    return 'AI suggestion — verify against the selection.';
+    // an AI draft keeps its confidence and reason in the file: once downloaded, a low-confidence draft must still look different
+    if (r.auto.type === 'ai')    return 'AI draft' + (r.auto.confidence ? ' (' + r.auto.confidence + ' confidence)' : '') + ': ' + (r.auto.reason || 'verify against the selection.');
     if (r.auto.type === 'ai-guess') return r.auto.comments || 'WILD GUESS — NOT VERIFIED. CONFIRM BEFORE SENDING.';
     return '';
   }
@@ -411,7 +412,7 @@
       if (r.conflict && (r.compliance || r.remarks)) {
         fillStyle = 11; // conflict outranks everything — it demands review
       } else if (r.auto && (r.compliance || r.remarks)) {
-        fillStyle = r.auto.type === 'ai-guess' ? 20 : (r.auto.type === 'ai' ? 10 : 9);
+        fillStyle = r.auto.type === 'ai-guess' || (r.auto.type === 'ai' && r.auto.confidence === 'low') ? 20 : (r.auto.type === 'ai' ? 10 : 9);
       }
       var compCell = r.compliance
         ? inlineStrCell('D' + rowNum, fillStyle, r.compliance)

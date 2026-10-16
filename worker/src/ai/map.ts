@@ -17,6 +17,7 @@
      |-- Part 1 General | Part 2 Products | Part 3 Execution | Any Part
      |   |-- <rule>             title = name; notes = what the AI should do; special notes:
      |       |-- <rule>           When: words or phrases (the clause mentions one)
+     |                            Unless: words or phrases (the rule stays off a clause that mentions one)
      |                            Section: words or phrases (the section title mentions one)
      |                            Part: 1, 2 or 3 (for a rule outside a Part branch)
      |                            Answer: one of the six    Remark: the exact remark
@@ -32,10 +33,11 @@ import type { AiRule } from "./rules";
 
 export interface AiSettings {
   copyAt: number; useModel: boolean; budget: number; suggest: boolean; datasheetWins: boolean; projectAnswers: boolean;
+  unsourced: boolean;      // false (strict, the default): an answer that needs a source and cites none is not drafted
   // the decision steps (Decision steps branch; a step "to verify" = off)
   useDatasheet: boolean; useOptions: boolean; useKnowledge: boolean; useLibrary: boolean; useRecord: boolean; useRules: boolean;
 }
-export const DEFAULT_SETTINGS: AiSettings = { copyAt: 0.9, useModel: true, budget: 9000, suggest: true, datasheetWins: true, projectAnswers: true,
+export const DEFAULT_SETTINGS: AiSettings = { copyAt: 0.9, useModel: true, budget: 9000, suggest: true, datasheetWins: true, projectAnswers: true, unsourced: false,
   useDatasheet: true, useOptions: true, useKnowledge: true, useLibrary: true, useRecord: true, useRules: true };
 
 /* The decision steps, by what their title names (the order is fixed in draft.ts). */
@@ -60,7 +62,8 @@ const SETTINGS: { re: RegExp; set: (s: AiSettings, v: string) => boolean; line: 
   { re: /^daily (ai )?budget/i, set: (s, v) => { const n = parseInt(v.replace(/[^\d]/g, ""), 10); if (!(n >= 0)) return false; s.budget = n; return true; }, line: (s) => `Daily AI budget: ${s.budget} neurons` },
   { re: /^suggest in focus/i, set: (s, v) => { s.suggest = yes(v); return true; }, line: (s) => `Suggest in focus mode: ${s.suggest ? "yes" : "no"}` },
   { re: /^datasheet wins/i, set: (s, v) => { s.datasheetWins = yes(v); return true; }, line: (s) => `Datasheet wins over the library: ${s.datasheetWins ? "yes" : "no"}` },
-  { re: /^use answers from other projects/i, set: (s, v) => { s.projectAnswers = yes(v); return true; }, line: (s) => `Use answers from other projects: ${s.projectAnswers ? "yes" : "no"}` }
+  { re: /^use answers from other projects/i, set: (s, v) => { s.projectAnswers = yes(v); return true; }, line: (s) => `Use answers from other projects: ${s.projectAnswers ? "yes" : "no"}` },
+  { re: /^answer without a source/i, set: (s, v) => { s.unsourced = yes(v); return true; }, line: (s) => `Answer without a source: ${s.unsourced ? "yes" : "no"}` }
 ];
 function yes(v: string): boolean { return /^(y|yes|on|true|1)\b/i.test(v.trim()); }
 
@@ -142,10 +145,11 @@ export function parseMap(nodes: MapNode[], scope: string | null, label = "map"):
   const textOf = (n: MapNode, depth: number): string => [n.notes.trim(), ...(kids.get(n.id) || []).filter((c) => c.verified)
     .map((c) => (depth ? "- " : "") + c.title.trim() + (c.notes.trim() || (kids.get(c.id) || []).length ? ": " + textOf(c, depth + 1) : ""))].filter(Boolean).join("\n");
   let order = 0;
-  function walk(n: MapNode, part: number, when: string, section: string, path: string[]) {
+  function walk(n: MapNode, part: number, when: string, section: string, path: string[], unless = "") {
     if (!n.verified) return;
     const sp = specials(n);
     const w = field(sp, "when") ?? when, sec = field(sp, "section") ?? section;
+    const un = [unless, field(sp, "unless") ?? field(sp, "not when") ?? ""].filter(Boolean).join(", ");
     const pf = field(sp, "part");
     if (pf !== null) { const pn = partOf("part " + pf); if (pn === null) problems.push(`${label}: "${[...path, n.title].join(" › ")}": Part "${pf}" is not 1, 2 or 3.`); else part = pn; }
     const ansRaw = field(sp, "answer") || "", remark = field(sp, "remark") || "";
@@ -155,12 +159,12 @@ export function parseMap(nodes: MapNode[], scope: string | null, label = "map"):
     if (ansRaw && !answer) problems.push(`${label}: "${name}": Answer "${ansRaw}" is not one of the six answers (${CHOICES.join(", ")}).`);
     if (remark && !answer) problems.push(`${label}: "${name}" has a Remark but no Answer: the remark is only a hint for the AI.`);
     if (answer && remark && !w && !sec && part === 0) problems.push(`${label}: "${name}" would answer every clause of every Part by itself: add When or Section, or move it under a Part.`);
-    for (const l of sp) if (/^\s*[A-Za-z ]{3,20}:/.test(l) && !/^\s*(when|section|part|answer|remark|learned)\s*:/i.test(l)) problems.push(`${label}: "${name}": "${l.trim().slice(0, 40)}" is not When, Section, Part, Answer or Remark, so the AI does not read it.`);
+    for (const l of sp) if (/^\s*[A-Za-z ]{3,20}:/.test(l) && !/^\s*(when|unless|not when|section|part|answer|remark|learned)\s*:/i.test(l)) problems.push(`${label}: "${name}": "${l.trim().slice(0, 40)}" is not When, Unless, Section, Part, Answer or Remark, so the AI does not read it.`);
     if (n.notes.trim() || answer) {
-      rules.push({ id: n.id, product_id: "", factory_id: scope, kind: "rule", title: n.title, keywords: w, sections: sec, part,
+      rules.push({ id: n.id, product_id: "", factory_id: scope, kind: "rule", title: n.title, keywords: w, sections: sec, unless: un, part,
                    instruction: n.notes.trim(), answer, remark, active: 1, sort: order++, source: `${label} › ${name}` });
     }
-    for (const c of kids.get(n.id) || []) walk(c, part, w, sec, here);
+    for (const c of kids.get(n.id) || []) walk(c, part, w, sec, here, un);
   }
   for (const top of kids.get(root.id) || []) {
     const t = top.title.trim();
@@ -265,9 +269,9 @@ const STEP_SEEDS: Seed = { title: "Decision steps", notes: "What the AI goes thr
   { title: "5. Other projects", notes: "IF the same clause was answered in another project of this factory -> proposed, marked \"not yet approved\" (below the library)." },
   { title: "6. Product Options and AI notes", notes: "Values seen on this factory's datasheets, special options, notes and AI notes (Product Options > + AI note) for the rows of the clause, and AI notes that share telling words with it. They go to the model as facts it may quote." },
   { title: "7. Knowledge maps", notes: "The verified branches of the knowledge maps linked in Compliance review > AI rules (process or product understanding) that share telling words with the clause. They go to the model as facts it may quote. A branch \"to verify\" is not a fact yet and is left out." },
-  { title: "8. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, and writes the answer, the remark and the reason.", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons"] },
-  { title: "9. Checks (always on)", notes: "Code checks every model answer: one of the six answers (else one retry); a number with a unit no source gives becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." },
-  { title: "How to write a rule", notes: "Add a branch under a Part. Title = a name. Notes = what the AI should do, in a plain sentence. Special notes, one per line:\n  When: words or phrases, commas between (the clause mentions one; \"install\" also finds installation)\n  Section: words or phrases (the section title mentions one)\n  Answer: one of the six answers\n  Remark: the exact remark\nWith Answer and Remark the rule answers by itself. When and Section pass to the branches under it. Mark a branch \"to verify\" to switch it off. Compliance review > AI rules > Try a clause shows what applies and the exact text the AI reads." }
+  { title: "8. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [K1] knowledge branch, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person.", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons", "Answer without a source: no"] },
+  { title: "9. Checks (always on)", notes: "Code checks every model answer: one of the six answers (else one retry); Comply, Comply with Remarks, Not Comply and Not Applicable must cite at least one source id that was in the prompt (else one retry, then the clause waits for a person, unless Answer without a source is yes); a number with a unit must appear in a cited source, otherwise it becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." },
+  { title: "How to write a rule", notes: "Add a branch under a Part. Title = a name. Notes = what the AI should do, in a plain sentence. Special notes, one per line:\n  When: words or phrases, commas between (the clause mentions one; \"install\" also finds installation)\n  Unless: words or phrases (the rule stays off a clause that mentions one; passes to the branches under it)\n  Section: words or phrases (the section title mentions one)\n  Answer: one of the six answers\n  Remark: the exact remark\nWith Answer and Remark the rule answers by itself. When and Section pass to the branches under it. Mark a branch \"to verify\" to switch it off. Compliance review > AI rules > Try a clause shows what applies and the exact text the AI reads." }
 ] };
 
 const INSTRUCTION_SEEDS = (): Seed => ({ title: "Instructions", notes: "The AI's brief. The model reads every section below, in this order, before it answers a clause ({product} and {factory} are filled in). Edit a section to change how it answers; mark one \"to verify\" to leave it out. In a factory's map, a section with the same title replaces this one. The reply format and the six answers are fixed in the site.",
@@ -287,26 +291,52 @@ export function seedTree(product: string, factory: string | null): Seed[] {
     { title: "Settings", notes: "Change a value after the colon. The AI reads it within a minute.", special: ["Suggest in focus mode: yes", "Use answers from other projects: yes"] },
     { title: "Part 1 General", kids: [
       { title: "Reference standards", notes: "A line that only names a standard or a code is Noted. If it is a standard the units are certified or tested to (a rule, an AI note or the library says so), answer Comply.", special: ["Section: references, reference standards, codes and standards, applicable standards"] },
-      { title: "Scope statements", notes: "Statements of what the section covers or how it relates to other sections.", special: ["Section: section includes, related sections, related documents, summary, description of work", "Answer: Noted", "Remark: Noted."] }
+      { title: "Scope statements", notes: "Statements of what the section covers or how it relates to other sections. A clause in these sections that asks for something (shall, provide, select, a standard, a limit) is not a scope statement: the Unless line keeps the rule off it.", special: ["Section: section includes, related sections, related documents, summary, description of work", "Unless: shall, provide, select, must, submit, comply, standard, standards, equivalent, minimum, maximum, limit, limits, deviation", "Answer: Noted", "Remark: Noted."] },
+      { title: "Coordination by the contractor", notes: "Coordinating sizes, locations and layouts with other trades and with the building is the contractor's work.", special: ["When: coordinate size, coordinate layout, coordinate installation, coordinate location", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] }
     ] },
     { title: "Part 2 Products", kids: [
       { title: "Belt drives and VFDs", notes: "IF the unit has direct-driven EC plug fans (datasheet or Product Options): clauses about belts, sheaves, pulleys, belt guards, adjustable motor bases or a separate VFD are Not Applicable; say that direct-driven EC fans are provided. IF the selection has belt-driven fans, answer them normally.", special: ["When: belt, belts, sheave, pulley, belt guard, variable frequency, vfd, adjustable motor base"] },
       { title: "Project schedule values", notes: "Capacities, sizes, filter grades, heaters and power supply are selected to the project's equipment schedule: answer from the project datasheet; never copy another project's values.", special: ["When: as scheduled, equipment schedule, as indicated on, as shown on, scheduled capacity"] }
     ] },
     { title: "Part 3 Execution", kids: [
-      { title: "Site works", notes: "Installation and site connections are site works (Instructions > Scope of supply).", special: ["When: level and plumb, anchor bolt, field connection, field wiring, field piping, piping connection, connect piping, connect ductwork, rigging, hoisting, erection", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
-      { title: "Supplied items in installation clauses", notes: "Items the factory fits on the unit (filter gauges, lifting lugs, factory-installed parts) are answered on what is supplied, not on the verb \"install\": Comply when a source shows them; the site work in the same clause is by the contractor.", special: ["When: install, factory installed, factory mounted, touch-up, field paint"] }
+      { title: "Site works", notes: "Installation, site checks, start-up, cleaning and site connections are site works (Instructions > Scope of supply). A clause that asks for the manufacturer's representative or for factory-fitted items is not plain site work: the Unless line sends it to the model.", special: ["When: install, installation, examine, examination, level and plumb, anchor bolt, field connection, field wiring, field piping, piping connection, connect piping, connect ductwork, connect fan motors, rigging, hoisting, erection, start-up, startup, final checks, verify that, clean, cleaning, touch-up, adjust, adjusting, lubricate, balancing", "Unless: factory installed, factory-installed, factory mounted, factory fitted, lifting lug, manufacturer's representative, factory-authorized, factory authorized, factory-authorised, service representative, train, training", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
+      { title: "Supplied items in installation clauses", notes: "Items the factory fits on the unit (filter gauges, lifting lugs, factory-installed parts) are answered on what is supplied, not on the verb \"install\": Comply when a source shows them; the site work in the same clause is by the contractor.", special: ["When: factory installed, factory-installed, factory mounted, factory fitted, lifting lug, filter gauge, touch-up paint"] },
+      { title: "Concrete bases", notes: "Concrete bases, housekeeping pads and plinths are by the contractor. A product clause that only mentions the pad (the unit is self-supporting on it) is not about the base.", special: ["When: concrete base, housekeeping base, housekeeping pad, plinth", "Unless: self-supporting, self supporting, designed, factory", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] }
     ] },
     { title: "Any Part", kids: [
-      { title: "Unloading at site", notes: "Unloading and setting in place are site works.", special: ["When: unloading, offloading, unload the units, setting in place, set in place", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
-      { title: "Concrete bases", notes: "Concrete bases and plinths are by the contractor.", special: ["When: concrete base, housekeeping pad, plinth", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] }
+      { title: "Unloading at site", notes: "Unloading and setting in place are site works.", special: ["When: unloading, offloading, unload the units, setting in place, set in place", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] }
     ] },
     LEARNED_SEED
   ];
 }
 
+/* Template rules as earlier versions of the template wrote them. A branch that still holds exactly these special notes
+   was never edited by a person, so "Update from template" brings it to the current template (and moves it when the
+   template moved it); a branch someone changed is left as it is. Corrections of 16 Oct 2026 (Riyadh Metro AHU trace):
+   Scope statements answered requirements in SUMMARY; Concrete bases (Any Part) answered a Part 2 product clause;
+   Site works missed install / start-up / cleaning; Supplied items was shown on plain site work. */
+const SITE = "Remark: By Contractor / others. Daikin scope is supply of equipment.";
+const OLD_TEMPLATE: { title: string; special: string[]; notes?: string }[] = [
+  { title: "Scope statements", special: ["Section: section includes, related sections, related documents, summary, description of work", "Answer: Noted", "Remark: Noted."] },
+  { title: "Site works", special: ["When: level and plumb, anchor bolt, field connection, field wiring, field piping, piping connection, connect piping, connect ductwork, rigging, hoisting, erection", "Answer: In Contractor's Scope", SITE] },
+  { title: "Supplied items in installation clauses", special: ["When: install, factory installed, factory mounted, touch-up, field paint"] },
+  { title: "Concrete bases", special: ["When: concrete base, housekeeping pad, plinth", "Answer: In Contractor's Scope", SITE] },
+  { title: "8. AI model", special: ["Use the AI model: yes", "Daily AI budget: 9000 neurons"],
+    notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, and writes the answer, the remark and the reason." },
+  { title: "9. Checks (always on)", special: [],
+    notes: "Code checks every model answer: one of the six answers (else one retry); a number with a unit no source gives becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." }
+];
+
+/* What the current template holds, branch by branch, with the top branch each sits under. */
+function templateIndex(product: string): Map<string, { seed: Seed; top: string }> {
+  const out = new Map<string, { seed: Seed; top: string }>();
+  for (const top of seedTree(product, null)) for (const k of top.kids || []) out.set(k.title, { seed: k, top: top.title });
+  return out;
+}
+
 /* The branches of the template a linked map does not have yet (Instructions, Decision steps, Learned), added at the
-   top level without touching anything else: an older map gets the new parts with one press. */
+   top level without touching anything else; then the template rules no one edited are brought up to date and the
+   template's new rules are added under their Part. An older map gets the new parts with one press. */
 export async function upgradeAiMap(env: Env, userId: string, mapId: string, product: string, factory: string | null): Promise<string[]> {
   const tops = await all<{ title: string; sort: number }>(env.DB.prepare(
     "SELECT n.title, n.sort FROM mp_nodes n JOIN mp_nodes r ON r.id = n.parent_id AND r.parent_id IS NULL WHERE n.map_id = ?").bind(mapId));
@@ -317,16 +347,42 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
     (/^instructions/i.test(x.title) && !has(/^(instructions|prompt|rule ?book|brief)\b/i)) ||
     (/^decision steps/i.test(x.title) && !has(/^(decision steps|steps)\b/i)) ||
     (/^learned/i.test(x.title) && !has(/^learned\b/i)));
-  if (!want.length) return [];
-  const at = now(), stmts: D1PreparedStatement[] = [];
+  const at = now(), stmts: D1PreparedStatement[] = [], done: string[] = [];
   let sort = Math.min(0, ...tops.map((t) => t.sort)) - want.length;
-  for (const w of want) addSeed(env, stmts, mapId, root.id, w, /^learned/i.test(w.title) ? 1000 : sort++, userId, at);
+  for (const w of want) { addSeed(env, stmts, mapId, root.id, w, /^learned/i.test(w.title) ? 1000 : sort++, userId, at); done.push(w.title); }
   // the old documentation branch is replaced by Decision steps
   if (want.some((w) => /^decision steps/i.test(w.title)))
     stmts.push(env.DB.prepare("UPDATE mp_nodes SET verified = 0, notes = 'Replaced by Decision steps (you can delete this branch).' WHERE map_id = ? AND parent_id = ? AND title = 'How the AI decides'").bind(mapId, root.id));
+
+  // template rules: only in a map for every factory of the product (a factory's map starts with empty Parts)
+  if (!factory) {
+    const nodes = await all<MapNode>(env.DB.prepare("SELECT id, parent_id, title, notes, special, sort, verified FROM mp_nodes WHERE map_id = ?").bind(mapId));
+    const topId = new Map<string, string>();
+    for (const n of nodes) if (n.parent_id === root.id) topId.set(n.title.trim().toLowerCase(), n.id);
+    const index = templateIndex(product);
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, k) => x.trim() === b[k].trim());
+    for (const old of OLD_TEMPLATE) {
+      const n = nodes.find((x) => x.title.trim() === old.title && same(specials(x), old.special) && (old.notes === undefined || x.notes.trim() === old.notes));
+      const cur = index.get(old.title);
+      if (!n || !cur || (same(specials(n), cur.seed.special || []) && n.notes.trim() === (cur.seed.notes || "").trim())) continue;
+      const parent = topId.get(cur.top.toLowerCase()) || n.parent_id;
+      stmts.push(env.DB.prepare("UPDATE mp_nodes SET notes = ?, special = ?, parent_id = ?, updated_by = ?, updated_at = ? WHERE id = ?")
+        .bind((cur.seed.notes || "").slice(0, 8000), JSON.stringify(cur.seed.special || []), parent, userId, at, n.id));
+      done.push(`${old.title} (updated${parent !== n.parent_id ? ", moved to " + cur.top : ""})`);
+    }
+    // the template's rules the map has never had (by title, anywhere in the map), under their Part
+    for (const [title, cur] of index) {
+      if (!/^part|^any part/i.test(cur.top) || nodes.some((x) => x.title.trim() === title)) continue;
+      const parent = topId.get(cur.top.toLowerCase());
+      if (!parent) continue;
+      addSeed(env, stmts, mapId, parent, cur.seed, 50 + done.length, userId, at);
+      done.push(`${title} (added under ${cur.top})`);
+    }
+  }
+  if (!stmts.length) return [];
   stmts.push(env.DB.prepare("UPDATE mp_maps SET updated_by = ?, updated_at = ? WHERE id = ?").bind(userId, at, mapId));
   for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
-  return want.map((w) => w.title);
+  return done;
 }
 
 export function addSeed(env: Env, stmts: D1PreparedStatement[], mapId: string, parent: string, s: Seed, sort: number, userId: string | null, at: string, verified = 1): string {

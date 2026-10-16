@@ -14,9 +14,24 @@ function fakeAi(reply: (user: string) => Record<string, unknown> | string) {
     calls.push({ model, user });
     if (model.includes("bge")) return { data: [new Array(1024).fill(0.01)] };
     const r = reply(user);
+    // a model that keeps the contract cites the sources it was shown, unless the test says otherwise
+    if (typeof r === "object" && !("cites" in r)) (r as Record<string, unknown>).cites = [...user.matchAll(/\[([A-Z]\d+)\]/g)].map((m) => m[1]);
     return { response: typeof r === "string" ? r : "Here you go:\n```json\n" + JSON.stringify(r) + "\n```", usage: { prompt_tokens: 100, completion_tokens: 20 } };
   } };
   return { ai, calls };
+}
+
+/* A minimal AI rule book with "Answer without a source: yes": for the tests of the review's mechanics (batches,
+   failures, edits) on clauses that have nothing on file, which strict mode would leave for a person. */
+async function relaxed(token: string) {
+  const at = new Date().toISOString(), me = (await env.DB.prepare("SELECT user_id FROM app_sessions LIMIT 1").first<any>())?.user_id || null;
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES ('m-relaxed', 'Relaxed', 'private', 'rulebook', ?, ?, ?, ?)").bind(me, at, me, at),
+    env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-root', 'm-relaxed', NULL, 'Relaxed', '', '[]', 0, 1)"),
+    env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-set', 'm-relaxed', 'r-root', 'Settings', '', ?, 1, 1)").bind(JSON.stringify(["Answer without a source: yes"])),
+    env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES ('ahu', NULL, 'm-relaxed', 'rulebook', ?)").bind(me)
+  ]);
+  void token;
 }
 
 async function project(token: string) {
@@ -76,6 +91,11 @@ describe("AI review", () => {
       p_lines: [{ type: "letter", sr: "A.", spec: "Casing shall be double skin construction with 50 mm thick panels and thermal break profile." }] });
     const near = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text LIKE '%thermal break profile.'").first<any>();
     await ok("cm_admin_save_answer", { p_token: t, p_line_id: near.id, p_compliance: "Comply with Remarks", p_remarks: "50 mm panels, thermal break frame." });
+    // a related library answer (similar, not near-identical) is the source the model cites for the polyurethane clause
+    await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "third.txt",
+      p_lines: [{ type: "letter", sr: "C.", spec: "Panels shall be insulated with injected polyurethane foam." }] });
+    const pu = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text = 'Panels shall be insulated with injected polyurethane foam.'").first<any>();
+    await ok("cm_admin_save_answer", { p_token: t, p_line_id: pu.id, p_compliance: "Comply", p_remarks: "Injected PU foam panels." });
     // a person answered the SUMMARY clause in the project
     await ok("pr_run_save_line", { p_token: t, p_run_id: runId, p_seq: 2, p_compliance: "Noted", p_remarks: "" });
     const fake = fakeAi((user) => user.includes("polyurethane")
@@ -98,7 +118,7 @@ describe("AI review", () => {
     // the model wrote a density no source gives (the clause asks for 40 kg/m3; nothing says what the panel IS):
     // code took the number out and marked the draft low
     expect(by(6)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "Panels are injected with [value] PU foam." });
-    expect(by(6).ai.reason).toBe("Library answer 1 covers the panel insulation. Check: no source gives 42 kg/m3, check the value.");
+    expect(by(6).ai.reason).toMatch(/^Library answer 1 covers the panel insulation\. Used: library answer \(0\.\d\d\)\. Check: no cited source gives 42 kg\/m3, check the value\.$/);
     expect(by(6).ai.confidence).toBe("low");
     expect(by(2)).toMatchObject({ own: true, ai_draft: false, compliance: "Noted" });        // the person's answer was kept
     expect(by(9)).toMatchObject({ own: false, ai_draft: false, lib_compliance: "Comply" });   // the library's answer was kept
@@ -123,6 +143,7 @@ describe("AI review", () => {
 
   it("a person who edits a draft turns it into a project answer; keeping it accepts it; clear takes drafts off", async () => {
     const t = await login("admin");
+    await relaxed(t);
     const { runId } = await project(t);
     (env as any).AI = fakeAi(() => ({ compliance: "Comply", remarks: "Standard construction.", reason: "r", confidence: "low" })).ai;
     await ok("ai_review_run", { p_token: t, p_run_id: runId, p_limit: 25 });
@@ -147,6 +168,7 @@ describe("AI review", () => {
 
   it("a model that answers nonsense fails that clause only, and the loop ends", async () => {
     const t = await login("admin");
+    await relaxed(t);
     const { runId } = await project(t);
     (env as any).AI = fakeAi((u) => u.includes("Fans") ? "I cannot help with that." : { compliance: "Noted", remarks: "", reason: "r", confidence: "low" }).ai;
     const r = await ok("ai_review_run", { p_token: t, p_run_id: runId, p_limit: 25 });
@@ -161,6 +183,7 @@ describe("AI review", () => {
       similar: [{ id: "x", factory_id: "f", spec_text: "Panels shall be 50 mm.", compliance: "Comply", remarks: "50 mm PU", comments: "", status: "answered", section: "CASING", score: 0.8, how: "lexical" }] });
     expect(u).toMatch(/Part 2 Products \/ CASING, label B\./);
     expect(u).toMatch(/similarity 0.80\) Clause: Panels shall be 50 mm\./);
-    expect(u).toMatch(/Internal note for this clause \(library team\): Say 50 mm foam\./);
+    expect(u).toMatch(/Internal note for this clause \(library team, guidance, never quote it\): Say 50 mm foam\./);
+    expect(u).toMatch(/\[L1\] \(similarity 0\.80\)/);
   });
 });

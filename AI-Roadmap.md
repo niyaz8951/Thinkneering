@@ -60,6 +60,21 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, night - strict directions and learning from corrections (built)
+From the AHU_Specs walkthrough (`Compliance-AI-Walkthrough.md`, gaps G1-G16). Owner's aim: answers only from the
+factory's capabilities, the product datasheet and the maps; the AI follows strict directions and learns from mistakes.
+- **Citation contract**: every source has an id; a product answer (Comply, Comply with Remarks, Not Comply, Not
+  Applicable) must cite one or the clause is left for a person. Code checks the cites, the numbers against cited
+  sources only, the Not Comply backing and the high-confidence backing (standards A.13.5).
+- **Strict by default**: Part 2 clauses with nothing on file skip the model. `Answer without a source: yes` relaxes it.
+  This closes G5 (175 of 248 drafts were unsourced "Comply, low") and saves neurons (G7).
+- **Corrections as sources** `[M]`: people's edits to AI drafts, retrieved by similarity for the next clause.
+- **Rule exceptions** (`Unless:`), template rules corrected (G3, G8), **Update from template** button.
+- Fixed G1, G2, G4, G6, G9, G10, G11, G13. Open: G12 (section title row), G14 (library key with the parent),
+  G7 per-clause budget check. 18 new tests (`tests/worker/ai-strict.test.ts`).
+- Next: a "recheck past corrections" run (replay every corrected clause through the current rules and prompt and
+  count how many now come out as the person answered) as the measure of learning; then the golden set.
+
 ### 16 Oct 2026, late - Thinkneering v3 Compliance AI carried over (built)
 The owner supplied the discarded v3 site (Thinkneering_Final.zip); its design and its Compliance Maker AI are kept,
 nothing else. Most of v3's checks were already here (number grounding, echo trim, Not Comply needs a source, parent

@@ -35,6 +35,11 @@ export interface RunRowFull {
 export interface SheetHit { key: string; section: string; component: string; label: string; cells: string[]; value: string; entries: string[][] }
 export interface OptionInfo { values: string[]; specials: string[]; notes: string[]; ai: string[] }
 export interface PastAnswer { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
+/* A correction: what people answered instead of the AI on a clause (ai_feedback, edited or replaced). On a similar
+   clause the model is shown it as a source it may cite ([M1]): this is how the AI learns from its mistakes between
+   two reviews. The model itself never changes; what it is told does. */
+export interface Correction { spec: string; section: string; suggested: string; suggested_remarks: string; final: string; final_remarks: string; outcome: string; score: number }
+
 export interface Comparison { compliance: string; remarks: string; reason: string; rows: SheetHit[]; values: Measure[]; confidence: "high" | "medium" | "low" }
 
 export interface Context {
@@ -43,13 +48,30 @@ export interface Context {
   rules: AiRule[]; settings: AiSettings; instructions: Section[] | null; knowledge: KnowledgeIndexed[]; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
   projectIndex?: GramIndex<PastAnswer>; recordIndex?: GramIndex<RunRowFull>;
   kinds: Map<string, SectionInfo>;          // what kind of question each section asks (sections.ts)
+  corrections: Correction[];                 // what people changed in the AI's answers for this factory (newest 400)
+  correctionIndex?: GramIndex<Correction>;
   absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
 }
 
-const OPS_MIN = /(minimum|min\.?|not less than|no less than|at least|not lower than|shall exceed|greater than|more than|≥|>=)\s*$/i;
-const OPS_MAX = /(maximum|max\.?|not exceed(?:ing)?|not more than|no more than|not greater than|up to|less than|below|≤|<=|limited to)\s*$/i;
-const AFTER_MIN = /^\s*(or more|or greater|or higher|or above|minimum|min\b|or better)/i;
-const AFTER_MAX = /^\s*(or less|or lower|maximum|max\b|or below)/i;
+/* The operator a figure carries, from the words just before it (or just after: "50 mm or more").
+   Checked in this order, because the negative forms end with the positive words: "not more than 250 Pa" ends with
+   "more than", "not less than 50 mm" ends with "less than". Found on the Riyadh Metro AHU spec, 16 Oct 2026:
+   "not be greater than 229 mm" and "not to exceed 2.5 meters per second" were read wrongly before. */
+const NOT_LESS = /(?:not|never|no)\s+(?:be\s+)?(?:less|lower|fewer|smaller|thinner)\s+than\s*$/i;
+const OPS_MAX = /(?:maximum(?:\s+of)?|max\.?|at\s+most|up\s+to|limited\s+to|not\s+(?:to\s+|be\s+)?exceed(?:ing)?|(?:not|never|no)\s+(?:be\s+)?(?:more|greater|higher|larger|bigger|over)(?:\s+than)?|less\s+than|lower\s+than|below|under|≤|<=|=<)\s*$/i;
+const OPS_MIN = /(?:minimum(?:\s+of)?|min\.?|at\s+least|no\s+less\s+than|shall\s+exceed|exceeding|greater\s+than|more\s+than|higher\s+than|above|over|≥|>=|=>)\s*$/i;
+const AFTER_MIN = /^\s*(or more|or greater|or higher|or above|or better|minimum|min\b)/i;
+const AFTER_MAX = /^\s*(or less|or lower|or below|or smaller|maximum|max\b)/i;
+
+export function operatorOf(before: string, after: string): ">=" | "<=" | "=" {
+  const b = before.replace(/\s+/g, " ");
+  if (NOT_LESS.test(b)) return ">=";
+  if (OPS_MAX.test(b)) return "<=";
+  if (OPS_MIN.test(b)) return ">=";
+  if (AFTER_MIN.test(after)) return ">=";
+  if (AFTER_MAX.test(after)) return "<=";
+  return "=";
+}
 
 /* ---------- loading (once per request) ---------- */
 
@@ -57,7 +79,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const specRows = rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text }));
   const place = placeRows(specRows);
   type MapRow = MapRule & { row_key: string };
-  const [mapRes, notesRes, valRes, extraRes, projRes] = await env.DB.batch([
+  const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
     env.DB.prepare("SELECT row_key, section, sub, component, show, label, keywords, strip, response FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),
     env.DB.prepare("SELECT columns, file_key FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
     env.DB.prepare("SELECT row_key, value, times FROM po_values WHERE factory_id = ? AND hidden = 0 ORDER BY times DESC").bind(run.factory_id),
@@ -66,7 +88,12 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     env.DB.prepare(`SELECT rl.spec_text, rl.compliance, rl.remarks, rl.answered_by, rl.review, p.name AS project
                       FROM cm_run_lines rl JOIN cm_runs r ON r.id = rl.run_id LEFT JOIN pr_projects p ON p.id = r.project_id
                      WHERE r.factory_id = ? AND rl.run_id <> ? AND rl.ai_draft = 0 AND rl.line_id IS NOT NULL AND (rl.compliance <> '' OR rl.remarks <> '')
-                     ORDER BY rl.answered_at DESC LIMIT 400`).bind(run.factory_id, run.id)
+                     ORDER BY rl.answered_at DESC LIMIT 400`).bind(run.factory_id, run.id),
+    // the AI's answers people corrected (any record of this factory, newest first): shown on similar clauses
+    env.DB.prepare(`SELECT l.spec_text AS spec, f.section, f.suggested, f.suggested_remarks, f.final, f.final_remarks, f.outcome
+                      FROM ai_feedback f JOIN cm_lines l ON l.id = f.line_id
+                     WHERE f.factory_id = ? AND f.outcome IN ('edited', 'replaced') AND f.final <> ''
+                     ORDER BY f.created_at DESC LIMIT 400`).bind(run.factory_id)
   ]);
   const rules = (mapRes.results as unknown as MapRow[]).map((r) => ({ ...r, key: r.row_key }));
   // the project's saved datasheet tables of this product (R2)
@@ -130,7 +157,8 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
-           search: new ClauseSearch(env, usage), project, names, kinds, absent };
+           search: new ClauseSearch(env, usage), project, names, kinds, absent,
+           corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
 
 /* ---------- the match, worked out once per record ---------- */
@@ -171,26 +199,39 @@ function tokensWithPos(text: string): { w: string; at: number }[] {
 /* The requirement a number in the clause states: its operator from the words just before or after it. */
 export function requirements(clause: string): { m: Measure; op: ">=" | "<=" | "="; at: number }[] {
   const out: { m: Measure; op: ">=" | "<=" | "="; at: number }[] = [];
-  let from = 0;
+  let from = 0, prevEnd = -1;
   for (const m of measurements(clause)) {
     const at = clause.indexOf(m.raw, from); if (at < 0) continue; from = at + m.raw.length;
+    // "152 mm (6 inch)": the figure in brackets right after another is the same requirement in other units
+    const dup = prevEnd >= 0 && /^\s*\(\s*$/.test(clause.slice(prevEnd, at));
+    prevEnd = at + m.raw.length;
+    if (dup) continue;
     const before = clause.slice(Math.max(0, at - 40), at), after = clause.slice(at + m.raw.length, at + m.raw.length + 25);
-    const op = OPS_MIN.test(before) || AFTER_MIN.test(after) ? ">=" : OPS_MAX.test(before) || AFTER_MAX.test(after) ? "<=" : "=";
-    out.push({ m, op, at });
+    out.push({ m, op: operatorOf(before, after), at });
   }
   return out;
 }
 
 /* The datasheet rows tell this clause's number only when a word of the row's keywords stands near the number:
    "screw spacing not greater than 225 mm" is not answered by the panel skin thickness found in the same clause. */
-function near(clause: string, at: number, entries: string[][]): boolean {
+function near(clause: string, at: number, entries: string[][], subject = ""): boolean {
   const toks = tokensWithPos(clause);
   const k = toks.findIndex((t) => t.at >= at);
   if (k < 0) return false;
   const lo = Math.max(0, k - 8), hi = Math.min(toks.length, k + 8);
   const keys = entries.flat().filter((w) => w.length >= 3 && !/^\d/.test(w));
   for (let j = lo; j < hi; j++) if (keys.some((w) => toks[j].w.startsWith(w))) return true;
+  // a list item ("Thickness: 50 mm.") is about its parent's subject ("Insulation: ...")
+  if (subject) for (const t of tokensWithPos(subject)) if (keys.some((w) => t.w.startsWith(w))) return true;
   return false;
+}
+
+/* The subject of a parent clause: its label before the colon ("Insulation"), or its first words. */
+export function subjectOf(parent: string): string {
+  const p = String(parent || "").trim();
+  if (!p) return "";
+  const colon = p.indexOf(":");
+  return (colon > 0 && colon <= 60 ? p.slice(0, colon) : p.split(/\s+/).slice(0, 8).join(" ")).trim();
 }
 
 /* The clause's figures and classes against the datasheet rows next to it (Thinkneering v3 comparison, compare.ts):
@@ -200,7 +241,7 @@ function near(clause: string, at: number, entries: string[][]): boolean {
      low confidence, so a person looks at it before it goes out
    - a class (TB2, L1, D1, F7) is a minimum on its published scale: a better or equal class = Comply, a worse = Not Comply
    - figures in another unit are converted to the clause's (l/s and cfm, Pa and in. wg, kW and TR, °C and °F ...) */
-export function compareDatasheet(clause: string, hits: SheetHit[], columns: string[]): Comparison | null {
+export function compareDatasheet(clause: string, hits: SheetHit[], columns: string[], subject = ""): Comparison | null {
   const reqs = requirements(clause), classes = classRequirements(clause);
   if ((!reqs.length && !classes.length) || !hits.length) return null;
   const used: SheetHit[] = []; const vals: Measure[] = [];
@@ -208,7 +249,7 @@ export function compareDatasheet(clause: string, hits: SheetHit[], columns: stri
   const where = (h: SheetHit, unit: string, many: boolean) => many || columns.length > 1 ? unit : h.component;
   for (const r of reqs) {
     for (const h of hits) {
-      if (!near(clause, r.at, h.entries)) continue;
+      if (!near(clause, r.at, h.entries, subject)) continue;
       const perUnit = h.cells.map((c, i) => ({ unit: columns[i] || "unit " + (i + 1), got: comparable(c, r.m) })).filter((x) => x.got);
       if (!perUnit.length) continue;
       if (!used.includes(h)) used.push(h);
@@ -289,6 +330,15 @@ export function projectAnswers(ctx: Context, x: RunRowFull, k = 2): PastAnswer[]
   return ctx.projectIndex.search(x.spec_text, 0.5, k).map((h) => ({ ...h.item, score: h.score, by: ctx.names.get(h.item.by) || "" }));
 }
 
+/* Up to 3 corrections people made on clauses like this one (the most similar first). */
+export function correctionsFor(ctx: Context, x: RunRowFull, k = 3): Correction[] {
+  if (!ctx.corrections.length || cmNorm(x.spec_text).length < 12) return [];
+  if (!ctx.correctionIndex) ctx.correctionIndex = new GramIndex(ctx.corrections, (c) => c.spec);
+  const seen = new Set<string>();
+  return ctx.correctionIndex.search(x.spec_text, 0.55, k * 3).map((h) => ({ ...h.item, score: h.score }))
+    .filter((c) => { const key = cmNorm(c.spec) + "|" + c.final; if (seen.has(key)) return false; seen.add(key); return true; }).slice(0, k);
+}
+
 /* AI notes of the Options tree: those of the rows this clause matched, plus any whose words the clause shares. */
 export function notesFor(ctx: Context, x: RunRowFull): string[] {
   const own = ctx.options.get(x.seq)?.ai || [];
@@ -301,7 +351,7 @@ export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
   options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
-  sectionKind: SectionInfo | null; absent: string[];
+  sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
   const pl = ctx.place.get(x.seq) || { part: 0, section: "" };
@@ -309,7 +359,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   const kind = ctx.kinds.get(sectionKey(pl.section)) || null;
   // a site-works or standards section is not answered from a figure on the unit
   const sheet = kind && kind.kind !== "product" ? [] : ctx.sheet.get(x.seq) || [];
-  const cmp = compareDatasheet(x.spec_text, sheet, ctx.columns);
+  const cmp = compareDatasheet(x.spec_text, sheet, ctx.columns, subjectOf(parent));
   const conflict = x.l_status === "answered" ? libraryConflict(x.l_remarks || "", cmp) : "";
   const picked = pickRules(ctx.rules, x.spec_text + " " + parent, pl.section, pl.part);
   const clauseRules = splitComments(x.l_comments).rules;
@@ -320,6 +370,6 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
     rules: picked.rules, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
-    sectionKind: kind, absent: ctx.absent.get(x.seq) || []
+    sectionKind: kind, absent: ctx.absent.get(x.seq) || [], corrections: correctionsFor(ctx, x)
   };
 }

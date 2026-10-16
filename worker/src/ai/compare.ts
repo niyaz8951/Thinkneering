@@ -11,8 +11,11 @@ import { measurements, type Measure } from "./guard";
 
 /* ---------- unit conversion: each family has a base unit; factor = how many base units one unit is ---------- */
 const FAMILIES: Record<string, Record<string, number>> = {
-  length: { mm: 1, cm: 10, m: 1000, km: 1e6 },
-  mass: { g: 0.001, kg: 1, t: 1000 },
+  length: { mm: 1, cm: 10, m: 1000, km: 1e6, in: 25.4, ft: 304.8 },
+  mass: { g: 0.001, kg: 1, t: 1000, lb: 0.45359237 },
+  areal_mass: { "kg/m2": 1 },
+  density: { "kg/m3": 1 },
+  u_value: { "w/m2k": 1 },
   pressure: { pa: 1, kpa: 1000, bar: 1e5, psi: 6894.757, "in.wg": 249.0889, inwg: 249.0889 },
   flow: { "m3/h": 1, "l/s": 3.6, cfm: 1.699011 },
   power: { w: 0.001, kw: 1, kwr: 1, mw: 1000, tr: 3.516853, "btu/h": 0.00029307107, "kcal/h": 0.001163 },
@@ -50,7 +53,7 @@ export const PROPERTIES: Property[] = [
   { name: "insulation thickness", terms: ["insulation", "insulated", "foam", "polyurethane", "mineral wool", "rock wool"], direction: "higher", unit: "length" },
   { name: "sheet or tube thickness", terms: ["gauge", "sheet thickness", "tube thickness", "fin thickness", "wall of tube"], direction: "higher", unit: "length" },
   { name: "density", terms: ["density"], direction: "higher" },
-  { name: "thermal transmittance (U value)", terms: ["u value", "u-value", "thermal transmittance", "w/m2k", "w/m²k"], direction: "lower" },
+  { name: "thermal transmittance (U value)", terms: ["u value", "u-value", "thermal transmittance", "thermal conductance", "conductance", "w/m2k", "w/m²k"], direction: "lower", unit: "u_value" },
   { name: "pressure drop", terms: ["pressure drop", "pressure loss", "air side resistance", "resistance"], direction: "lower", unit: "pressure" },
   { name: "air leakage", terms: ["leakage", "leak", "air tightness"], direction: "lower" },
   { name: "sound level", terms: ["sound power", "sound pressure", "sound level", "noise", "acoustic level"], direction: "lower" },

@@ -38,6 +38,9 @@ test.describe("AI", () => {
     }
     await expect(links.locator(".map-link").first()).toContainText(/\d+ rules, \d+ of them answer by themselves/);
     await expect(page.locator("#mapSettings")).toContainText("copies from the library at 90% similar");
+    // the rule book can be brought up to date with the template (rules someone edited stay as they are)
+    await links.getByRole("button", { name: "Update from template" }).click();
+    await expect(page.locator(".toast")).toContainText(/Done: |up to date|cannot edit/);
     await page.fill("#tryText", "Units shall be set level and plumb on the concrete base.");
     await page.selectOption("#tryPart", "3");
     await page.click("#btnTry");

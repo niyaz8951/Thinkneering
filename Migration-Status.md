@@ -32,7 +32,7 @@ Last updated: 16 Oct 2026, late - site renamed Thinkneering Tools with the v3 la
 | files | `GET /api/file/<key>` | `api/files.ts` | done |
 | cron | Vectorize indexing (idle until VECTORS exists), nightly backup to R2 | `jobs.ts` | done, not yet run on a real account |
 
-106 Vitest tests green (`npm test`), 9 Playwright flows green and 7 skipped by device (`npm run test:e2e`, desktop + phone), 16 Oct 2026 late.
+124 Vitest tests green (`npm test`), 9 Playwright flows green and 7 skipped by device (`npm run test:e2e`, desktop + phone), 16 Oct 2026 night.
 
 ## Design brief (16 Oct 2026) - where we are
 
@@ -56,6 +56,9 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Next pieces of work, in order
 
+0. Owner (16 Oct night push): `npm run deploy` (no migration, no secret), then Compliance review > AI rules > **Update from
+   template** once per product rule book. Put factory capabilities in Product Options AI notes and verified knowledge-map
+   branches: with strict mode on, a product clause is drafted only when something on file supports it.
 1. Owner: upload the 16 Oct AI rules files, `npx wrangler d1 migrations apply DB --remote`, `npx wrangler deploy`; upload
    `compliance-library-ahu-riyadh.xlsx` into AHU / Riyadh; load `starter-rules-ahu-riyadh.sql`; run AI review on one known spec.
 2. Claude: Design brief Phase 2 (Review mode), then the rest of Phase 3 (golden set from the reviewed records).
@@ -71,6 +74,8 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 - Uppercase letter-spaced headers remain in Product Options, Maps and Container Calculator (fixed when those tools are touched).
 
 ## Decisions log
+
+- 16 Oct 2026 (night): the AI answers about the product only from a source it cites (datasheet, Product Options, AI notes, knowledge maps, rules, library, corrections, earlier answers); otherwise the clause is left for a person. Strict is the default; the rule-book setting `Answer without a source: yes` relaxes it. People's corrections to AI drafts are shown to the model as sources for similar clauses. Template rules nobody edited are updated by **Update from template**; edited rules are never touched. No migration.
 
 - 16 Oct 2026 (late): the site is **Thinkneering Tools**, with the "layers" mark of the Thinkneering v3 site on the Daikin blue; DAME is removed from the site; theme unchanged. From v3 only the design and the Compliance Maker AI are carried over (`docs/Thinkneering-v3-Lessons.md`); the rest of v3 is not ported.
 

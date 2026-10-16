@@ -27,10 +27,25 @@ For each clause, the first step that settles it wins:
 
 A clause with its own `#` rules (Internal Comments) goes to the model with them in front, when the model may be used.
 
-## 3. Checks on every model answer
-One of the six answers (else one retry, then left empty); a number with a unit no source gives becomes `[value]` and
-the confidence low; the answer is not repeated in the remark; hedging words make it low; **Not Comply** only with a
-rule, datasheet row, library answer or Product Options entry behind it; "high" only when a source backs it directly.
+## 3. Checks on every model answer (strict directions, 16 Oct 2026 night)
+Every source in the message has an id: `[D1]` datasheet row, `[L1]` library answer, `[O1]` Product Options, `[N1]` AI
+note, `[K1]` knowledge branch, `[R1]` rule, `[C1]` the clause's own `#` rule, `[F1]` fact, `[M1]` a correction people
+made, `[E1]` an earlier answer in this spec, `[P1]` another project. The model must say which ids it used.
+
+- **Comply, Comply with Remarks, Not Comply, Not Applicable** must cite a source that is in the message. No cite = one
+  retry, then the clause is **left for a person** (not written, not guessed). Noted and In Contractor's Scope may cite
+  the instructions.
+- The model may say "no source supports an answer": the clause is left for a person. That is a correct answer.
+- **Part 2 clauses with nothing on file** do not go to the model at all (strict mode). To let the model answer them
+  anyway (always low confidence, "no source cited"), add the special note `Answer without a source: yes` to
+  Decision steps > 8. AI model in the rule book.
+- A number with a unit must be in a source the model **cited**, else `[value]` and low confidence.
+- **Not Comply** needs a cited datasheet row or Product Options entry, a cited answer of Not Comply, or a cited
+  rule / note / fact saying it is not offered.
+- **High** confidence needs a cited library answer, rule, correction or datasheet row. The reason ends with
+  "Used: ..." so a reviewer sees what it rests on.
+- One of the six answers; the answer is not repeated in the remark; hedging words make it low.
+- In the Excel, an AI draft's Comments say "AI draft (low confidence): <reason>"; low confidence has its own fill.
 
 ## 4. Steering it from the site
 **a. Two kinds of map** - chosen in Maps when the map is made (*What it is for*), changeable in the map's settings:
@@ -40,7 +55,9 @@ rule, datasheet row, library answer or Product Options entry behind it; "high" o
 
 Compliance review > **AI rules** has, for *All AHU factories* and for *Riyadh only* (read first), one picker for each
 kind: **Open in Maps**, **Create from template** (rule book). An older rule book without Instructions gets
-**Add the new parts** (Instructions, Decision steps, Learned) without touching its rules.
+**Add the new parts** (Instructions, Decision steps, Learned) without touching its rules. A rule book that has them
+gets **Update from template**: missing parts and rules are added, and every template rule nobody has edited is brought
+up to date (and moved to its template branch). A rule you edited is never touched.
 
 **The rule book, branch by branch**
 - **Instructions**: the AI's brief. Every section (Role, Where values come from, Which answer, Equivalent standards,
@@ -55,7 +72,8 @@ kind: **Open in Maps**, **Create from template** (rule book). An older rule book
 - **Settings**: `Suggest in focus mode: yes`, `Use answers from other projects: yes` (a factory rule book overrides).
 - **Part 1 General / Part 2 Products / Part 3 Execution / Any Part**: the rules. Title = name, notes = what the AI
   should do; special notes one per line: `When: install, rigging` - `Section: references` - `Part: 2` -
-  `Answer: Noted` - `Remark: Noted.` Answer + Remark = the rule answers by itself (no model). "To verify" = off.
+  `Answer: Noted` - `Remark: Noted.` - `Unless: shall, provide` (the rule stops when the clause has any of these
+  words; also inherited by the branches below). Answer + Remark = the rule answers by itself (no model). "To verify" = off.
 - **Learned**: every night (and on *Write to the map*), what people changed the same way 3 times or more becomes a
   branch here: Section, Part, Answer and the remark they wrote, "to verify". Verify it to switch it on, edit it to
   narrow it, delete it if wrong (it is not written again).
@@ -92,3 +110,18 @@ what step 1 compares. A chip that keeps landing on the wrong clause is fixed the
   answered from a datasheet figure.
 - **What this unit does not have**: when a clause is about a section the project's datasheet does not contain (a heat
   wheel on a unit without one), the AI is told so and a Comply is shown as low confidence for a person to decide.
+
+## 7. Learning from mistakes (16 Oct 2026 night)
+Three ways, all from what people do in the record:
+1. **Corrections become sources, at once.** When a person changes or replaces an AI draft, both are kept. The next
+   clause that is similar (55% or more, same factory) shows the model the 3 closest corrections as `[M]` sources:
+   "the AI answered X, a person answered Y instead", with the rule to follow the person. Citing one can give high
+   confidence. Nothing to press.
+2. **Repeated corrections become rules, after a person verifies them.** Every night (and on *Write to the map*), a
+   change people made the same way 3 times or more becomes a branch under **Learned**, "to verify". Verify it to switch
+   it on.
+3. **Accepted answers become the library** through the review path, and a library answer at 90% similar is copied
+   without the model.
+
+So: always correct a wrong draft in the record (do not just delete it), and verify the Learned branches now and then.
+

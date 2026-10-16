@@ -88,7 +88,7 @@ test.describe("Compliance Maker on the new site", () => {
     await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered, 1 waiting for review");
   });
 
-  test("AI review drafts the open clauses and marks them; editing a draft makes it a person's answer", async ({ page }, info) => {
+  test("AI review drafts what a source settles and leaves the rest for a person; editing a draft makes it a person's answer", async ({ page }, info) => {
     test.skip(info.project.name === "phone", "desktop flow");
     runId = runId || await findRun(page);
     await signIn(page, "admin", "admin12345");
@@ -99,22 +99,27 @@ test.describe("Compliance Maker on the new site", () => {
     // the review runs in a window that holds the page until OK is pressed
     const win = page.getByRole("alertdialog", { name: "AI review" });
     await expect(win).toContainText("AI review finished", { timeout: 30000 });
-    await expect(win).toContainText("5 of 5 clauses drafted");
+    // strict mode: a clause is drafted only from a source (an AI rule, the library, Product Options, a datasheet ...);
+    // a Part 2 clause with nothing on file waits for a person instead of being guessed. How many have a source here
+    // depends on whether an AI rule book is linked (the AI-rules flow links one when it runs first).
+    await expect(win).toContainText("of 5 clauses drafted");
     await page.keyboard.press("Escape");
     await expect(win).toBeVisible();                                         // Esc does not close it
     await win.getByRole("button", { name: "OK" }).click();
     await expect(win).toBeHidden();
-    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered, 5 AI drafts to check", { timeout: 30000 });
-    await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(5);
+    await expect(page.locator("#rc-count")).toContainText("AI draft", { timeout: 30000 });
+    const n = await page.locator("#rc-table tr.line.ai").count();
+    expect(n).toBeGreaterThanOrEqual(1);
+    await expect(page.locator("#rc-count")).toContainText(`1 of 6 clauses answered, ${n} AI draft${n === 1 ? "" : "s"} to check`);
     await expect(page.locator("#rc-table tr.line.ai .state").first()).toContainText("AI draft, check it");
     // the reason is a visible line under the clause, not a hover
     await expect(page.locator("#rc-table tr.line.ai .why").first()).toBeVisible();
-    await expect(page.locator("#rc-table tr.line.ai .why").first()).toContainText("low confidence");
+    await expect(page.locator("#rc-table tr.line.ai .why").first()).toContainText("confidence");
     await expect(page.locator("#rc-ai-clear")).toBeVisible();
     // the AI drafts are not in the review queue: only the person's answer waits
     await expect(page.locator("#rc-count")).toContainText("1 waiting for review");
     await page.selectOption("#rc-show", "ai");
-    await expect(page.locator("#rc-table tr.line")).toHaveCount(5);
+    await expect(page.locator("#rc-table tr.line")).toHaveCount(n);
     // a person corrects a draft: it becomes a project answer in review
     await page.selectOption("#rc-show", "all");
     await page.click('#rc-seg [data-mode="edit"]');
@@ -123,11 +128,13 @@ test.describe("Compliance Maker on the new site", () => {
     await draft.locator('input[aria-label="Compliance"]').fill("Comply");
     await draft.locator('input[aria-label="Compliance"]').blur();
     await expect(draft.locator(".state")).toHaveText("Saved, in review");
-    await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(4);
+    await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(n - 1);
     // remove the rest of the drafts
-    await page.click("#rc-ai-clear");
-    await page.click(".hub-sheet button:has-text('Remove drafts')");
-    await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(0);
+    if (n > 1) {
+      await page.click("#rc-ai-clear");
+      await page.click(".hub-sheet button:has-text('Remove drafts')");
+      await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(0);
+    }
     await expect(page.locator("#rc-count")).toContainText("2 of 6 clauses answered");
   });
 

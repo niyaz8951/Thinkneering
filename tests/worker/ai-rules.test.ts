@@ -17,6 +17,8 @@ function fakeAi(reply: (user: string) => Record<string, unknown> | string) {
     const user = String(input?.messages?.[1]?.content || "");
     calls.push({ model, user });
     const r = reply(user);
+    // a model that keeps the contract cites the sources it was shown, unless the test says otherwise
+    if (typeof r === "object" && !("cites" in r)) (r as Record<string, unknown>).cites = [...user.matchAll(/\[([A-Z]\d+)\]/g)].map((m) => m[1]);
     return { response: typeof r === "string" ? r : JSON.stringify(r), usage: { prompt_tokens: 50, completion_tokens: 10 } };
   } };
   return { ai, calls };
@@ -124,10 +126,11 @@ describe("AI rules: pure parts", () => {
       facts: [{ rule: rule({ kind: "fact", title: "Fans", instruction: "EC plug fans." }), score: 1, matched: ["fan"] }],
       datasheet: [{ label: "Cooling coil • Rows", value: "6", key: "k" }], units: ["AHU-1"] });
     expect(u).toMatch(/Parent clause \(this clause continues it\):\nThe unit shall include:/);
-    expect(u).toMatch(/AI rules for this clause \(library team, follow them\):\n1\. say the coil is chilled water/);
-    expect(u).toMatch(/Site rules that apply to this clause:\n1\. Coils: Coils are chilled water\./);
-    expect(u).toMatch(/Project datasheet rows \(units: AHU-1\):\n- Cooling coil • Rows: 6/);
-    expect(u).toMatch(/Factory facts \(AHU, standard offering\):\n- Fans: EC plug fans\./);
+    // every source carries the id the model must cite
+    expect(u).toMatch(/AI rules for this clause \(library team, follow them\):\n\[C1\] say the coil is chilled water/);
+    expect(u).toMatch(/Site rules that apply to this clause:\n\[R1\] Coils: Coils are chilled water\./);
+    expect(u).toMatch(/Project datasheet rows \(units: AHU-1\):\n\[D1\] Cooling coil • Rows: 6/);
+    expect(u).toMatch(/Factory facts \(AHU, standard offering\):\n\[F1\] Fans: EC plug fans\./);
   });
 });
 
@@ -166,20 +169,27 @@ describe("AI rules: the drafting order and the checks", () => {
       datasheet: [{ label: "Casing • Panel", value: "62 mm", key: "k" }] });
     expect(d.remarks).toBe("Offered units are with 62 mm panels and [value] salt spray.");
     expect(d.confidence).toBe("low");
-    expect(d.reason).toMatch(/Check: no source gives 1000 hours/);
+    expect(d.reason).toMatch(/Used: datasheet Casing • Panel\. Check: no cited source gives 1000 hours/);
     expect(d.sources.map((x) => x.kind)).toEqual(["datasheet"]);
     const withFact = await draftAnswer(env, { ...base, clause: "Casing panels shall be 50 mm.", part: 2, section: "CASING",
       datasheet: [{ label: "Casing • Panel", value: "62 mm", key: "k" }],
       facts: [{ rule: rule({ kind: "fact", instruction: "Panels pass 1000 hours salt spray to ISO 9227." }), score: 1, matched: [] }] });
     expect(withFact.remarks).toBe("Offered units are with 62 mm panels and 1000 hours salt spray.");
-    expect(withFact.confidence).toBe("medium");                     // the model said high; nothing in the library backs it
+    expect(withFact.confidence).toBe("high");                       // the model said high and cites the datasheet row that covers it
   });
 
   it("Not Comply needs a rule, a datasheet row or a library answer; an unusable reply gets one retry", async () => {
     const fake = fakeAi(() => ({ compliance: "Not Comply", remarks: "Not offered.", reason: "Guess.", confidence: "low" }));
     (env as any).AI = fake.ai;
+    // nothing on file at all: a Part 2 clause is not even sent to the model (strict)
     await expect(draftAnswer(env, { ...base, clause: "Units shall have a steam humidifier.", part: 2, section: "HUMIDIFIER" }))
-      .rejects.toThrow(/Not Comply with no rule, datasheet row or library answer/);
+      .rejects.toThrow(/No source on file for this clause/);
+    expect(fake.calls).toHaveLength(0);
+    // a source that does not say "not offered" (a library answer of Comply) does not back a Not Comply
+    const libComply = { id: "L9", factory_id: "ahu-riyadh", spec_text: "Units shall have an electric humidifier.", compliance: "Comply", remarks: "Electric steam humidifier.",
+      comments: "", status: "answered", section: "HUMIDIFIER", score: 0.6, how: "lexical" as const };
+    await expect(draftAnswer(env, { ...base, clause: "Units shall have a steam humidifier.", part: 2, section: "HUMIDIFIER", similar: [libComply] }))
+      .rejects.toThrow(/Not Comply with no rule, datasheet row, library answer or Product Options entry/);
     const backed = await draftAnswer(env, { ...base, clause: "Units shall have a steam humidifier.", part: 2, section: "HUMIDIFIER",
       rules: [{ rule: rule({ instruction: "Steam humidifiers are not offered; answer Not Comply." }), score: 1, matched: ["humidifier"] }] });
     expect(backed.compliance).toBe("Not Comply");
@@ -203,7 +213,7 @@ describe("AI rules: routes", () => {
     expect(made.name).toBe("AI rules: AHU");
     let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     expect(got.all).toMatchObject({ id: made.id, name: "AI rules: AHU" });
-    expect(got.all.rules).toBe(8);
+    expect(got.all.rules).toBe(9);                                              // the template's starter rules (with "Coordination by the contractor")
     expect(got.all.direct).toBeGreaterThanOrEqual(4);
     expect(got.own).toBeNull();
     expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
@@ -287,9 +297,9 @@ describe("AI rules: routes", () => {
     expect(by(/polyurethane/).ai).toMatchObject({ source: "datasheet", confidence: "high" });
     expect(by(/polyurethane/).ai.reason).toMatch(/45 kg\/m3 ≥ 40 kg\/m3 required/);
     // map rules: the scope statement and the unloading clause, no model
-    expect(by(/^This section includes/)).toMatchObject({ compliance: "Noted", remarks: "Noted." });
+    expect(by(/^This section includes/)).toMatchObject({ compliance: "Noted", remarks: "" });          // a remark never repeats the answer
     expect(by(/^Unloading/)).toMatchObject({ compliance: "In Contractor's Scope" });
-    expect(by(/^Unloading/).ai.reason).toMatch(/Site rule "Unloading at site"/);
+    expect(by(/^Unloading/).ai.reason).toMatch(/Site rule "(Unloading at site|Site works)"/);   // its section is INSTALLATION: Site works fits too
     // a member without library rights sees the note of Internal Comments, not the "#" rule
     await ok("pr_share_set", { p_token: t, p_id: p.id, p_user_ids: ["u5"] });
     const sbu = await login("sbu");
@@ -369,6 +379,14 @@ describe("AI review: connection and allowance", () => {
 
   it("a used-up allowance stops the batch at once; a broken gateway falls back to Workers AI; failed clauses are skipped", async () => {
     const t = await login("admin");
+    // these clauses have nothing on file: a rule book that allows answers without a source sends them to the model
+    const at = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_at, updated_at) VALUES ('m-relaxed', 'Relaxed', 'private', 'rulebook', ?, ?)").bind(at, at),
+      env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-root', 'm-relaxed', NULL, 'Relaxed', '', '[]', 0, 1)"),
+      env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-set', 'm-relaxed', 'r-root', 'Settings', '', ?, 1, 1)").bind(JSON.stringify(["Answer without a source: yes"])),
+      env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role) VALUES ('ahu', NULL, 'm-relaxed', 'rulebook')")
+    ]);
     const p = await ok("pr_save", { p_token: t, p_name: "Tower C", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
     const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "pdf", p_file_name: "spec.pdf", p_lines: SPEC_LINES, p_project_id: p.id });
     let calls = 0;

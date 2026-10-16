@@ -540,7 +540,7 @@
     var rows = lines.map(function (l) {
       var s = shown(l);
       return { type: l.type, sr: l.sr, spec: l.spec, compliance: l.can ? s.c : "", remarks: l.can ? s.r : "",
-               auto: l.can && !l.own && filled(l) ? { type: "exact" } : l.can && l.ai_draft ? { type: "ai" } : null };   // an AI draft is flagged in the Excel too
+               auto: l.can && !l.own && filled(l) ? { type: "exact" } : l.can && l.ai_draft ? { type: "ai", confidence: (l.ai && l.ai.confidence) || "", reason: (l.ai && l.ai.reason) || "" } : null };   // an AI draft is flagged in the Excel too, with its confidence and reason
     });
     var blob = window.xlsxWriter.build(rows, null, function (text) { return CMHighlight.runs(text); },
       { projectName: run.project, bandText: "Product : " + run.product + "     Factory : " + run.factory, sheet2: sheet2() });
@@ -655,7 +655,7 @@
       if (ruled) parts.push(ruled + " by AI rules");
       if (drafted) parts.push(drafted + " by the AI");
       if (failed) parts.push(failed + " could not be drafted (left empty)");
-      if (waiting) parts.push(waiting + " left for a person (model off or budget used)");
+      if (waiting) parts.push(waiting + " left for a person (no source on file, model off or budget used)");
       counts.textContent = parts.join(" · ");
     }
     function finish(headline, message, kind) {

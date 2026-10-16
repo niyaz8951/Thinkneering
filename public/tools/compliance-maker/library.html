@@ -662,6 +662,12 @@
       host.appendChild(el("div", { "class": "notice" }, [
         el("span", { text: "“" + res.all.name + "” has no Instructions branch yet, so the AI uses its built-in brief. Add the new parts of the template (Instructions, Decision steps, Learned); your rules stay as they are. " }),
         el("button", { type: "button", "class": "btn ghost sm", text: "Add the new parts", onclick: function () { upgrade(null); } })]));
+    } else if (res.all) {
+      /* the template gets better (stricter rules, "Unless:" words): this brings a linked rule book up to date without
+         touching a rule someone edited. The server checks the person may edit that map. */
+      host.appendChild(el("div", { "class": "notice" }, [
+        el("span", { text: "Update “" + res.all.name + "” from the template: adds missing parts and updates the template rules nobody has edited. Rules you changed stay as they are. " }),
+        el("button", { type: "button", "class": "btn ghost sm", id: "btnUpgrade", text: "Update from template", onclick: function () { upgrade(null); } })]));
     }
     if (!res.can_maps) host.appendChild(el("p", { "class": "small muted", text: "You cannot open Maps (it is on the SBU tile), so you can only choose maps already linked or create one from the template. Ask the super user for Maps to write rules." }));
     var pr = $("mapProblems");
@@ -678,7 +684,7 @@
   }
   function upgrade(scope) {
     Api.aiMapUpgrade(Hub.token(), { productId: productId(), factoryId: scope }).then(function (r) {
-      Hub.toast(r.added.length ? "Added: " + r.added.join(", ") + "." : "The map already has every part."); loadRules.scope = ""; loadRules();
+      Hub.toast(r.added.length ? "Done: " + r.added.join(", ") + "." : "The rule book is up to date."); loadRules.scope = ""; loadRules();
     }, fail);
   }
   function createMap(scope) {

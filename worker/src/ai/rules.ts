@@ -31,7 +31,7 @@ export const TERM_GROUPS: string[][] = [
   ["frame", "framework", "profile", "base"],
   ["humidifier", "humidification"],
   ["recovery", "wheel", "recuperator"],
-  ["vfd", "inverter", "drive"],
+  ["vfd", "vsd", "inverter"],                     // not "drive": "motor and drive assembly" is not a VFD clause
   ["commissioning", "commission", "start", "startup"]
 ];
 
@@ -71,6 +71,7 @@ export interface AiRule {
   id: string; product_id: string; factory_id: string | null; kind: "rule" | "fact"; title: string;
   keywords: string; part: number; instruction: string; answer: string; remark: string; active: number; sort: number;
   sections?: string;                 // "references, codes and standards": the clause's section title must mention one
+  unless?: string;                   // "shall, provide, select": the rule does not apply to a clause that mentions one
   source?: string;                   // where the rule was written (the AI map branch path), for the reason line
 }
 export interface RuleHit { rule: AiRule; score: number; matched: string[] }
@@ -94,6 +95,9 @@ function phraseIn(phrase: string[], words: string[]): boolean {
    clause of its Part (score 0, so a rule with keywords that hit always comes first). */
 export function ruleHit(rule: AiRule, clause: string, section: string, part: number): RuleHit | null {
   if (!rule.active) return null;
+  // Unless: the words that keep a rule off a clause ("Scope statements" never answers a clause that says "shall")
+  const not = keywordList(rule.unless || "");
+  if (not.length) { const cw = wordsOf(clause); if (not.some((k) => phraseIn(k, cw))) return null; }
   if (rule.part && part && rule.part !== part) return null;
   if (rule.part && !part) return null;                    // a Part rule needs a clause whose Part is known
   const secs = keywordList(rule.sections || "");
@@ -209,11 +213,12 @@ export function parentOf(rows: ParentRow[], seq: number): string {
 }
 /* A. = 1, 1. = 2, a. = 3, (1) / i. = 4, anything else 0 */
 function level(sr: string): number {
+  // labels as the record holds them ("A", "1", "a": cm_save_run drops the full stop) and as written ("A.", "1)")
   const s = String(sr || "").trim();
-  if (/^[A-Z][.)]$/.test(s)) return 1;
-  if (/^\d{1,2}[.)]$/.test(s)) return 2;
-  if (/^(i{1,3}|iv|v|vi{0,3}|ix|x)[.)]$/.test(s)) return 4;
-  if (/^[a-z][.)]$/.test(s)) return 3;
+  if (/^[A-Z][.)]?$/.test(s)) return 1;
+  if (/^\d{1,2}[.)]?$/.test(s)) return 2;
+  if (/^(i{1,3}|iv|v|vi{0,3}|ix|x)[.)]?$/.test(s)) return 4;
+  if (/^[a-z][.)]?$/.test(s)) return 3;
   if (/^\(\w{1,3}\)$/.test(s)) return 4;
   return 0;
 }

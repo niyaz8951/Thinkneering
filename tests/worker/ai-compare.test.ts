@@ -130,8 +130,8 @@ describe("the model is told the section kind and the missing sections", () => {
   });
 
   it("a Comply about a section the unit does not have is low confidence", async () => {
-    (env as any).AI = { async run() { return { response: JSON.stringify({ compliance: "Comply", remarks: "Heat recovery wheel is provided.", reason: "Standard option.", confidence: "high" }), usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
-    const d = await draftAnswer(env, { ...base, absent: ["Heat Wheel"] });
+    (env as any).AI = { async run() { return { response: JSON.stringify({ compliance: "Comply", remarks: "Heat recovery wheel is provided.", reason: "Standard option.", confidence: "high", cites: ["O1"] }), usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+    const d = await draftAnswer(env, { ...base, absent: ["Heat Wheel"], options: ["Special option: Heat recovery wheel on request"] });
     expect(d.confidence).toBe("low");
     expect(d.reason).toMatch(/the datasheet has no Heat Wheel section/);
   });

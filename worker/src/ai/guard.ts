@@ -8,17 +8,43 @@
    Bare numbers are left alone: "AHRI 430" and "Section 23 73 13" are references, not measurements. */
 import { CHOICES } from "../lib/cm";
 
-const UNITS = "in\\.?\\s?w\\.?g\\.?|kg\\/m3|kg\\/m³|mm|cm|m|km|kg|g|t|kw|w|mw|kwr|tr|btu\\/h|btuh|kcal\\/h|pa|kpa|bar|psi|%|micron|microns|µm|um|°c|deg\\s?c|c|°f|f|db|dba|db\\(a\\)|m\\/s|fpm|m3\\/h|m³\\/h|cmh|l\\/s|lps|cfm|rpm|hz|v|vac|a|amp|amps|hours|hrs|h|years|yrs|ip\\d{2}";
-// longest first, so "m/s" wins over "m" and "mm" over "m"
-const UNIT_RE = UNITS.split("|").sort((a, b) => b.replace(/\\/g, "").length - a.replace(/\\/g, "").length).join("|");
-// "1,200 l/s" is twelve hundred (comma before exactly three digits = thousands); "1,5 mm" is one and a half
-const MEASURE = new RegExp(`(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?(?!\\d)|\\d+(?:[.,]\\d+)?)\\s*(${UNIT_RE})(?![a-z0-9])`, "gi");
+// Units as specifications write them, symbols and words ("2.5 meters per second", "2 percent", "0.035 inches",
+// "0.68 W/square meter. K", "44 kg/cubic meter"): a figure the code cannot read cannot be compared or checked.
+const UNIT_LIST = [
+  "met(?:er|re)s?\\s+per\\s+second", "per\\s?cent",
+  "inch(?:es)?\\s+(?:of\\s+)?(?:water(?:\\s+gauge|\\s+column)?|w\\.?\\s?g\\.?|w\\.?\\s?c\\.?)", "in\\.?\\s?w\\.?g\\.?", "inch(?:es)?",
+  "w\\s?\\/\\s?\\(?\\s?(?:square\\s+met(?:er|re)|sq\\.?\\s?m|m2|m²)\\.?\\s?(?:k|°c|deg\\s?c)\\)?",
+  "kg\\s?\\/\\s?(?:square\\s+met(?:er|re)|sq\\.?\\s?m|m2|m²)", "kg\\s?\\/\\s?(?:cubic\\s+met(?:er|re)|cu\\.?\\s?m|m3|m³)",
+  "degrees?\\s+(?:celsius|fahrenheit|c|f)", "millimet(?:er|re)s?", "met(?:er|re)s?", "feet", "foot", "ft", "pounds?", "lbs?",
+  "mm", "cm", "m", "km", "kg", "g", "t", "kw", "w", "mw", "kwr", "tr", "btu\\/h", "btuh", "kcal\\/h", "pa", "kpa", "bar", "psi", "%",
+  "micron", "microns", "µm", "um", "°c", "deg\\s?c", "c", "°f", "f", "db", "dba", "db\\(a\\)", "m\\/s", "fpm", "m3\\/h", "m³\\/h", "cmh",
+  "l\\/s", "lps", "cfm", "rpm", "hz", "v", "vac", "a", "amp", "amps", "hours", "hrs", "h", "years", "yrs", "ip\\d{2}"
+];
+// longest first, so "m/s" wins over "m", "mm" over "m" and "meters per second" over "meters" (sorted as a list:
+// several entries hold groups with "|" inside, so the joined pattern must never be split again)
+const UNIT_RE = UNIT_LIST.slice().sort((a, b) => b.replace(/\\/g, "").length - a.replace(/\\/g, "").length).join("|");
+// "1,200 l/s" is twelve hundred (comma before exactly three digits = thousands); "1,5 mm" is one and a half;
+// "10-m/s" and "1000-Pa" (a hyphen between figure and unit) are read as "10 m/s" and "1000 Pa"
+const MEASURE = new RegExp(`(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?(?!\\d)|\\d+(?:[.,]\\d+)?)\\s*-?\\s*(${UNIT_RE})(?![a-z0-9])`, "gi");
 
 export interface Measure { n: number; unit: string; raw: string }
 
 function unitKey(u: string): string {
-  const s = u.toLowerCase().replace(/\s+/g, "").replace("³", "3").replace("°", "");
-  const alias: Record<string, string> = { "in.wg": "in.wg", inwg: "in.wg", "in.w.g.": "in.wg", "inw.g.": "in.wg", "in.w.g": "in.wg", "inw.g": "in.wg", "inwg.": "in.wg", "kg/m³": "kg/m3", degc: "c", microns: "micron", um: "micron", "µm": "micron", hrs: "h", hours: "h", yrs: "years", lps: "l/s", cmh: "m3/h", amps: "a", amp: "a", vac: "v", btuh: "btu/h", "db(a)": "dba" };
+  const s = u.toLowerCase().replace(/\s+/g, "").replace(/³/g, "3").replace(/²/g, "2").replace(/°/g, "");
+  if (/^met(er|re)s?persecond$/.test(s)) return "m/s";
+  if (/^percent$/.test(s)) return "%";
+  if (/^(inch|inches|in)\.?(of)?(water|w\.?g|w\.?c)/.test(s)) return "in.wg";
+  if (/^inch(es)?$/.test(s)) return "in";
+  if (/^w\/\(?(squaremet(er|re)|sq\.?m|m2)\.?(k|c|degc)\)?$/.test(s)) return "w/m2k";
+  if (/^kg\/(squaremet(er|re)|sq\.?m|m2)$/.test(s)) return "kg/m2";
+  if (/^kg\/(cubicmet(er|re)|cu\.?m|m3)$/.test(s)) return "kg/m3";
+  if (/^degrees?(celsius|c)$/.test(s)) return "c";
+  if (/^degrees?(fahrenheit|f)$/.test(s)) return "f";
+  if (/^millimet(er|re)s?$/.test(s)) return "mm";
+  if (/^met(er|re)s?$/.test(s)) return "m";
+  if (/^(feet|foot|ft)$/.test(s)) return "ft";
+  if (/^(pound|pounds|lb|lbs)$/.test(s)) return "lb";
+  const alias: Record<string, string> = { degc: "c", microns: "micron", um: "micron", "µm": "micron", hrs: "h", hours: "h", yrs: "years", lps: "l/s", cmh: "m3/h", amps: "a", amp: "a", vac: "v", btuh: "btu/h", "db(a)": "dba" };
   return alias[s] || s;
 }
 

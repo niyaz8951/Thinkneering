@@ -1,4 +1,4 @@
-# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16c
+# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16d
 
 Used by `ai_review_run` for a clause that is neither copied from a >= 0.90 library match nor answered by a site
 rule with a fixed answer. The text below is a copy of `systemPrompt()` / `userPrompt()`; the code is the source
@@ -16,6 +16,15 @@ Hard rules: no number with a unit unless a source gives it (else "[value]", low)
 the remark never repeats the answer; no hedging words; never mention datasheets, libraries, rules, notes or files;
 internal notes are never quoted; Part 1 / 3 usually Noted or In Contractor's Scope; "high" only with a direct source.
 
+## Reply and sources (draft-2026-10-16d, 16 Oct 2026 night)
+Reply: `{"compliance", "remarks", "reason", "confidence", "cites": [ids]}`; compliance may be empty (= declined, the
+clause goes to a person). Every source in the user message is shown as `[ID] text`: D datasheet row, L library answer,
+O Product Options, N AI note, K knowledge branch, R rule, C rule of this clause, F fact, M correction people made,
+E earlier answer in this spec, P another project. Comply / Comply with Remarks / Not Comply / Not Applicable must cite
+an id from the message; Noted / In Contractor's Scope may cite "I". Follow a correction [M]. Numbers only from cited
+sources. With no source on file the message says so; a Part 2 clause with none is not sent at all (strict mode,
+setting `Answer without a source`). `checkReply()` enforces the contract; one retry, then `NeedsSource`.
+
 ## User
 Clause ({PART} / {SECTION}, label {SR})
 Parent clause (when a list item)
@@ -27,6 +36,9 @@ Site rules that apply to this clause                       <- ai_rules kind rule
 Project datasheet rows (units: ...)                        <- newest Datasheet Notes table of the product, section-gated (max 4)
 Library answers of this factory for similar clauses        <- top 3 at similarity >= 0.30, with their notes and "#" rules
 Factory facts ({PRODUCT}, standard offering)               <- ai_rules kind fact, keywords hit (max 5)
+Product Options / AI notes / knowledge branches             <- [O] [N] [K]
+Corrections people made to AI answers on similar clauses    <- [M], ai_feedback edited / replaced, >= 0.55, top 3
+Earlier answers in this spec / other projects               <- [E] [P]
 
 ## Before the model (16 Oct 2026, carried over from Thinkneering v3: worker/src/ai/compare.ts)
 The datasheet step compares by code before any prompt: figures converted to the clause's unit; a figure asked

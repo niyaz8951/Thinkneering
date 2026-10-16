@@ -209,7 +209,8 @@
   // continuation rule would silently glue it onto that clause's text. So it
   // is split off first and emitted as its own black band row, the same
   // treatment a PART header gets.
-  var END_OF_SECTION_RE = /[-\u2013\u2014\s]*\bend\s+of\s+section\b[-\u2013\u2014.:\s]*$/i;
+  // "END OF SECTION", also with the section number after it ("END OF SECTION 237313", "End of Section 23 73 13")
+  var END_OF_SECTION_RE = /[-\u2013\u2014\s]*\bend\s+of\s+section\b(?:\s+[0-9][0-9 .]{2,14})?[-\u2013\u2014.:\s]*$/i;
 
   // opts.keepBreaks — treat every line as its own row instead of folding
   // unlabeled lines into the clause above. Only the paste path passes this;
@@ -274,9 +275,9 @@
                  rows[rows.length - 1].type !== 'part' &&
                  rows[rows.length - 1].type !== 'section' &&
                  !(para && newParagraph(rows[rows.length - 1].spec, line, para === 2))) {
-        // Wrapped continuation of the previous clause — append.
-        rows[rows.length - 1].spec =
-          (rows[rows.length - 1].spec + ' ' + line).trim();
+        // Wrapped continuation of the previous clause — append. A word split at the line end ("ex-" + "ceeding")
+        // is joined without the space; a suspended hyphen ("formed- and reinforced") keeps it.
+        rows[rows.length - 1].spec = joinWrap(rows[rows.length - 1].spec, line);
       } else {
         // Unlabeled paragraph directly after a PART/section header (or at
         // the start) is its own body row — headers never absorb body text.
@@ -346,6 +347,11 @@
   // A PDF line that starts a new paragraph on the page (see extractLinesFromTextContent) is its own row
   // when the text above is a finished sentence and this line opens one. Anything else is a wrap.
   // Set apart by space on the page (apart): a new row unless the text above plainly runs on into it.
+  function joinWrap(above, line) {
+    above = String(above).replace(/\s+$/, '');
+    if (/[a-z]{2}-$/.test(above) && /^[a-z]{2,}/.test(line) && !/^(and|or|nor|to|through|thru)\b/.test(line)) return above + line;
+    return (above + ' ' + line).trim();
+  }
   function newParagraph(above, line, apart) {
     if (!/^[A-Z(\u201c"']/.test(line) || line.length < 4) return false;
     if (/[.:;)]$/.test(above)) return true;
