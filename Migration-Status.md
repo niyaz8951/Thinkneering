@@ -2,7 +2,7 @@
 
 Kept by Claude. Read at the start of every THINK-HUB chat; update after every delivery.
 
-Last updated: 16 Oct 2026, afternoon - AI rules tab, datasheet grounding and the checks on AI drafts (migration 0002); Phase 1 design pass before it.
+Last updated: 16 Oct 2026, evening - datasheet-first AI, AI maps in Maps linked in Compliance review, AI notes in the Options tree, focus-mode proposals and feedback (migration 0003).
 
 ## Live set-up (15 Oct 2026)
 - Worker `thinkneering-hub`, deployed from the laptop with `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`). Workers Builds not connected yet; it can be, with the same two commands.
@@ -72,6 +72,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 16 Oct 2026 (evening): three levels of knowledge in a fixed order - project datasheet (code compares), Product Options (incl. AI notes), library; the model only writes. AI rules live in maps in Maps, linked per product and per factory in Compliance review > AI rules (no change to Maps itself); users of the AI need no Maps access. Settings are special notes of the map's Settings branch. Focus-mode proposals for everyone; the model within a daily budget (Free plan). The datasheet wins over a contradicting library answer.
 - 16 Oct 2026 (AI rules): AI rules per product, for every factory or one, written only by tile admins and the super user; facts may be quoted, numbers included; fixed-answer rules answer without the model; users never see `#` rules; uploads standardise the six answers; a library line with `#` rules is not copied blindly. From `ai-suggest.js` taken: datasheet rows with a section gate, parent clause, number grounding, echo trim, Not Comply needs a source, one retry. Not taken: a seventh answer TO VERIFY, the 8B model, batched calls.
 - 16 Oct 2026 (Phase 1): live facts win over older doc lines (thinkneering.com, D1 `thinkneering-db` / `DB`, no staging, Vectorize off, PBKDF2 100k); `npm run deploy` no longer passes `--env production` (that environment does not exist); the dev seed hashes at 100k. Design rules in standards A.13.1. The top-bar Back button is tinted, not solid, so each page has one solid blue primary action. On a phone the primary action is docked at the bottom and the secondary ones are behind More. "Answered" never counts AI drafts; `pr_get` gives `drafts` per record (read-only). Screenshots by `scripts/screens.mjs`; full sets stay out of git.
 - 15 Oct 2026: live on thinkneering.com (root domain); D1 `thinkneering-db`; no staging for now; Vectorize off until the index is created.

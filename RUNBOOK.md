@@ -118,3 +118,10 @@ about one 300-clause review. Paid ($5 a month) lifts all of these; see AI-Roadma
   while pressing AI review (lines `ai_check`, `ai_review_run clause ...`).
 - Free plan: 10,000 neurons a day (about 140 clauses); Paid plan (USD 5 a month) for whole specifications.
 
+## 9. AI maps, AI notes, starter data (16 Oct 2026, evening)
+- `npx wrangler d1 migrations apply DB --remote` (0003 adds AI notes, map links, suggestions, feedback, match cache).
+- Compliance review > AHU / Riyadh > AI rules > *Map for all AHU factories* > **Create from template**; share the map in Maps
+  with whoever writes rules. Optional: a Riyadh map the same way.
+- `npx wrangler d1 execute DB --remote --file starter-ai-notes-ahu-riyadh.sql` loads 12 AI notes (Options tree, Riyadh, General).
+- Monthly AI figures: `SELECT source, outcome, count(*) FROM ai_feedback WHERE created_at >= '2026-10-01' GROUP BY 1, 2`.
+

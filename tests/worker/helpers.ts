@@ -67,7 +67,7 @@ export async function login(who: Who): Promise<string> {
 
 /* Storage is isolated per test FILE (vitest-plugin), so every test starts by wiping the data tables
    (the reference tables - tiles, tools, products, factories, lists - stay) and re-seeding the users. */
-const DATA_TABLES = ["ai_rules", "ai_chat_messages", "ai_chats", "ai_jobs", "ai_drafts", "cm_answer_log", "cm_run_lines", "cm_runs", "cm_lines",
+const DATA_TABLES = ["ai_map_links", "ai_match_cache", "ai_suggestions", "ai_feedback", "ai_rules", "ai_chat_messages", "ai_chats", "ai_jobs", "ai_drafts", "cm_answer_log", "cm_run_lines", "cm_runs", "cm_lines",
   "pr_log", "pr_members", "pr_notes", "pr_projects", "dn_map", "dn_map_settings", "po_values", "po_extras",
   "mp_images", "mp_nodes", "mp_maps", "app_audit", "app_sessions", "app_tool_editors", "app_category_admins", "app_user_categories", "app_users"];
 export async function resetLogins(): Promise<void> {

@@ -104,16 +104,18 @@
     mpImageDelete: function (t, id) { return rpc("mp_image_delete", { p_token: t, p_image_id: id }); },
     mpSearch: function (t, q) { return rpc("mp_search", { p_token: t, p_q: q }); },
     // AI review (admins): drafts answers for every clause of a project record, a batch per call
-    aiReviewRun: function (t, d) { return rpc("ai_review_run", { p_token: t, p_run_id: d.run, p_limit: d.limit || 10, p_replace: !!d.replace, p_since: d.since || null, p_skip: d.skip || [] }); },
+    aiReviewRun: function (t, d) { return rpc("ai_review_run", { p_token: t, p_run_id: d.run, p_limit: d.limit || 10, p_replace: !!d.replace, p_since: d.since || null, p_skip: d.skip || [], p_no_model: !!d.noModel }); },
     aiReviewStatus: function (t, runId) { return rpc("ai_review_status", { p_token: t, p_run_id: runId }); },
     aiCheck: function (t) { return rpc("ai_check", { p_token: t }); },
     aiReviewClear: function (t, runId) { return rpc("ai_review_clear", { p_token: t, p_run_id: runId }); },
-    // AI rules and facts per product / factory (Compliance review > AI rules; admins and the super user)
-    aiRulesList: function (t, d) { return rpc("ai_rules_list", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
-    aiRulesSave: function (t, d) { return rpc("ai_rules_save", { p_token: t, p_id: d.id || null, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_kind: d.kind,
-      p_title: d.title || "", p_keywords: d.keywords || "", p_part: d.part || 0, p_instruction: d.instruction || "", p_answer: d.answer || "", p_remark: d.remark || "", p_active: d.active !== false, p_sort: d.sort || 0 }); },
-    aiRulesDelete: function (t, id) { return rpc("ai_rules_delete", { p_token: t, p_id: id }); },
-    aiRulesTest: function (t, d) { return rpc("ai_rules_test", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_clause: d.clause, p_part: d.part || 0 }); },
+    // focus mode: proposals for up to 3 clauses of a record (everyone who can open it)
+    aiSuggest: function (t, runId, seqs) { return rpc("ai_suggest", { p_token: t, p_run_id: runId, p_seqs: seqs }); },
+    // Compliance review > AI rules (admins and the super user): the maps the AI reads, a clause to try, quality
+    aiMapGet: function (t, d) { return rpc("ai_map_get", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
+    aiMapLink: function (t, d) { return rpc("ai_map_link", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_map_id: d.mapId || null }); },
+    aiMapCreate: function (t, d) { return rpc("ai_map_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
+    aiTry: function (t, d) { return rpc("ai_try", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId, p_clause: d.clause, p_section: d.section || "", p_part: d.part || 0 }); },
+    aiQuality: function (t, productId) { return rpc("ai_quality", { p_token: t, p_product_id: productId }); },
     adminSaveCategory: function (t, d) { return rpc("app_admin_save_category", { p_token: t, p_id: d.id, p_name: d.name, p_description: d.description, p_sort: d.sort, p_is_default: d.is_default }); }
   };
 

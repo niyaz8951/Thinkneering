@@ -60,6 +60,25 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, evening - datasheet-first answers, AI maps, AI notes, focus-mode proposals and feedback (built)
+- **Order of evidence** (evidence.ts, draft.ts): datasheet compared by code (same rows as the chips: lib/rows.ts is a
+  line-for-line port of CMRows.match, parity-tested) -> library copy (threshold from Settings; a library answer the
+  datasheet contradicts is reopened, the datasheet wins) -> same clause earlier in the record -> AI rule with Answer +
+  Remark -> other projects (below the library) -> the model with everything (Product Options values / specials / notes /
+  AI notes, section answers, project answers, parent clause). Sources named on every proposal.
+- **AI maps** (map.ts, ai_map_links): any map in Maps, linked per product (all factories) and per factory in
+  Compliance review > AI rules; Part branches; When / Section / Answer / Remark special notes; "to verify" = off;
+  Settings branch (copy threshold, model on/off, daily budget, suggestions, datasheet wins, project answers); the tab
+  lists what the AI cannot use, Try a clause shows the 5 steps, quality figures from ai_feedback. The AI rules table
+  (ai_rules, 0002) is no longer read; its rules move into a map created from the template.
+- **AI notes** in the Options tree (po_extras kind 'ai', migration 0003), hidden from readers.
+- **Focus mode proposals** for everyone (ai_suggest, 3 clauses a call, model answers kept 12 h in ai_suggestions);
+  Keep & next / Keep / Not this; every save after a proposal or a draft writes ai_feedback (kept / edited / replaced).
+- **Speed** (Free plan, ~10 ms CPU a request): matcher indexed (93 -> ~18 ms) and cached per record (ai_match_cache +
+  memory); library and answer search indexed (95 -> ~5 ms per batch) and kept in memory; 4 model calls side by side.
+- **Old site cache**: the Worker answers /sw.js and similar with a script that clears and removes the old service worker.
+- Open: golden set + eval:live; rule suggestions as one-tap branches in the map; the AI review on a phone at scale.
+
 ### 16 Oct 2026, 14:30 - agreed design for the next deliveries (owner's decisions, not built yet)
 **Three levels, one order of evidence per clause.** 1. the project's datasheet (what this unit IS) -> 2. Product
 Options of the factory (what it CAN offer: values seen, special options, AI notes) -> 3. the library (how the clause

@@ -197,82 +197,144 @@ describe("AI rules: routes", () => {
   beforeEach(async () => { await resetLogins(); });
   afterEach(() => { delete (env as any).AI; });
 
-  it("admins and the super user manage rules; Can-edit users, other users and strangers are refused", async () => {
+  it("AI maps are chosen per product and factory by admins; others are refused; the tab shows what a map gets wrong", async () => {
     const t = await login("teamAdmin");
-    const s = await ok("ai_rules_save", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_kind: "rule", p_title: "Site work",
-      p_keywords: "install, rigging", p_part: 3, p_instruction: "", p_answer: "by contractor", p_remark: "Daikin scope is equipment supply only." });
-    await ok("ai_rules_save", { p_token: t, p_product_id: "ahu", p_kind: "fact", p_title: "Fans", p_keywords: "fan", p_instruction: "Direct-driven EC plug fans.", p_answer: "Comply", p_remark: "x" });
-    const list = await ok("ai_rules_list", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
-    expect(list.rules.map((r: any) => [r.kind, r.title, r.answer, r.direct, r.factory])).toEqual([["rule", "Site work", "In Contractor's Scope", true, "Riyadh"], ["fact", "Fans", "", false, ""]]);
-    // the Dubai view shows the product-wide fact, not Riyadh's own rule
-    const dubai = await ok("ai_rules_list", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
-    expect(dubai.rules.map((r: any) => r.title)).toEqual(["Fans"]);
-    const tried = await ok("ai_rules_test", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Rigging and installation by the contractor.", p_part: 0 });
-    expect(tried.direct).toMatchObject({ title: "Site work", matched: ["install", "rigging"] });
-    await ok("ai_rules_save", { p_token: t, p_id: s.id, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_kind: "rule", p_title: "Site work", p_keywords: "rigging", p_part: 3, p_instruction: "Site work is by others.", p_active: false });
-    expect((await ok("ai_rules_test", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Rigging.", p_part: 3 })).direct).toBeNull();
-    const aud = await env.DB.prepare("SELECT action FROM app_audit WHERE action LIKE 'ai_rules%' ORDER BY id").all<any>();
-    expect(aud.results.map((a) => a.action)).toEqual(["ai_rules_save", "ai_rules_save", "ai_rules_save"]);
+    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
+    expect(made.name).toBe("AI rules: AHU");
+    let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(got.all).toMatchObject({ id: made.id, name: "AI rules: AHU" });
+    expect(got.all.rules).toBeGreaterThan(8);
+    expect(got.all.direct).toBeGreaterThanOrEqual(4);
+    expect(got.own).toBeNull();
+    expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
+    expect(got.problems).toEqual([]);
+    // a factory map of his own, named as he likes, linked by name
+    const own = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_name: "AHU-Riyadh-AI notes" });
+    const part3 = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Part 3 Execution'").bind(own.id).first<any>();
+    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-bad', ?, ?, 'Hoisting', 'Hoisting is by others.', ?, 9, 1)")
+      .bind(own.id, part3.id, JSON.stringify(["When: hoisting", "Answer: By others please", "Remark: Hoisting by others."])).run();
+    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('n-ok', ?, ?, 'Hoisting 2', '', ?, 10, 1)")
+      .bind(own.id, part3.id, JSON.stringify(["When: hoisting", "Answer: In Contractor's Scope", "Remark: Hoisting is by the contractor."])).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date().toISOString(), own.id).run();
+    const settings = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Settings'").bind(own.id).first<any>();
+    await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(["Copy from library at: 0.85", "Speed: fast"]), settings.id).run();
+    got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(got.own).toMatchObject({ name: "AHU-Riyadh-AI notes", direct: 1 });
+    expect(got.settings.copyAt).toBe(0.85);                                     // the factory's map overrides the product's
+    expect(got.problems.join("\n")).toMatch(/Answer "By others please" is not one of the six answers/);
+    expect(got.problems.join("\n")).toMatch(/"Speed" is not a setting the AI knows/);
+    expect(got.maps.map((m: any) => m.name)).toEqual(expect.arrayContaining(["AI rules: AHU", "AHU-Riyadh-AI notes"]));
+    // try a clause: the factory's rule answers it, from its branch
+    const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Hoisting of the sections to the roof.", p_part: 3 });
+    expect(tried.direct).toMatchObject({ title: "Hoisting 2", answer: "In Contractor's Scope" });
+    expect(tried.direct.where).toMatch(/AHU-Riyadh-AI notes.*Part 3 Execution.*Hoisting 2/);
+    const scope = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "This section includes air handling units.", p_section: "SECTION INCLUDES", p_part: 1 });
+    expect(scope.direct).toMatchObject({ title: "Scope statements", answer: "Noted" });
+    // the Riyadh map does not reach Dubai
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "Hoisting of the sections.", p_part: 3 })).direct).toBeNull();
+    // switched off ("to verify"): ignored
+    await env.DB.prepare("UPDATE mp_nodes SET verified = 0 WHERE id = 'n-ok'").run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 1000).toISOString(), own.id).run();
+    expect((await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Hoisting of the sections.", p_part: 3 })).direct).toBeNull();
+    // unlink
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: null });
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).own).toBeNull();
     // refusals
-    expect(await refused("ai_rules_save", { p_token: t, p_product_id: "ahu", p_kind: "rule", p_answer: "Comply", p_remark: "x" })).toMatch(/needs keywords or a Part/);
-    expect(await refused("ai_rules_save", { p_token: t, p_product_id: "ahu", p_kind: "rule", p_instruction: "x", p_answer: "Maybe", p_keywords: "a" })).toMatch(/must be one of/);
-    expect(await refused("ai_rules_save", { p_token: t, p_product_id: "ahu", p_factory_id: "fcu-riyadh", p_kind: "fact", p_instruction: "Something" })).toMatch(/does not make this product/);
-    const sales = await login("sales");                    // may edit the library, may not steer the AI
-    expect(await refused("ai_rules_list", { p_token: sales, p_product_id: "ahu" })).toMatch(/Only an admin or the super user/);
-    expect(await refused("ai_rules_save", { p_token: sales, p_product_id: "ahu", p_kind: "fact", p_instruction: "x y z" })).toMatch(/Only an admin/);
-    expect(await refused("ai_rules_delete", { p_token: sales, p_id: s.id })).toMatch(/Only an admin/);
-    expect(await refused("ai_rules_test", { p_token: sales, p_product_id: "ahu", p_clause: "Rigging" })).toMatch(/Only an admin/);
-    const sbu = await login("sbu");
-    expect(await refused("ai_rules_list", { p_token: sbu, p_product_id: "ahu" })).toMatch(/Only an admin/);
-    expect(await refused("ai_rules_list", { p_token: "nope", p_product_id: "ahu" })).toBe("SESSION_EXPIRED");
     const su = await login("admin");
-    const del = await ok("ai_rules_delete", { p_token: su, p_id: s.id });
-    expect(del.rule.title).toBe("Site work");
-    expect(await refused("ai_rules_delete", { p_token: su, p_id: s.id })).toMatch(/no longer exists/);
+    expect(await refused("ai_map_link", { p_token: su, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: own.id })).toMatch(/not available to you/);   // private to its maker
+    const sales = await login("sales");
+    for (const r of ["ai_map_get", "ai_map_create", "ai_map_link", "ai_try", "ai_quality"])
+      expect(await refused(r, { p_token: sales, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "x y z" })).toMatch(/Only an admin or the super user/);
+    expect(await refused("ai_map_get", { p_token: (await login("sbu")), p_product_id: "ahu" })).toMatch(/Only an admin/);
+    expect(await refused("ai_map_get", { p_token: "nope", p_product_id: "ahu" })).toBe("SESSION_EXPIRED");
   });
 
-  it("the review uses the site rules and the project's datasheet; users never see '#' rules", async () => {
+  it("the review: datasheet first by code, library reopened when the datasheet differs, map rules, the model last; suggestions and feedback; '#' rules hidden", async () => {
     const t = await login("admin");
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||panel', 'Unit Data', 'Panel', 1, 'double wall; double skin; panel thick', 1)"),
+      env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||insulation', 'Unit Data', 'Insulation', 1, 'insulation; injected foam; polyurethane', 2)")
+    ]);
+    await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
     const p = await ok("pr_save", { p_token: t, p_name: "Tower B", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
     const lines = [...SPEC_LINES, { type: "part", sr: "", spec: "PART 3 - EXECUTION" }, { type: "section", sr: "3.01", spec: "INSTALLATION" },
-      { type: "letter", sr: "A.", spec: "Rigging and setting of units in place shall be coordinated on site." }];
+      { type: "letter", sr: "A.", spec: "Unloading of the units at site shall be coordinated with the contractor." }];
+    // the library answers the CASING clause with 50 mm; this project's unit has 62 mm
+    const casingRun = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "x", p_lines: [lines[5]] });
+    void casingRun;
+    const casing = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text LIKE 'Casing shall be double skin%'").first<any>();
+    await ok("cm_admin_save_answer", { p_token: t, p_line_id: casing.id, p_compliance: "Comply", p_remarks: "50 mm double skin panels.", p_comments: "Check the panel." });
+    const fanLine = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text LIKE 'Fans shall be plug%'").first<any>();
     const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "pdf", p_file_name: "spec.pdf", p_lines: lines, p_project_id: p.id });
+    const fans = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text LIKE 'Fans shall be plug%'").first<any>();
+    await env.DB.prepare("UPDATE cm_lines SET comments = 'Ask the factory. # say direct-driven EC plug fans' WHERE id = ?").bind(fans.id).run();
+    void fanLine;
     await ok("pr_note_save", { p_token: t, p_project_id: p.id, p_product_id: "ahu", p_file_names: "sel.pdf", p_columns: ["AHU-01"],
-      p_rows: [{ section: "Casing", component: "Panel thickness", cells: ["62 mm"], kind: "row", key: "c1" }, { section: "Fan", component: "Motor", cells: ["EC, 4 kW"], kind: "row", key: "f1" }] });
-    await ok("ai_rules_save", { p_token: t, p_product_id: "ahu", p_kind: "rule", p_title: "Site work", p_keywords: "rigging", p_part: 3, p_answer: "In Contractor's Scope", p_remark: "Daikin scope is equipment supply only." });
-    await ok("ai_rules_save", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_kind: "fact", p_title: "Fans", p_keywords: "fan", p_instruction: "Direct-driven EC plug fans." });
-    // a clause rule on the polyurethane clause
-    const pu = await env.DB.prepare("SELECT id FROM cm_lines WHERE spec_text LIKE 'Panels shall be insulated%'").first<any>();
-    await ok("cm_admin_save_answer", { p_token: t, p_line_id: pu.id, p_compliance: "", p_remarks: "", p_comments: "Ask the factory. # quote the panel thickness from the datasheet" });
-    const fake = fakeAi((u) => u.includes("polyurethane")
-      ? { compliance: "Comply with Remarks", remarks: "Offered units are with 62 mm panels.", reason: "Datasheet panel thickness.", confidence: "high" }
-      : { compliance: "Comply", remarks: "Standard construction.", reason: "General.", confidence: "medium" });
+      p_rows: [{ section: "Unit Data", component: "Panel", cells: ["62 mm"], kind: "row", key: "unit data||panel" }, { section: "", component: "Insulation", cells: ["PU foam 45 kg/m3"], kind: "row", key: "unit data||insulation" }] });
+    const fake = fakeAi(() => ({ compliance: "Comply", remarks: "Direct-driven EC plug fans.", reason: "Plug fans are standard.", confidence: "medium" }));
     (env as any).AI = fake.ai;
     const r = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
-    expect(r).toMatchObject({ ruled: 1, failed: 0, remaining: 0 });
-    const prompts = fake.calls.map((c) => c.user);
-    expect(prompts.some((u) => /Rigging/.test(u))).toBe(false);                 // the rule answered it; no model call
-    const puPrompt = prompts.find((u) => u.includes("polyurethane"))!;
-    expect(puPrompt).toMatch(/Project datasheet rows \(units: AHU-01\):\n- Casing • Panel thickness: 62 mm/);
-    expect(puPrompt).toMatch(/AI rules for this clause \(library team, follow them\):\n1\. quote the panel thickness from the datasheet/);
-    expect(prompts.find((u) => u.includes("Fans shall be"))).toMatch(/Factory facts \(AHU, standard offering\):\n- Fans: Direct-driven EC plug fans\./);
+    expect(r.by_source).toMatchObject({ datasheet: 2, rule: 2, model: 1 });
+    expect(r).toMatchObject({ failed: 0, remaining: 0 });
+    expect(fake.calls.filter((c) => c.model.includes("llama")).length).toBe(1);     // only the fan clause needed the model
     const rec = await ok("pr_run_get", { p_token: t, p_run_id: run.run_id });
-    const rig = rec.lines.find((l: any) => /Rigging/.test(l.spec));
-    expect(rig).toMatchObject({ ai_draft: true, compliance: "In Contractor's Scope", remarks: "Daikin scope is equipment supply only." });
-    expect(rig.ai).toMatchObject({ source: "rule", confidence: "high" });
-    const puRow = rec.lines.find((l: any) => /polyurethane/.test(l.spec));
-    expect(puRow).toMatchObject({ compliance: "Comply with Remarks", remarks: "Offered units are with 62 mm panels." });
-    expect(puRow.ai.confidence).toBe("high");                                   // a clause rule backs it
-    expect(puRow.lib_comments).toBe("Ask the factory. # quote the panel thickness from the datasheet");   // an editor sees the rule
-    const versions = await env.DB.prepare("SELECT DISTINCT prompt_version FROM ai_drafts ORDER BY 1").all<any>();
-    expect(versions.results.map((v) => v.prompt_version)).toEqual(["draft-2026-10-16", "rule-2026-10-16"]);
-    // a member who may not edit the library sees the note only
+    const by = (re: RegExp) => rec.lines.find((l: any) => re.test(l.spec));
+    // casing: "50 mm" asked as is, the unit has 62 mm -> Comply with Remarks, the library's 50 mm answer reopened
+    expect(by(/^Casing shall be double skin/)).toMatchObject({ ai_draft: true, compliance: "Comply with Remarks", remarks: "62 mm" });
+    expect(by(/^Casing shall be double skin/).ai.reason).toMatch(/The library answer says 50 mm; this project's datasheet has 62 mm\. From the datasheet: 62 mm ≠ 50 mm asked/);
+    // insulation: "not less than 40 kg/m3", the unit has 45 -> Comply, by code
+    expect(by(/polyurethane/)).toMatchObject({ compliance: "Comply", remarks: "PU foam 45 kg/m3" });
+    expect(by(/polyurethane/).ai).toMatchObject({ source: "datasheet", confidence: "high" });
+    expect(by(/polyurethane/).ai.reason).toMatch(/45 kg\/m3 ≥ 40 kg\/m3 required/);
+    // map rules: the scope statement and the unloading clause, no model
+    expect(by(/^This section includes/)).toMatchObject({ compliance: "Noted", remarks: "Noted." });
+    expect(by(/^Unloading/)).toMatchObject({ compliance: "In Contractor's Scope" });
+    expect(by(/^Unloading/).ai.reason).toMatch(/Site rule "Unloading at site"/);
+    // a member without library rights sees the note of Internal Comments, not the "#" rule
     await ok("pr_share_set", { p_token: t, p_id: p.id, p_user_ids: ["u5"] });
     const sbu = await login("sbu");
     const seen = await ok("pr_run_get", { p_token: sbu, p_run_id: run.run_id });
-    expect(seen.lines.find((l: any) => /polyurethane/.test(l.spec)).lib_comments).toBe("Ask the factory.");
-    const conv = await ok("cm_save_run", { p_token: sbu, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "", p_lines: lines.slice(3, 7) });
-    expect(conv.answers.find((a: any) => a.comments).comments).toBe("Ask the factory.");
+    expect(seen.lines.find((l: any) => /^Fans shall be plug/.test(l.spec)).lib_comments).toBe("Ask the factory.");
+    expect(rec.lines.find((l: any) => /^Fans shall be plug/.test(l.spec)).lib_comments).toBe("Ask the factory. # say direct-driven EC plug fans");
+
+    // focus mode, for everyone who can open the record: a second record, the fan clause answered by a person first
+    const run2 = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "rev1", p_project_id: p.id,
+      p_lines: [{ type: "part", sr: "", spec: "PART 2 - PRODUCTS" }, { type: "section", sr: "2.02", spec: "FANS" },
+                { type: "letter", sr: "A.", spec: "Fan impellers shall be statically and dynamically balanced to grade G 6.3." },
+                { type: "letter", sr: "B.", spec: "Fan impellers shall be statically and dynamically balanced to grade G 6.3." }] });
+    const r2 = await ok("pr_run_get", { p_token: t, p_run_id: run2.run_id });
+    const [a, b] = r2.lines.filter((l: any) => l.can).map((l: any) => l.seq);
+    await ok("pr_run_save_line", { p_token: sbu, p_run_id: run2.run_id, p_seq: a, p_compliance: "Comply", p_remarks: "Balanced to ISO 21940 G 6.3." });
+    fake.calls.length = 0;
+    const sug = await ok("ai_suggest", { p_token: sbu, p_run_id: run2.run_id, p_seqs: [a, b] });
+    expect(sug.suggestions.find((x: any) => x.seq === a)).toMatchObject({ none: true });          // answered already
+    expect(sug.suggestions.find((x: any) => x.seq === b)).toMatchObject({ source: "record", compliance: "Comply", remarks: "Balanced to ISO 21940 G 6.3." });
+    expect(fake.calls.length).toBe(0);
+    // he keeps it: the save is the feedback the AI learns from
+    await ok("pr_run_save_line", { p_token: sbu, p_run_id: run2.run_id, p_seq: b, p_compliance: "Comply", p_remarks: "Balanced to ISO 21940 G 6.3." });
+    const fb = await env.DB.prepare("SELECT source, outcome, final FROM ai_feedback WHERE run_id = ?").bind(run2.run_id).all<any>();
+    expect(fb.results).toEqual([{ source: "record", outcome: "kept", final: "Comply" }]);
+    // the draft of the first record that a person corrects is feedback too
+    const fan = by(/^Fans shall be plug/);
+    await ok("pr_run_save_line", { p_token: t, p_run_id: run.run_id, p_seq: fan.seq, p_compliance: "Comply with Remarks", p_remarks: "EC plug fans." });
+    const q = await ok("ai_quality", { p_token: t, p_product_id: "ahu" });
+    expect(q.sources).toEqual(expect.arrayContaining([expect.objectContaining({ source: "record", n: 1, kept: 1 }), expect.objectContaining({ source: "model", n: 1, replaced: 1 })]));
+    // with the model switched off in the map, free sources still answer and the model is never called
+    const mapId = (await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).all.id;
+    await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE map_id = ? AND title = 'Settings'").bind(JSON.stringify(["Use the AI model: no"]), mapId).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 5000).toISOString(), mapId).run();
+    await ok("ai_review_clear", { p_token: t, p_run_id: run.run_id });
+    fake.calls.length = 0;
+    const off = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
+    expect(off.by_source).toMatchObject({ datasheet: 2, rule: 2 });
+    expect(off.by_source.model).toBeUndefined();
+    expect(fake.calls.length).toBe(0);
+    // a clause nothing free can answer waits, and the review says why
+    await ok("pr_run_save_line", { p_token: t, p_run_id: run.run_id, p_seq: fan.seq, p_compliance: "", p_remarks: "" });
+    const waits = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
+    expect(waits).toMatchObject({ waiting: 1, done: 0 });
+    expect(waits.stopped).toMatch(/switched off in the AI map/);
+    expect(fake.calls.length).toBe(0);
   });
 
   it("an uploaded library is written in the six standard answers", async () => {
@@ -313,7 +375,7 @@ describe("AI review: connection and allowance", () => {
     (env as any).AI = { async run() { calls++; throw new Error("4006: daily free allocation of 10,000 neurons used"); } };
     const r = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
     expect(r.stopped).toMatch(/allowance for today is used up/);
-    expect(calls).toBe(1);                                                     // not one call per clause
+    expect(calls).toBeLessThanOrEqual(4);                                      // the calls in flight, not one per clause
     expect(r.remaining).toBe(4);
     // the gateway does not exist: the call goes straight to Workers AI
     (env as any).AI_GATEWAY_ID = "hub";
@@ -324,8 +386,9 @@ describe("AI review: connection and allowance", () => {
     } };
     const r2 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 2 });
     expect(r2).toMatchObject({ done: 2, failed: 0, stopped: "" });
-    expect(seen[0]).toBe("gateway");
-    expect(seen.slice(1).every((x) => x === "direct")).toBe(true);
+    // the calls already on their way try the gateway once each; after the first refusal every call goes direct
+    expect(seen.filter((x) => x === "gateway").length).toBeLessThanOrEqual(2);
+    expect(seen.filter((x) => x === "direct").length).toBe(2);
     // a clause that fails is reported and not tried again in the same review
     (env as any).AI = fakeAi(() => "not json at all").ai;
     const r3 = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });

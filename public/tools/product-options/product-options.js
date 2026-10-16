@@ -169,15 +169,16 @@
   /* one form at a time: add or change a special option / note */
   function openForm(anchor, d) {
     var old = host.querySelector('.po-form'); if (old) old.remove();
-    var isNote = d.kind === 'note';
-    var box = isNote ? el('textarea', { 'class': 'input', maxlength: 1000, 'aria-label': 'Note' })
+    var isNote = d.kind === 'note' || d.kind === 'ai', isAi = d.kind === 'ai';
+    var box = isNote ? el('textarea', { 'class': 'input', maxlength: 1000, 'aria-label': isAi ? 'AI note' : 'Note',
+                                        placeholder: isAi ? 'For the AI only, e.g. Panels are 62 mm double wall with PU foam; 50 mm on request.' : '' })
                      : el('input', { 'class': 'input', type: 'text', maxlength: 1000, 'aria-label': 'Special option' });
     box.value = d.body || '';
     var msg = el('p', { 'class': 'hint', role: 'alert' });
-    var save = el('button', { type: 'button', 'class': 'btn sm', text: d.id ? 'Save' : (isNote ? 'Add note' : 'Add special option') });
+    var save = el('button', { type: 'button', 'class': 'btn sm', text: d.id ? 'Save' : (isAi ? 'Add AI note' : isNote ? 'Add note' : 'Add special option') });
     var form = el('div', { 'class': 'po-form' }, [
-      el('strong', { 'class': 'small', text: (d.id ? 'Change ' : 'New ') + (isNote ? 'note' : 'special option') + ' for ' + d.where }),
-      box, msg,
+      el('strong', { 'class': 'small', text: (d.id ? 'Change ' : 'New ') + (isAi ? 'AI note' : isNote ? 'note' : 'special option') + ' for ' + d.where }),
+      box, isAi ? el('p', { 'class': 'hint', text: 'Read by the AI when it answers specification clauses about this ' + (d.key ? 'row' : 'section') + '. Write facts with their numbers; the AI may quote them. Users of Product Options do not see AI notes.' }) : null, msg,
       el('div', { 'class': 'row' }, [save, el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Cancel', onclick: function () { form.remove(); } })])
     ]);
     function submit() {
@@ -185,7 +186,7 @@
       if (!body) { msg.textContent = 'Type the text first.'; box.focus(); return; }
       msg.textContent = '';
       busy(save, Api.poAdminSaveExtra(window.Hub.token(), { factoryId: tree.factory.id, id: d.id, section: d.section, key: d.key, kind: d.kind, body: body }),
-           d.id ? 'Saved.' : (isNote ? 'Note added.' : 'Special option added.'));
+           d.id ? 'Saved.' : (isAi ? 'AI note added.' : isNote ? 'Note added.' : 'Special option added.'));
     }
     save.addEventListener('click', submit);
     box.addEventListener('keydown', function (e) {
@@ -202,7 +203,7 @@
       node.appendChild(xbtn('Change', function () { openForm(ctx.anchor(), { id: x.id, kind: x.kind, body: x.body, section: x.section, key: x.key, where: ctx.where }); }));
       node.appendChild(xbtn('Delete', function (e) {
         var btn = e.currentTarget;
-        window.Hub.confirm(x.body, { title: 'Delete this ' + (x.kind === 'note' ? 'note' : 'special option') + '?', ok: 'Delete', danger: true }).then(function (yes) {
+        window.Hub.confirm(x.body, { title: 'Delete this ' + (x.kind === 'ai' ? 'AI note' : x.kind === 'note' ? 'note' : 'special option') + '?', ok: 'Delete', danger: true }).then(function (yes) {
           if (yes) busy(btn, Api.poAdminDeleteExtra(window.Hub.token(), x.id), 'Deleted.');
         });
       }, true));
@@ -213,6 +214,10 @@
     });
     list.filter(function (x) { return x.kind === 'note'; }).forEach(function (x) {
       var n = el('p', { 'class': 'po-note' }, [el('span', { text: x.body }), el('span', { 'class': 'by', text: '  ' + [x.by, when(x.at)].filter(Boolean).join(', ') + ' ' })]);
+      tools(x, n); out.push(n);
+    });
+    list.filter(function (x) { return x.kind === 'ai'; }).forEach(function (x) {
+      var n = el('p', { 'class': 'po-note po-ai' }, [el('b', { text: 'AI note ' }), el('span', { text: x.body }), el('span', { 'class': 'by', text: '  ' + [x.by, when(x.at)].filter(Boolean).join(', ') + ' ' })]);
       tools(x, n); out.push(n);
     });
     return out;
@@ -240,6 +245,7 @@
     if (edit && !r.model) node.appendChild(el('div', { 'class': 'po-tools' }, [
       xbtn('+ Special option', function () { openForm(node, { kind: 'option', section: s.name, key: r.key, where: ctx.where }); }),
       xbtn('+ Note', function () { openForm(node, { kind: 'note', section: s.name, key: r.key, where: ctx.where }); }),
+          xbtn('+ AI note', function () { openForm(node, { kind: 'ai', section: s.name, key: r.key, where: ctx.where }); }),
       xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
         busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
              r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
@@ -281,7 +287,8 @@
         var sx = el('div', { 'class': 'po-secx' }, extraNodes(extras, ctx, edit));
         if (edit) sx.appendChild(el('div', { 'class': 'po-tools' }, [
           xbtn('+ Special option for the section', function () { openForm(sx, { kind: 'option', section: s.name, key: '', where: s.name }); }),
-          xbtn('+ Note for the section', function () { openForm(sx, { kind: 'note', section: s.name, key: '', where: s.name }); })
+          xbtn('+ Note for the section', function () { openForm(sx, { kind: 'note', section: s.name, key: '', where: s.name }); }),
+          xbtn('+ AI note for the section', function () { openForm(sx, { kind: 'ai', section: s.name, key: '', where: s.name }); })
         ]));
         if (sx.childNodes.length) body.appendChild(sx);
       }
@@ -339,7 +346,8 @@
       extraNodes(s.extras, sctx, edit).forEach(function (n) { sx.appendChild(n); });
       if (edit) sx.appendChild(el('div', { 'class': 'po-tools' }, [
         xbtn('+ Special option for the section', function () { openForm(sx, { kind: 'option', section: s.name, key: '', where: s.name }); }),
-        xbtn('+ Note for the section', function () { openForm(sx, { kind: 'note', section: s.name, key: '', where: s.name }); })]));
+        xbtn('+ Note for the section', function () { openForm(sx, { kind: 'note', section: s.name, key: '', where: s.name }); }),
+          xbtn('+ AI note for the section', function () { openForm(sx, { kind: 'ai', section: s.name, key: '', where: s.name }); })]));
       body.appendChild(el('tr', { 'class': 'sec' }, [el('td', { colspan: String(nCols - 1), text: s.name }), el('td', {}, [sx])]));
 
       var sub = '';
@@ -351,6 +359,7 @@
         if (edit) xcell.appendChild(el('div', { 'class': 'po-tools' }, [
           xbtn('+ Special option', function () { openForm(xcell, { kind: 'option', section: s.name, key: r.key, where: ctx.where }); }),
           xbtn('+ Note', function () { openForm(xcell, { kind: 'note', section: s.name, key: r.key, where: ctx.where }); }),
+          xbtn('+ AI note', function () { openForm(xcell, { kind: 'ai', section: s.name, key: r.key, where: ctx.where }); }),
           xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
             busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
                  r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
@@ -505,7 +514,8 @@
     box.appendChild(el('div', { 'class': 'row' }, [input,
       el('datalist', { id: 'po-sections' }, names.map(function (n) { return el('option', { value: n }); })),
       el('button', { type: 'button', 'class': 'btn ghost sm', text: '+ Special option', onclick: function () { go('option'); } }),
-      el('button', { type: 'button', 'class': 'btn ghost sm', text: '+ Note', onclick: function () { go('note'); } })]));
+      el('button', { type: 'button', 'class': 'btn ghost sm', text: '+ Note', onclick: function () { go('note'); } }),
+      el('button', { type: 'button', 'class': 'btn ghost sm', text: '+ AI note', onclick: function () { go('ai'); } })]));
     box.appendChild(msg);
     return box;
   }
@@ -532,18 +542,18 @@
   $('po-download').addEventListener('click', function () {
     if (!tree) return;
     var byModel = modelMode(), secs = build();
-    var rows = [(byModel ? ['Series', 'Model'] : []).concat(['Section', 'Sub-section', 'Component', 'Options seen on datasheets', 'Special options', 'Notes'])];
+    var rows = [(byModel ? ['Series', 'Model'] : []).concat(['Section', 'Sub-section', 'Component', 'Options seen on datasheets', 'Special options', 'Notes', 'AI notes'])];
     function txt(list, kind) { return list.filter(function (x) { return x.kind === kind; }).map(function (x) { return x.body; }).join('\n'); }
     function block(model, series) {
       secs.forEach(function (s) {
         var lead = byModel ? [series, model] : [];
-        if (!model && s.extras.length) rows.push(lead.concat([s.name, '', '(whole section)', '', txt(s.extras, 'option'), txt(s.extras, 'note')]));
+        if (!model && s.extras.length) rows.push(lead.concat([s.name, '', '(whole section)', '', txt(s.extras, 'option'), txt(s.extras, 'note'), txt(s.extras, 'ai')]));
         s.rows.forEach(function (r) {
           if (r.off) return;
           var vals = model ? r.values.filter(function (v) { return !v.hidden && v.model === model; }) : (byModel ? [] : r.values.filter(function (v) { return !v.hidden; }));
           var extras = model ? [] : r.extras;
           if (!vals.length && !extras.length) return;
-          rows.push(lead.concat([s.name, r.sub, r.name, cellText(vals), txt(extras, 'option'), txt(extras, 'note')]));
+          rows.push(lead.concat([s.name, r.sub, r.name, cellText(vals), txt(extras, 'option'), txt(extras, 'note'), txt(extras, 'ai')]));
         });
       });
     }

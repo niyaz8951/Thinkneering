@@ -176,6 +176,7 @@
     if (seen) for (k = 0; k < items.length; k++) if (lines.indexOf(items[k].line) >= lines.indexOf(seen)) { first = k; break; }
     CMFocus.open({ title: bare(run.file_name), items: items, start: first, choices: CHOICES,
       editing: editing, onMode: function (on) { setMode(on, true); },      // one mode for the page and the pane
+      suggest: function (it) { return proposal(items, it); },
       save: function (it, v) {
         var now = shown(it.line), answer = v.compliance === now.c && v.remarks === now.r ? Promise.resolve() : saveLine(it.line, v.compliance, v.remarks);
         var note = v.comments === undefined || v.comments === (it.line.lib_comments || "") ? Promise.resolve()
@@ -183,12 +184,33 @@
         var tl = v.review === undefined || v.review === (it.line.tl_review || "") ? Promise.resolve()
           : Api.prRunSaveReview(Hub.token(), { run: runId, seq: it.line.seq, text: v.review, check: rowKey(it.line) }).then(function () { it.line.tl_review = v.review; it.review = v.review; });
         return Promise.all([answer, note, tl]).then(function () {
+          // a new answer can change the proposals for the clauses after it (same clause again, same section)
+          Object.keys(proposals).forEach(function (q) { if (+q !== it.line.seq) delete proposals[q]; });
           var s = shown(it.line); it.compliance = s.c; it.remarks = s.r; it.lib = !it.line.own && filled(it.line); it.info = stateText(it.line);
           if (!it.line.ai_draft) it.draft = null;
           return { info: it.line.own && it.line.review === "pending" ? "sent for review" : "", lib: it.lib };
         });
       },
       onClose: function () { counts(); draw(); } });
+  }
+  /* Focus mode proposals (ai_suggest): asked for the clause on screen and the next two that may need one, in one
+     call, and kept per clause while the page is open, so Next shows the proposal at once. A saved answer drops the
+     clause from the cache (its proposal is no longer needed; others may change with it, so they are asked again). */
+  var proposals = {};
+  function wantsProposal(it) { var l = it.line; return !l.ai_draft && !(l.own && filled(l)); }
+  function proposal(items, it) {
+    var seq = it.line.seq;
+    if (proposals[seq]) return proposals[seq];
+    var k = items.indexOf(it), batch = [it];
+    for (var j = k + 1; j < items.length && batch.length < 3; j++) if (wantsProposal(items[j]) && !proposals[items[j].line.seq]) batch.push(items[j]);
+    var call = Api.aiSuggest(Hub.token(), runId, batch.map(function (x) { return x.line.seq; })).then(function (res) {
+      var by = {}; (res.suggestions || []).forEach(function (x) { by[x.seq] = x; });
+      if (res.off) return {};
+      if (res.model_note && !proposal.told) { proposal.told = true; Hub.toast(res.model_note); }
+      return by;
+    }, function () { batch.forEach(function (x) { delete proposals[x.line.seq]; }); return {}; });
+    batch.forEach(function (x) { proposals[x.line.seq] = call.then(function (by) { return by[x.line.seq] || null; }); });
+    return proposals[seq];
   }
   function topLine() {
     var wrap = $("rc-wrap").getBoundingClientRect();
@@ -588,7 +610,7 @@
     var replace = false, n = open, ask;
     if (!open && !drafts) { Hub.tell("Every clause already shows an answer, from a person or from the library.", { title: "Nothing to draft" }); return; }
     if (!open) { replace = true; n = drafts; ask = Hub.confirm("Every clause shows an answer; " + drafts + " of them are AI drafts. Draft those " + drafts + " again? Answers typed by people and answers from the library are never touched.", { title: "Draft the AI answers again?", ok: "Draft again" }); }
-    else ask = Hub.confirm("The AI drafts an answer for the " + open + (open === 1 ? " clause" : " clauses") + " that show no answer yet, from the company library for this factory and the model. Drafts are marked in blue; nothing goes to the library until a person checks them. Answers already given are never changed.", { title: "Draft answers with AI?", ok: "Start" });
+    else ask = Hub.confirm("The AI drafts an answer for the " + open + (open === 1 ? " clause" : " clauses") + " that show no answer yet: from this project's datasheet first, then Product Options, the library, earlier answers and the AI rules; the AI model only where none of them settles a clause. Library answers this project's datasheet contradicts are drafted again from the datasheet. Drafts are blue; nothing goes to the library until a person checks them. Answers people gave are never changed.", { title: "Draft answers with AI?", ok: "Start" });
     ask.then(function (yes) {
       if (!yes) return;
       aiRun(replace, n);
@@ -600,7 +622,7 @@
      the AI first with one tiny call, then drafts in batches of 10, and says plainly why it stopped. */
   function aiRun(replace, n) {
     aiBusy = true; $("rc-ai").disabled = true; $("rc-ai-clear").disabled = true;
-    var stop = false, done = 0, drafted = 0, copied = 0, ruled = 0, failed = 0, errors = [], skip = [], since = null, t0 = Date.now();
+    var stop = false, done = 0, drafted = 0, copied = 0, ruled = 0, sheet = 0, failed = 0, waiting = 0, errors = [], skip = [], since = null, t0 = Date.now();
     var title = el("h2", { text: "AI review" });
     var status = el("p", { text: "Checking the AI connection…" });
     var bar = el("div", { "class": "meter2", style: "height:8px" }, [el("i", { "class": "ai" })]);
@@ -628,10 +650,12 @@
     function paint() {
       bar.firstChild.style.width = (n ? Math.min(100, Math.round(done / n * 100)) : 0) + "%";
       var parts = [];
-      if (copied) parts.push(copied + " from similar library clauses");
+      if (sheet) parts.push(sheet + " from the project's datasheet");
+      if (copied) parts.push(copied + " from the library or earlier answers");
       if (ruled) parts.push(ruled + " by AI rules");
       if (drafted) parts.push(drafted + " by the AI");
       if (failed) parts.push(failed + " could not be drafted (left empty)");
+      if (waiting) parts.push(waiting + " left for a person (model off or budget used)");
       counts.textContent = parts.join(" · ");
     }
     function finish(headline, message, kind) {
@@ -643,15 +667,17 @@
       paint();
       btnStop.hidden = true; btnOk.hidden = false; btnOk.focus();
     }
+    var noModel = false, modelNote = "";
     Api.aiCheck(Hub.token()).then(function (c) {
-      if (!c.working) { finish("AI review could not start", c.message || "The AI did not answer.", "error"); return; }
+      // without the model the review still answers from the datasheet, the library, earlier answers and the rules
+      if (!c.working) { noModel = true; modelNote = (c.message || "The AI model did not answer.") + " The review goes on without the model."; }
       function step() {
         status.textContent = "Drafting… " + done + " of " + n + (n === 1 ? " clause" : " clauses") + ". Keep this page open.";
         paint();
-        return Api.aiReviewRun(Hub.token(), { run: runId, limit: 10, replace: replace, since: since, skip: skip }).then(function (res) {
+        return Api.aiReviewRun(Hub.token(), { run: runId, limit: 12, replace: replace, since: since, skip: skip, noModel: noModel }).then(function (res) {
           since = res.since || since; done += res.done || 0; failed += res.failed || 0;
           skip = skip.concat(res.failed_seqs || []);
-          drafted += res.drafted || 0; copied += res.copied || 0; ruled += res.ruled || 0;
+          drafted += res.drafted || 0; copied += res.copied || 0; ruled += res.ruled || 0; sheet += res.from_datasheet || 0; waiting += res.waiting || 0;
           (res.errors || []).forEach(function (x) { if (errors.length < 3) errors.push(x); });
           if (res.stopped) return { why: res.stopped };
           if (stop) return { why: "Stopped by you. Press AI review again to go on with the rest." };
@@ -660,7 +686,7 @@
         });
       }
       return step().then(function (end) {
-        var detail = errors.length ? "Not drafted, for example:\n" + errors.join("\n") : "";
+        var detail = (modelNote ? modelNote + "\n\n" : "") + (errors.length ? "Not drafted, for example:\n" + errors.join("\n") : "");
         if (end) finish(done ? "AI review stopped" : "AI review could not draft", end.why + (detail ? "\n\n" + detail : ""), done ? "warn" : "error");
         else if (!done && failed) finish("AI review could not draft", detail, "error");
         else finish("AI review finished", detail || "", detail ? "warn" : "ok");

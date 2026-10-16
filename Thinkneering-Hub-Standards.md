@@ -158,6 +158,13 @@ The brief's three standards (simple like WhatsApp, designed like Apple inside th
 - **Versioned prompts**: `PROMPT_VERSION` / `RULE_VERSION` in `ai/draft.ts` are stored on every `ai_drafts` row; `ai/prompts/draft.md` mirrors the prompt and changes with the version string.
 - **Library uploads** write the six standard answers for the known variants (`choiceOf` in `lib/cm.ts`); anything else stays as written and the result says how many were standardised.
 
+### 13.3 The AI's evidence, maps and proposals (16 Oct 2026, evening)
+- **One order of evidence** for the AI review and focus-mode proposals (`ai/evidence.ts`, `ai/draft.ts`): project datasheet by code -> library copy -> same clause in the record -> map rule with Answer + Remark -> other projects -> the model. The clause-to-row match on the server is `lib/rows.ts`, a port of `cm-rows.js` that must stay identical (parity test); a change to one is a change to both.
+- **AI rules are written in Maps**, not in code and not in a table: a map is linked per product / factory in `ai_map_links`; `ai/map.ts` reads Part branches, `When / Section / Answer / Remark` special notes, the verified flag as on/off and the Settings branch. The server reads linked maps itself; Maps permissions only govern who writes them. Linking, creating and the quality figures: admins of the Compliance Maker tile and the super user.
+- **AI notes** are `po_extras` with kind `ai`: written by Product Options editors, hidden from its readers, read by the AI.
+- **Feedback**: every save over a proposal (`ai_suggestions`) or a draft (`ai_drafts`) writes `ai_feedback`; nothing else counts as learning.
+- **CPU on the Free plan**: work that scales with a record or a library is indexed and kept (`ai_match_cache`, in-memory caches with a stamp); a new feature that loops over all clauses x all rows must say how it stays within ~10 ms.
+
 ---
 
 # B. Page and tool rules carried over from the DAME Tools Hub (unchanged, 14 Oct 2026)

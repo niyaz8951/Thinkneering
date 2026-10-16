@@ -70,6 +70,8 @@ export function noteOnly(comments: string | null | undefined): string {
 export interface AiRule {
   id: string; product_id: string; factory_id: string | null; kind: "rule" | "fact"; title: string;
   keywords: string; part: number; instruction: string; answer: string; remark: string; active: number; sort: number;
+  sections?: string;                 // "references, codes and standards": the clause's section title must mention one
+  source?: string;                   // where the rule was written (the AI map branch path), for the reason line
 }
 export interface RuleHit { rule: AiRule; score: number; matched: string[] }
 
@@ -94,12 +96,19 @@ export function ruleHit(rule: AiRule, clause: string, section: string, part: num
   if (!rule.active) return null;
   if (rule.part && part && rule.part !== part) return null;
   if (rule.part && !part) return null;                    // a Part rule needs a clause whose Part is known
+  const secs = keywordList(rule.sections || "");
+  let secHit: string[] = [];
+  if (secs.length) {
+    const sw = wordsOf(section);
+    secHit = secs.filter((k) => phraseIn(k, sw)).map((k) => k.join(" "));
+    if (!secHit.length) return null;
+  }
   const keys = keywordList(rule.keywords);
-  if (!keys.length) return { rule, score: 0, matched: [] };
+  if (!keys.length) return { rule, score: secHit.length ? 1 : 0, matched: secHit.map((k) => "section " + k) };
   const words = wordsOf(clause + " " + section);
   const matched = keys.filter((k) => phraseIn(k, words)).map((k) => k.join(" "));
   if (!matched.length) return null;
-  return { rule, score: matched.reduce((s, k) => s + k.split(" ").length, 0), matched };
+  return { rule, score: matched.reduce((s, k) => s + k.split(" ").length, 0) + (secHit.length ? 1 : 0), matched: [...secHit.map((k) => "section " + k), ...matched] };
 }
 
 /* The rules and facts for one clause, best first: more keywords hit, then this factory's own before the
@@ -208,3 +217,20 @@ function level(sr: string): number {
   if (/^\(\w{1,3}\)$/.test(s)) return 4;
   return 0;
 }
+
+/* ---------- 5. AI notes that share telling words with a clause ---------- */
+
+/* Words every specification uses everywhere: they never tie a note to a clause. */
+const NOTE_COMMON = new Set(["shall", "section", "sections", "general", "provide", "provided", "providing", "unit", "units", "with", "this", "that",
+  "from", "each", "such", "other", "where", "which", "include", "including", "includes", "requirements", "required", "manufacturer", "standard",
+  "accordance", "specified", "equipment", "contract", "work", "item", "items", "following", "type", "minimum", "maximum"]);
+export function tellingWords(text: string): Set<string> {
+  return new Set(wordsOf(text).filter((w) => w.length > 3 && !NOTE_COMMON.has(w) && !/^\d/.test(w)));
+}
+/* AI notes (Options tree) for a clause: those sharing at least two telling words, most shared first. */
+export function notesMatching(notes: { section: string; body: string }[], clause: string, section: string, k = 3): string[] {
+  const words = tellingWords(clause + " " + section);
+  return notes.map((n) => { let c = 0; for (const w of tellingWords(n.body + " " + n.section)) if (words.has(w)) c++; return { t: `${n.section}: ${n.body}`, c }; })
+    .filter((z) => z.c >= 2).sort((a, b) => b.c - a.c).slice(0, k).map((z) => z.t);
+}
+

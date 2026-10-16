@@ -19,6 +19,9 @@
      editing,                       true = opens in Edit; false = Read (answers as text, nothing can change)
      onMode(editing),               the Read | Edit switch in the pane was used (keep the page in the same mode)
      choices: [text],               one-tap answers
+     suggest(item) -> Promise of { compliance, remarks, reason, confidence, source } | { none, why } | null
+                                    optional: a proposal for a clause with no answer (or with a library answer the
+                                    project's datasheet contradicts); shown as "Proposed" with Keep / Keep & next / Not this
      save(item, { compliance, remarks, comments, review }) -> Promise of { info, lib }      review = the TL Review box (item.review, item.canReview)
                                     must update the item itself
      onClose()
@@ -59,6 +62,12 @@
     '.cf-why b { font-weight: 650; color: var(--link); }',
     '.cf.ai .cf-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--brand-sky) 24%, var(--surface)); border-color: var(--brand); color: var(--text); }',
     '.cf.ai .cf-read .cf-val:not(.soft):not(.none):not(.tl) { color: var(--link); }',
+    /* a proposal for a clause nobody answered yet: dashed, so it never looks like an answer */
+    '.cf-sug { display: grid; gap: calc(6px * var(--cf-k, 1)); padding: calc(12px * var(--cf-k, 1)) calc(14px * var(--cf-k, 1)); border-radius: calc(14px * var(--cf-k, 1)); border: 1.5px dashed color-mix(in srgb, var(--brand) 55%, transparent); background: color-mix(in srgb, var(--brand-sky) 9%, var(--surface)); font-size: calc(14px * var(--cf-k, 1)); line-height: 1.45; overflow-wrap: anywhere; }',
+    '.cf-sug-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: calc(8px * var(--cf-k, 1)); } .cf-sug-head b { font-size: calc(16px * var(--cf-k, 1)); font-weight: 650; }',
+    '.cf-sug-src { font-size: calc(12px * var(--cf-k, 1)); font-weight: 650; padding: 2px calc(8px * var(--cf-k, 1)); border-radius: 999px; background: var(--surface-2); color: var(--link); }',
+    '.cf-sug-rem { font-size: calc(15px * var(--cf-k, 1)); } .cf-sug-why { color: var(--text-soft); font-size: calc(13px * var(--cf-k, 1)); } .cf-sug-wait { color: var(--text-soft); font-size: calc(13px * var(--cf-k, 1)); }',
+    '.cf-sug-act { display: flex; flex-wrap: wrap; gap: calc(8px * var(--cf-k, 1)); margin-top: calc(2px * var(--cf-k, 1)); } .cf-sug-act .btn { min-height: calc(40px * var(--cf-k, 1)); }',
     '.cf-bar { height: 4px; background: var(--surface-2); } .cf-bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }',
     '.cf-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px 24px; }',
     '.cf-in { max-width: 760px; margin: 0 auto; display: grid; gap: calc(14px * var(--cf-k, 1)); }',
@@ -214,6 +223,36 @@
       return el('div', { 'class': 'cf-why', role: 'note' }, [el('b', { text: 'AI draft' + (d.confidence ? ', ' + d.confidence + ' confidence' : '') }),
         el('span', { text: d.reason || 'No reason was given. Check it against the specification.' })]);
     }
+    /* The proposal for a clause with no answer of its own: asked when the clause is shown (the page asks for the
+       next ones at the same time, so moving on is instant). Keeping it is an ordinary save. */
+    var SRC = { datasheet: 'From the datasheet', 'library-similar': 'From the library', record: 'Same as your earlier answer', project: 'From another project', rule: 'From an AI rule', model: 'AI draft' };
+    function suggestion(it) {
+      if (!o.suggest || it.draft || it._noSug || (filled(it) && !it.lib) || it.owner) return null;
+      var box = el('div', { 'class': 'cf-sug', role: 'note', 'aria-live': 'polite' }, [el('span', { 'class': 'cf-sug-wait', text: 'Looking for a proposal\u2026' })]);
+      var mine = it;
+      o.suggest(it).then(function (sg) {
+        if (items[i] !== mine || !box.isConnected) return;
+        box.textContent = '';
+        if (!sg || sg.none) {
+          if (sg && sg.why && !filled(it)) box.appendChild(el('span', { 'class': 'cf-sug-wait', text: 'No proposal: ' + sg.why }));
+          else box.remove();
+          return;
+        }
+        var keep = function (andNext) {
+          comp.value = sg.compliance; rem.value = sg.remarks || ''; chips();
+          try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { /* no haptics */ }
+          if (andNext) nextOpen(); else commit().then(function (ok) { if (ok !== false) box.remove(); });
+        };
+        box.appendChild(el('div', { 'class': 'cf-sug-head' }, [el('b', { text: 'Proposed: ' + sg.compliance }), el('span', { 'class': 'cf-sug-src', text: SRC[sg.source] || 'AI' })]));
+        if (sg.remarks) box.appendChild(el('div', { 'class': 'cf-sug-rem', text: sg.remarks }));
+        box.appendChild(el('div', { 'class': 'cf-sug-why', text: (sg.reason || '') + (sg.confidence ? ' (' + sg.confidence + ' confidence)' : '') }));
+        box.appendChild(el('div', { 'class': 'cf-sug-act' }, [
+          el('button', { type: 'button', 'class': 'btn', text: 'Keep & next', onclick: function () { keep(true); } }),
+          el('button', { type: 'button', 'class': 'btn ghost', text: 'Keep', onclick: function () { keep(false); } }),
+          el('button', { type: 'button', 'class': 'btn ghost', text: 'Not this', onclick: function () { it._noSug = true; box.remove(); comp.focus(); } })]));
+      }, function () { box.remove(); });
+      return box;
+    }
     function chips() {
       if (chipBox) [].forEach.call(chipBox.children, function (b) { b.setAttribute('aria-pressed', b.textContent.toLowerCase() === comp.value.trim().toLowerCase() ? 'true' : 'false'); });
     }
@@ -271,7 +310,9 @@
       comp.addEventListener('input', chips);
       [comp, rem, note, tl].forEach(function (b) { if (b) b.addEventListener('change', commit); });
       whyBox = why(it);
-      inner.appendChild(el('div', { 'class': 'cf-answer' }, [el('div', { 'class': 'cf-label', text: 'Compliance' }), whyBox, whyBox ? el('div', { style: 'height:8px' }) : null, chipBox,
+      var sugBox = suggestion(it);
+      inner.appendChild(el('div', { 'class': 'cf-answer' }, [el('div', { 'class': 'cf-label', text: 'Compliance' }), whyBox, whyBox ? el('div', { style: 'height:8px' }) : null,
+        sugBox, sugBox ? el('div', { style: 'height:8px' }) : null, chipBox,
         el('div', { style: 'height:8px' }), comp, el('div', { style: 'height:10px' }), el('div', { 'class': 'cf-label', text: 'Remarks' }), rem,
         tl || it.review ? el('div', { style: 'height:10px' }) : null, tl || it.review ? el('div', { 'class': 'cf-label', text: 'TL Review' }) : null, tl || (it.review ? el('div', { 'class': 'cf-val tl', text: it.review }) : null),
         note ? el('div', { style: 'height:10px' }) : null, note ? el('div', { 'class': 'cf-label', text: 'Internal Comments' }) : null, note, state]));

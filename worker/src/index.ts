@@ -46,11 +46,22 @@ export async function handleRpc(name: string, request: Request, env: Env, ctx: E
   }
 }
 
+const OLD_WORKERS = ["/sw.js", "/service-worker.js", "/serviceworker.js", "/sw-v1.js", "/worker.js", "/offline-sw.js", "/pwa-sw.js"];
+const KILL_SW = `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil((async () => {
+  for (const k of await caches.keys()) await caches.delete(k);
+  await self.registration.unregister();
+  for (const c of await self.clients.matchAll({ type: "window" })) c.navigate(c.url);
+})()));`;
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     let path = url.pathname;
     try { path = decodeURIComponent(path); } catch { return reply({ ok: false, error: "Not found." }, 404); }
+    // the site that lived on thinkneering.com before installed a service worker; browsers that still have it
+    // ask for its script now and then and get this one, which empties its caches and removes itself
+    if (OLD_WORKERS.includes(path)) return new Response(KILL_SW, { headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
     if (path === "/api/ping") return reply({ ok: true, env: env.ENV_NAME, at: new Date().toISOString() });
     if (path.startsWith("/api/rpc/")) return handleRpc(path.slice("/api/rpc/".length), request, env, ctx);
     if (path.startsWith("/api/file/")) return serveFile(path.slice("/api/file/".length), request, env);

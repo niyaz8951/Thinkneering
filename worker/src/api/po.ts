@@ -167,7 +167,8 @@ export const routes: Routes = {
       updated,
       rows,
       models,
-      extras: extras.map((x) => ({ id: x.id, section: x.section, key: x.row_key, kind: x.kind, body: x.body, at: x.updated_at, by: x.by })),
+      // AI notes are for the AI and the editors who write them; readers of the tree do not see them
+      extras: extras.filter((x) => edit || x.kind !== "ai").map((x) => ({ id: x.id, section: x.section, key: x.row_key, kind: x.kind, body: x.body, at: x.updated_at, by: x.by })),
       sections
     };
   },
@@ -178,7 +179,7 @@ export const routes: Routes = {
     const s = (await sessionUser(env, p.p_token)).requireEditor("product-options");
     const f = await cmFactory(env, p.p_factory_id);
     const kind = str(p.p_kind), section = tidy(p.p_section), body = trimmed(p.p_body);
-    if (kind !== "option" && kind !== "note") fail("Choose special option or note.");
+    if (kind !== "option" && kind !== "note" && kind !== "ai") fail("Choose special option, note or AI note.");
     if (section.length < 1 || section.length > 120) fail("Give the section a name of up to 120 characters.");
     if (body.length === 0) fail("Type the text first.");
     if (body.length > 1000) fail("The text is longer than 1000 characters.");

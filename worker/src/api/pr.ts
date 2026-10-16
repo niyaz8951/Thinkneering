@@ -72,8 +72,25 @@ function answerStmts(env: Env, s: Session, rl: RLL, c: string, m: string, draft:
     stmts.push(env.DB.prepare(`UPDATE cm_run_lines SET compliance = ?, remarks = ?, answered_by = ?, answered_at = ?, review = ?,
                                  reviewed_by = NULL, reviewed_at = NULL, ai_draft = 0 WHERE run_id = ? AND seq = ?`).bind(c, m, s.id, at, review, rl.run_id, rl.seq));
   }
+  // what the person did with the AI's proposal (focus mode suggestion or AI draft): what the AI learns from
+  // (ai_feedback; Compliance review > AI rules shows it). kept = same answer and remark; edited = same answer;
+  // replaced = another answer. A suggestion that was never saved over leaves no trace.
+  if (c !== "" || m !== "") {
+    const outcome = `CASE WHEN ? = json_extract(x.payload, '$.compliance') AND ? = json_extract(x.payload, '$.remarks') THEN 'kept'
+                          WHEN ? = json_extract(x.payload, '$.compliance') THEN 'edited' ELSE 'replaced' END`;
+    stmts.push(env.DB.prepare(`INSERT INTO ai_feedback (id, run_id, seq, line_id, product_id, factory_id, part, section, source, suggested, suggested_remarks, final, final_remarks, outcome, user_id)
+        SELECT lower(hex(randomblob(16))), x.run_id, x.seq, ?, r.product_id, r.factory_id, ifnull(l.part, 0), ifnull(l.section, ''),
+               json_extract(x.payload, '$.source'), json_extract(x.payload, '$.compliance'), json_extract(x.payload, '$.remarks'), ?, ?, ${outcome}, ?
+          FROM ai_suggestions x JOIN cm_runs r ON r.id = x.run_id LEFT JOIN cm_lines l ON l.id = ?
+         WHERE x.run_id = ? AND x.seq = ?`).bind(rl.line_id, c, m, c, m, c, s.id, rl.line_id, rl.run_id, rl.seq));
+  }
+  stmts.push(env.DB.prepare("DELETE FROM ai_suggestions WHERE run_id = ? AND seq = ?").bind(rl.run_id, rl.seq));
   if (rl.ai_draft && draft) {
     const status = c === "" && m === "" ? "rejected" : draft.compliance === c && draft.remarks === m ? "accepted" : "edited";
+    stmts.push(env.DB.prepare(`INSERT INTO ai_feedback (id, run_id, seq, line_id, product_id, factory_id, part, section, source, suggested, suggested_remarks, final, final_remarks, outcome, user_id)
+        SELECT lower(hex(randomblob(16))), ?, ?, ?, r.product_id, r.factory_id, ifnull(l.part, 0), ifnull(l.section, ''), d.source, d.compliance, d.remarks, ?, ?, ?, ?
+          FROM ai_drafts d JOIN cm_runs r ON r.id = d.run_id LEFT JOIN cm_lines l ON l.id = d.line_id WHERE d.id = ?`)
+      .bind(rl.run_id, rl.seq, rl.line_id, c, m, status === "accepted" ? "kept" : status === "rejected" ? "removed" : draft.compliance === c ? "edited" : "replaced", s.id, draft.id));
     stmts.push(env.DB.prepare("UPDATE ai_drafts SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?").bind(status, s.id, at, draft.id));
     // every accept / edit / reject of an AI draft is in the audit log (standards A.3, roadmap principle 1)
     stmts.push(env.DB.prepare("INSERT INTO app_audit (user_id, action, target, before, after) VALUES (?, ?, ?, ?, ?)")

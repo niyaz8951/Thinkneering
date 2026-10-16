@@ -1,5 +1,6 @@
-/* Compliance review > AI rules, in a browser: the tab is there for admins only, a rule is added in the sheet,
-   "Try a clause" shows it answering by itself. Runs on the offline local site (demo seed has two rules). */
+/* The AI in a browser: Compliance review > AI rules (maps chosen by name, created from the template, a clause
+   tried step by step), and focus mode proposals (a rule of the map proposes the answer, Keep & next saves it).
+   Runs on the offline local site. */
 import { test, expect, type Page } from "@playwright/test";
 
 async function signIn(page: Page, user: string, password: string) {
@@ -15,48 +16,68 @@ async function openReview(page: Page, factory: string) {
   await page.selectOption("#product", "ahu");
   await page.selectOption("#factory", factory);
 }
+async function api(page: Page, name: string, body: Record<string, unknown>) { return (await page.request.post("/api/rpc/" + name, { data: body })).json(); }
 
-test.describe("AI rules", () => {
-  test("an admin adds a rule and tries a clause; a Can-edit user never sees the tab", async ({ page }, info) => {
-    const title = "E2E rigging " + info.project.name + " " + Date.now();
+test.describe("AI", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("an admin links a map made from the template and tries a clause; a Can-edit user has no AI rules tab", async ({ page }, info) => {
+    test.skip(info.project.name === "phone", "desktop flow");
     await signIn(page, "team.admin", "admin12345");
     await openReview(page, "ahu-riyadh");
     await page.click('.tab[data-tab="rules"]');
-    await expect(page.locator("#ruleList")).toContainText("Site work");                  // demo rule, every AHU factory
-    await expect(page.locator("#ruleList")).not.toContainText("Fans (demo)");            // Dubai's own fact
-    // add a rule (the button sits in the dock on a phone)
-    await page.locator(info.project.name === "phone" ? ".dock .btn" : "#btnRuleAdd").click();
-    const sheet = page.locator(".rule-sheet");
-    await expect(sheet).toBeVisible();
-    await sheet.getByLabel("Title").fill(title);
-    await sheet.getByLabel("Applies to").selectOption({ label: "Riyadh only" });
-    await sheet.getByLabel("Part").selectOption("3");
-    await sheet.getByLabel("When the clause mentions").fill("hoisting");
-    await sheet.getByLabel("Answer").selectOption("In Contractor's Scope");
-    await sheet.getByLabel("Remark").fill("Hoisting is by the contractor.");
-    await expect(sheet).toContainText("matching clauses get exactly this answer, without the AI");
-    await sheet.getByRole("button", { name: "Save" }).click();
-    await expect(sheet).toBeHidden();
-    await expect(page.locator("#ruleList")).toContainText(title);
-    await expect(page.locator("#ruleList li", { hasText: title })).toContainText("Answers by itself");
-    // try a clause
-    await page.fill("#tryText", "Hoisting of the sections to the roof shall be planned.");
+    const links = page.locator("#mapLinks");
+    await expect(links).toContainText("Map for all AHU factories");
+    await expect(links).toContainText("Map for Riyadh only");
+    // make the product's map from the template if this run has none yet
+    if (await links.locator(".map-link").first().locator(".sum").filter({ hasText: "No map yet" }).count()) {
+      await links.locator(".map-link").first().getByRole("button", { name: "Create from template" }).click();
+      await page.getByRole("alertdialog").locator("input").fill("E2E AI rules AHU");
+      await page.getByRole("alertdialog").getByRole("button", { name: "Create" }).click();
+    }
+    await expect(links.locator(".map-link").first()).toContainText(/\d+ rules, \d+ of them answer by themselves/);
+    await expect(page.locator("#mapSettings")).toContainText("copy from the library at 90% similar");
+    await page.fill("#tryText", "Units shall be set level and plumb on the concrete base.");
     await page.selectOption("#tryPart", "3");
     await page.click("#btnTry");
-    await expect(page.locator("#tryOut")).toContainText("Answered by the rule");
-    await expect(page.locator("#tryOut")).toContainText(title);
-    // tidy up: delete it again
-    await page.locator("#ruleList button", { hasText: title }).click();
-    await page.locator(".rule-sheet").getByRole("button", { name: "Delete" }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
-    await expect(page.locator("#ruleList")).not.toContainText(title);
+    await expect(page.locator("#tryOut")).toContainText("answers it by itself");
+    await expect(page.locator("#tryOut .step-list li")).toHaveCount(5);
+
+    // another person, in a browser of his own
+    const other = await (await page.context().browser()!.newContext()).newPage();
+    await signIn(other, "sales.user", "sales12345");
+    await openReview(other, "ahu-dubai");
+    await expect(other.locator('.tab[data-tab="lines"]')).toBeVisible();
+    await expect(other.locator('.tab[data-tab="rules"]')).toBeHidden();
+    await other.context().close();
   });
 
-  test("a user who may edit the library does not get the AI rules tab", async ({ page }, info) => {
-    test.skip(info.project.name === "phone", "desktop is enough");
-    await signIn(page, "sales.user", "sales12345");
-    await openReview(page, "ahu-dubai");
-    await expect(page.locator('.tab[data-tab="lines"]')).toBeVisible();
-    await expect(page.locator('.tab[data-tab="rules"]')).toBeHidden();
+  test("focus mode proposes an answer from the map; Keep & next saves it and moves on", async ({ page }, info) => {
+    await signIn(page, "admin", "admin12345");
+    // the page's own session (a second login would sign the page out: one session per user)
+    const token = await page.evaluate(() => localStorage.getItem("dame_hub_token") || "");
+    // the map for all AHU factories (from the template) holds "Site connections" (level and plumb -> In Contractor's Scope)
+    const m = await api(page, "ai_map_get", { p_token: token, p_product_id: "ahu" });
+    if (!m.all) await api(page, "ai_map_create", { p_token: token, p_product_id: "ahu", p_name: "E2E AI rules AHU" });
+    const pj = await api(page, "pr_save", { p_token: token, p_name: "E2E Focus " + info.project.name + " " + Date.now(), p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
+    const run = await api(page, "cm_save_run", { p_token: token, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "focus.txt", p_project_id: pj.id, p_lines: [
+      { type: "part", sr: "", spec: "PART 3 - EXECUTION" }, { type: "section", sr: "3.01", spec: "INSTALLATION" },
+      { type: "letter", sr: "A.", spec: "Units shall be set level and plumb on the concrete base " + Date.now() + "." },
+      { type: "letter", sr: "B.", spec: "Concrete bases shall be provided by the contractor for every unit " + Date.now() + "." }] });
+    await page.goto("/tools/projects/record.html?run=" + run.run_id);
+    if (info.project.name !== "phone") { await page.click('#rc-seg [data-mode="edit"]'); await page.click("#rc-focus"); }
+    const pane = page.locator(".cf");
+    await expect(pane).toBeVisible();
+    if (await pane.locator(".cf-mode .tab", { hasText: "Edit" }).getAttribute("aria-selected") !== "true") await pane.locator(".cf-mode .tab", { hasText: "Edit" }).click();
+    const card = pane.locator(".cf-sug");
+    await expect(card).toContainText("Proposed: In Contractor's Scope", { timeout: 15000 });
+    await expect(card).toContainText("From an AI rule");
+    await card.getByRole("button", { name: "Keep & next" }).click();
+    await expect(pane.locator(".cf-spec")).toContainText("Concrete bases shall be provided");
+    await expect(pane.locator(".cf-sug")).toContainText("Proposed: In Contractor's Scope");
+    await pane.getByRole("button", { name: "Done" }).click();
+    const rec = await api(page, "pr_run_get", { p_token: token, p_run_id: run.run_id });
+    const a = rec.lines.find((l: any) => /level and plumb/.test(l.spec));
+    expect(a).toMatchObject({ own: true, ai_draft: false, compliance: "In Contractor's Scope" });
   });
 });
