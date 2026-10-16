@@ -27,7 +27,7 @@ the Workers Paid plan (USD 5 a month; a 500-clause spec costs about USD 0.30).
 
 **AI Gateway.** Calls go through the gateway named in `AI_GATEWAY_ID` ("hub") so they are logged there. If that
 gateway does not exist or refuses the call, the Worker calls Workers AI directly instead (and says so in its log).
-Create the gateway in the dashboard (AI > AI Gateway > Create gateway, name `hub`) to see every call.
+The calls show in the dashboard under AI > AI Gateway > default.
 
 For each clause:
 

@@ -112,7 +112,7 @@ about one 300-clause review. Paid ($5 a month) lifts all of these; see AI-Roadma
 ## 8. AI review: connection and allowance (16 Oct 2026)
 
 - Workers AI needs nothing created; the Worker's `AI` binding is enough (Settings > Bindings shows it).
-- AI Gateway: AI > AI Gateway > Create gateway, name `hub` (the name in `wrangler.toml` `AI_GATEWAY_ID`). Without it
+- AI Gateway: the account's `default` gateway (the name in `wrangler.toml` `AI_GATEWAY_ID`). Without it
   the Worker calls Workers AI directly; with it every call is logged and visible in the gateway's dashboard.
 - The review window checks the AI first and names the problem. To see the raw error: `npx wrangler tail --format pretty`
   while pressing AI review (lines `ai_check`, `ai_review_run clause ...`).

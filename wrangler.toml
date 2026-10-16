@@ -22,7 +22,7 @@ run_worker_first = ["/api/*", "/", "/tools/*"]   # tools/<id>/ opens index.html 
 
 [vars]
 ENV_NAME = "production"
-AI_GATEWAY_ID = "hub"                   # AI > AI Gateway > a gateway named "hub"; calls work without it too
+AI_GATEWAY_ID = "default"               # AI > AI Gateway: the account's "default" gateway; calls fall back to Workers AI directly without it
 
 [[d1_databases]]
 binding = "DB"
@@ -63,7 +63,7 @@ workers_dev = false
 
 [env.local.vars]
 ENV_NAME = "local"
-AI_GATEWAY_ID = "hub"
+AI_GATEWAY_ID = "default"
 AI_FAKE = "1"
 
 [[env.local.d1_databases]]
