@@ -5,7 +5,8 @@ import type { Routes } from "../router";
 import { fail } from "../errors";
 import { sessionUser, audit, namesOf, type Session } from "../auth";
 import { cmFactory, type Factory } from "../lib/factory";
-import { cmNorm, cmTopic, cmLibraryOrder, libraryKey, placeRows, isBody, BODY_TYPES } from "../lib/cm";
+import { cmNorm, cmTopic, cmLibraryOrder, libraryKey, placeRows, isBody, BODY_TYPES, choiceOf } from "../lib/cm";
+import { noteOnly } from "../ai/rules";
 import { prProject, prLogStmt } from "../lib/project";
 import { all, now, uuid, normHash, str, trimmed, int, bool, isArray, isObject, chunks, marks, like, batched } from "../lib/sql";
 
@@ -345,12 +346,15 @@ async function saveRun(env: Env, p: Params): Promise<unknown> {
   // counts and the answers the library already holds, per row
   let matched = 0;
   const answers: Record<string, unknown>[] = [];
+  const canRules = s.canEdit("compliance-maker");
   for (const ln of lines) {
     if (ln.norm == null) continue;
     const l = have.get(hashOf.get(ln.norm)!)!;
     const answered = l.status === "answered";
     if (answered) matched++;
-    if (answered || l.comments) answers.push({ i: ln.seq, answered, compliance: answered ? l.compliance : "", remarks: answered ? l.remarks : "", comments: l.comments || "" });
+    // the "#" AI rules in Internal Comments are for the library's editors; everyone else gets the note
+    const comments = canRules ? l.comments || "" : noteOnly(l.comments);
+    if (answered || comments) answers.push({ i: ln.seq, answered, compliance: answered ? l.compliance : "", remarks: answered ? l.remarks : "", comments });
   }
   stmts.push(env.DB.prepare("UPDATE cm_runs SET line_count = ?, unique_count = ?, matched_count = ? WHERE id = ?").bind(lines.length, uniq.size, matched, runId));
   await writeRun(env, runId, stmts);
@@ -368,10 +372,14 @@ async function adminImport(env: Env, p: Params): Promise<unknown> {
   const runId = uuid(), at = now(), fileName = str(p.p_file_name, 200);
   type Imp = { norm: string; spec: string; c: string; r: string; cm: string; sr: string; row_type: string; part: number; section: string; section_sr: string; ord: number };
   const uniq = new Map<string, Imp>();
+  let standardised = 0;
   rows.forEach((raw, ord) => {
     const o = isObject(raw) ? raw : {};
     const spec = str(o.spec, 6000), norm = cmNorm(spec);
-    const c = trimmed(o.compliance, 200), r = trimmed(o.remarks, 4000), cm = trimmed(o.comments, 4000);
+    const r = trimmed(o.remarks, 4000), cm = trimmed(o.comments, 4000), typed = trimmed(o.compliance, 200);
+    // the six answers in their standard words ("By contractor" -> "In Contractor's Scope"); other text stays as written
+    const ch = choiceOf(typed, r), c = ch.choice;
+    if (ch.known && c !== typed) standardised++;
     if (!(c || r || cm) || norm.length < 8) return;
     uniq.set(norm, { norm, spec: spec.trim(), c, r, cm, sr: trimmed(o.sr, 20), row_type: BODY_TYPES.includes(str(o.type)) ? str(o.type) : "text",
       part: /^[0-9]$/.test(str(o.part)) ? int(o.part) : 0, section: trimmed(o.section, 120), section_sr: trimmed(o.section_sr, 20), ord });
@@ -409,8 +417,8 @@ async function adminImport(env: Env, p: Params): Promise<unknown> {
   }
   stmts.push(env.DB.prepare("UPDATE cm_runs SET unique_count = ?, matched_count = ? WHERE id = ?").bind(unique, added + updated, runId));
   await writeRun(env, runId, stmts);
-  await audit(env, s.id, "cm_admin_import", f.id, "", { file: fileName, rows: rows.length, added, updated, replaced });
-  return { ok: true, rows: rows.length, unique_lines: unique, added, updated, replaced, unchanged: unique - added - updated - replaced, skipped: rows.length - unique };
+  await audit(env, s.id, "cm_admin_import", f.id, "", { file: fileName, rows: rows.length, added, updated, replaced, standardised });
+  return { ok: true, rows: rows.length, unique_lines: unique, added, updated, replaced, unchanged: unique - added - updated - replaced, skipped: rows.length - unique, standardised };
 }
 
 export { isBody, cmFactory };

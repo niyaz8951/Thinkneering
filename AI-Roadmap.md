@@ -60,12 +60,41 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026 - AI rules per product / factory, datasheet grounding, code checks (Design brief Phase 3, first part)
+- **AI rules tab** in Compliance review (admins of the Compliance Maker tile + super user; routes `ai_rules_list /
+  save / delete / test`, migration `0002_ai_rules.sql`, table `ai_rules` with a `tool` column so other tools can
+  have rules later). Rules (instructions) and facts (what the factory offers), per product for every factory or
+  one, keywords + Part. A rule with a fixed answer and remark answers matching clauses without the model
+  (source `rule`). "Try a clause" shows what would apply, no model.
+- **`#` clause rules** rebuilt (the 15 Oct code never reached GitHub): note before the first `#`, rules after;
+  users get the note only (stripped on the server in `pr_run_get`, `pr_export`, `cm_save_run`); a library line
+  with `#` rules is never copied blindly.
+- **From the first AI tool (ai-suggest.js)**: project datasheet rows matched per clause with the section gate and
+  subject words (casing ~ panel); parent clause for list items; number grounding (a measurement no source gives
+  becomes `[value]`, low); answer-echo trim; hedging -> low; Not Comply needs a rule / datasheet row / library
+  answer; one retry with the error on an unusable reply. Not taken: the 8B model, 3-clauses-per-call batching,
+  JSON-schema mode (per-clause calls on the 70B are simpler and each failure stays local), TO VERIFY as a 7th
+  answer (low confidence + `[value]` does that job inside the six standard answers), learned section profiles and
+  glossary tables (later, from accepted drafts).
+- **Prompt version** stored on every draft (`ai_drafts.prompt_version`: `draft-2026-10-16`, `rule-2026-10-16`).
+- **Library upload** writes the six standard answers ("By contractor" -> In Contractor's Scope ...); the AHU
+  Riyadh file: 516 answered rows, 508 clauses, 231 answers standardised, 15 odd values left as written.
+- **Starter rules for AHU Riyadh** (10 rules, 12 facts) delivered as SQL, checked against the 3,694 clauses of
+  that library (fixed-answer rules fire on 46 and agree with people except two nuances).
+- Library hygiene found (for Feature D): datasheet lines that became section names ("kW - 6.8 A Power - Nominal
+  Current"), project-specific answers ("as per IFC schedule") in the company library, Internal Comments pasted on
+  the wrong clause (AMCA 301 with the crating note).
+- Same day, after the first live try (no drafts, 0 neurons used): the review now runs in a window that holds the page
+  until OK, checks the AI first (`ai_check`), stops at once on a used-up allowance or a refused call with the reason
+  in words (`aiErrorText`), falls back from a missing AI Gateway to Workers AI directly, and skips clauses that failed
+  earlier in the same review (`p_skip`), so it always ends.
+- Open: golden set + `npm run eval:live`, the per-user daily cap, the 8 s timeout, the quality card (rest of Phase 3).
+
 ### 16 Oct 2026 - Design brief Phase 1 (no AI logic change)
 - Every AI draft now shows its reason and confidence as a visible line: under the clause on the record page (`.why`)
   and as a box above the answers in focus mode (`.cf-why`); the proposed answer is tinted until a person owns it.
 - Counts never call a draft "answered": "10 of 38 clauses answered, 12 AI drafts to check". `pr_get` gives `drafts` per record.
-- **Missing from the repo:** the 15 Oct entry below (AI rules after `#`, `splitComments`, `docs/AI-Review.md`) was described
-  but its code is not in `niyaz8951/Thinkneering` (last commit `thinkOct15.5.1`). To upload, or re-build in Phase 3.
+- The 15 Oct `#` rules were rebuilt on 16 Oct (entry above).
 
 ### 15 Oct 2026 - live on thinkneering.com; AI rules in Internal Comments (code not in the repo, see above)
 - The site is live (D1 `thinkneering-db`, R2 `hub-files`, Workers AI; Vectorize still off, lexical search in use).

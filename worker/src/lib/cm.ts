@@ -86,6 +86,30 @@ export function rowKey(spec: unknown): string {
 /* The standard answers (record page datalist, focus mode, AI drafts). */
 export const CHOICES = ["Comply", "Comply with Remarks", "Noted", "Not Comply", "Not Applicable", "In Contractor's Scope"];
 
+/* The other ways people write the six answers in real compliance sheets (counted in the AHU Riyadh library,
+   16 Oct 2026: "By contractor" 79 times, "Comply as noted" 56, "Complied" 7, "-" 8 ...). Exact phrases only:
+   anything else is left as written. "-" means no answer. "Comply as noted" is Comply with Remarks when a
+   remark is there, else Comply. */
+const ALIASES: Record<string, string> = {
+  "comply": "Comply", "complied": "Comply", "compliant": "Comply", "complies": "Comply", "yes": "Comply", "ok": "Comply",
+  "comply with remarks": "Comply with Remarks", "comply with remark": "Comply with Remarks", "complied with remarks": "Comply with Remarks",
+  "comply w remarks": "Comply with Remarks", "comply as per remarks": "Comply with Remarks", "as remark": "Comply with Remarks", "as remarks": "Comply with Remarks",
+  "partially comply": "Comply with Remarks", "partially complied": "Comply with Remarks",
+  "noted": "Noted", "as noted": "Noted", "note": "Noted", "acknowledged": "Noted",
+  "not comply": "Not Comply", "not complied": "Not Comply", "non compliant": "Not Comply", "does not comply": "Not Comply", "deviation": "Not Comply", "not compliant": "Not Comply",
+  "not applicable": "Not Applicable", "n a": "Not Applicable", "na": "Not Applicable",
+  "in contractor s scope": "In Contractor's Scope", "in contractors scope": "In Contractor's Scope", "by contractor": "In Contractor's Scope",
+  "by others": "In Contractor's Scope", "by contractor others": "In Contractor's Scope", "contractor scope": "In Contractor's Scope", "contractor s scope": "In Contractor's Scope"
+};
+export function choiceOf(v: unknown, remarks = ""): { choice: string; known: boolean } {
+  const raw = String(v ?? "").trim();
+  const n = cmNorm(raw);
+  if (!n && /^[-–—.\s]*$/.test(raw)) return { choice: "", known: true };
+  if (n === "comply as noted") return { choice: remarks.trim() && cmNorm(remarks) !== "noted" ? "Comply with Remarks" : "Comply", known: true };
+  const hit = ALIASES[n];
+  return hit ? { choice: hit, known: true } : { choice: raw, known: false };
+}
+
 /* Structure of a converted specification: for every row, the Part and section it sits under
    (cm__fill_structure, but worked out in the Worker from the rows of one conversion). */
 export interface SpecRow { seq: number; type: string; sr: string; spec: string }

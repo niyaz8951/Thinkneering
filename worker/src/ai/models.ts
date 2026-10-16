@@ -27,16 +27,44 @@ async function fakeRun(model: string, input: Record<string, unknown>): Promise<u
 
 export interface AiUsage { prompt: number; completion: number }
 
-/* env.AI.run with the gateway, plus the token usage the model reports (when it does). */
+/* Why a model call failed, in words for the person, and whether trying more clauses is pointless. */
+export const QUOTA = "The free Workers AI allowance for today is used up (10,000 neurons a day, about 140 clauses). It resets at 04:00 Dubai time (00:00 UTC). For whole specifications switch Workers to the Paid plan (USD 5 a month) in the Cloudflare dashboard.";
+export function aiErrorText(e: unknown): { text: string; stop: boolean } {
+  const m = e instanceof Error ? e.message : String(e);
+  if (/4006|neuron|daily free|allocation|upgrade to/i.test(m)) return { text: QUOTA, stop: true };
+  if (/\b429\b|rate limit|too many requests|capacity/i.test(m)) return { text: "Workers AI is busy or rate-limited right now (" + m.slice(0, 120) + "). Wait a minute and run the review again.", stop: true };
+  if (/5007|no such model|model not found|invalid model/i.test(m)) return { text: "The AI model name is not known to Workers AI (" + m.slice(0, 120) + "). Tell the developer: worker/src/ai/models.ts.", stop: true };
+  if (/authentication|not authorized|unauthorized|10000|binding/i.test(m)) return { text: "The Worker is not allowed to call Workers AI (" + m.slice(0, 120) + "). Check that the AI binding is on the Worker (Settings > Bindings).", stop: true };
+  return { text: m.slice(0, 200), stop: false };
+}
+
+/* A gateway that does not exist or refuses the call is skipped for the life of this Worker instance:
+   the call goes to Workers AI directly (it is still Workers AI, it is only not logged in the gateway). */
+let gatewayBroken = false;
+
+/* env.AI.run (through the gateway when one is named), plus the token usage the model reports. */
 export async function aiRun<T = unknown>(env: Env, model: string, input: Record<string, unknown>, usage?: AiUsage): Promise<T> {
   if (!env.AI) {
     if (env.AI_FAKE === "1") return (await fakeRun(model, input)) as T;
     fail(NOT_AVAILABLE, 503);
   }
-  const opts: Record<string, unknown> = {};
-  if (env.AI_GATEWAY_ID) opts.gateway = { id: env.AI_GATEWAY_ID, skipCache: false, cacheTtl: 3600, ...(env.AI_GATEWAY_TOKEN ? { authorization: "Bearer " + env.AI_GATEWAY_TOKEN } : {}) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const out = (await (env.AI as any).run(model, input, opts)) as T & { usage?: { prompt_tokens?: number; completion_tokens?: number } };
+  const ai = env.AI as any;
+  type Out = T & { usage?: { prompt_tokens?: number; completion_tokens?: number } };
+  let out: Out;
+  if (env.AI_GATEWAY_ID && !gatewayBroken) {
+    const opts = { gateway: { id: env.AI_GATEWAY_ID, skipCache: false, cacheTtl: 3600, ...(env.AI_GATEWAY_TOKEN ? { authorization: "Bearer " + env.AI_GATEWAY_TOKEN } : {}) } };
+    try {
+      out = (await ai.run(model, input, opts)) as Out;
+    } catch (e) {
+      if (aiErrorText(e).stop && !/gateway/i.test(String(e))) throw e;          // the model refused: no point in a second call
+      console.warn("AI Gateway '" + env.AI_GATEWAY_ID + "' failed; calling Workers AI directly from now on.", e);
+      gatewayBroken = true;
+      out = (await ai.run(model, input)) as Out;
+    }
+  } else {
+    out = (await ai.run(model, input)) as Out;
+  }
   if (usage && out && typeof out === "object" && out.usage) {
     usage.prompt += out.usage.prompt_tokens || 0;
     usage.completion += out.usage.completion_tokens || 0;
@@ -55,11 +83,13 @@ export async function embed(env: Env, texts: string[], usage?: AiUsage): Promise
 
 /* A chat completion as plain text. */
 export async function complete(env: Env, model: string, system: string, user: string, usage?: AiUsage, maxTokens = 600): Promise<string> {
-  const out = await aiRun<{ response?: string }>(env, model, {
+  const out = await aiRun<{ response?: unknown }>(env, model, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
-    max_tokens: maxTokens, temperature: 0.2
+    max_tokens: maxTokens, temperature: 0.1
   }, usage);
-  return String((out && out.response) || "");
+  const r = out && out.response;
+  // some models hand back already-parsed JSON
+  return r && typeof r === "object" ? JSON.stringify(r) : String(r ?? "");
 }
 
 /* The first JSON object in a model reply (models like to wrap JSON in prose or code fences). */
