@@ -44,6 +44,31 @@
     .lib-filters.open .input { width: 100%; }
   }
   .lib td.lib-empty { padding: 0; } .lib td.lib-empty .empty { border: 0; }
+  /* AI rules: an inset grouped list, one rule per row, tap to edit */
+  .rules-head { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }
+  .rule-list { display: grid; gap: 18px; }
+  .rule-group > h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text-soft); }
+  .rule-group ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+  .rule-group li + li { border-top: 1px solid var(--border); }
+  .rule-item { display: block; width: 100%; text-align: left; padding: 12px 14px; min-height: 44px; background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; }
+  .rule-item:hover, .rule-item:focus-visible { background: var(--surface-2); outline: none; }
+  .rule-item .t { font-weight: 650; overflow-wrap: anywhere; }
+  .rule-item .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  .rule-item .line { font-size: 14px; color: var(--text-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rule-item .line b { color: var(--text); font-weight: 600; }
+  .rule-item.off { opacity: .55; }
+  .rule-sheet { max-width: 560px; max-height: calc(100vh - 40px); overflow-y: auto; }
+  .rule-sheet textarea.input { resize: vertical; }
+  .rule-sheet .field > span { font-size: 13px; }
+  .rule-sheet .hint { font-size: 13px; color: var(--text-soft); margin-top: 4px; }
+  .rule-sheet .two { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  .rule-sheet .kind-seg { width: 100%; } .rule-sheet .kind-seg .tab { flex: 1 1 0; }
+  .rule-sheet .on { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .rule-sheet .on input { width: 22px; height: 22px; }
+  .rule-sheet .hub-sheet-actions .btn.danger-text { color: var(--danger); }
+  .try-hit { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 14px; overflow-wrap: anywhere; }
+  .try-hit b { font-weight: 650; }
+  @media (max-width: 560px) { .rule-sheet { max-height: calc(100vh - 20px); } .rule-sheet .two { grid-template-columns: 1fr; } .rules-head { display: block; } }
 </style>
 </head>
 <body>
@@ -73,6 +98,7 @@
       <button class="tab" role="tab" data-tab="lines" aria-selected="true">Lines</button>
       <button class="tab" role="tab" data-tab="upload" aria-selected="false">Upload filled compliance</button>
       <button class="tab" role="tab" data-tab="runs" aria-selected="false">Conversion history</button>
+      <button class="tab" role="tab" data-tab="rules" aria-selected="false" id="tabRules" hidden>AI rules</button>
     </div>
 
     <!-- LINES -->
@@ -105,7 +131,7 @@
         <span class="small muted" id="pageInfo"></span>
         <span class="row"><button class="btn ghost sm" type="button" id="prev">Previous</button><button class="btn ghost sm" type="button" id="next">Next</button></span>
       </div>
-      <p class="small muted" id="modeNote">Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification, in the Internal Comments column.</p>
+      <p class="small muted" id="modeNote">Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification. Text after a # is an AI rule for this clause only (# value is in the datasheet next to Cooling coil load kW): the AI review follows it, users do not see it.</p>
       <datalist id="answers">
         <option value="Comply"></option><option value="Not Comply"></option><option value="Comply with Remarks"></option>
         <option value="Noted"></option><option value="Not Applicable"></option><option value="In Contractor's Scope"></option>
@@ -157,6 +183,34 @@
       </div>
       <p class="small muted" id="runInfo"></p>
     </section>
+
+    <!-- AI RULES (admins of the tile and the super user; the server checks the same) -->
+    <section id="tab-rules" class="stack" hidden>
+      <div class="card stack">
+        <div class="rules-head">
+          <div>
+            <h2 id="rulesTitle">AI rules</h2>
+            <p class="muted small" style="margin:4px 0 0">What the AI review must know when it drafts answers for this product. <b>Rules</b> say how to answer clauses like these; <b>facts</b> say what the factory offers and may be quoted. Users never see them.</p>
+          </div>
+          <button class="btn dock-hide" type="button" id="btnRuleAdd">Add a rule</button>
+        </div>
+        <div id="ruleList" class="rule-list"></div>
+      </div>
+      <div class="card stack">
+        <div>
+          <h2>Try a clause</h2>
+          <p class="muted small" style="margin:4px 0 0">Paste a clause to see which rules and facts the AI review would use for it. No AI is called.</p>
+        </div>
+        <textarea class="input" id="tryText" rows="3" maxlength="3000" placeholder="e.g. Rigging and setting of the units in place shall be coordinated with the structural engineer."></textarea>
+        <div class="row">
+          <select class="input" id="tryPart" aria-label="Part of the specification" style="width:auto">
+            <option value="0">Any Part</option><option value="1">Part 1 General</option><option value="2">Part 2 Products</option><option value="3">Part 3 Execution</option>
+          </select>
+          <button class="btn ghost" type="button" id="btnTry">Try</button>
+        </div>
+        <div id="tryOut" class="stack" aria-live="polite"></div>
+      </div>
+    </section>
   </div>
 </main>
 <script src="cm-focus.js"></script>
@@ -185,8 +239,9 @@
   }
   // on a phone, Focus mode sits at the bottom once there are lines to read (Lines tab)
   function libDock() {
-    var on = !!factoryId() && !$("tab-lines").hidden;
-    Hub.dock(on ? [el("button", { type: "button", "class": "btn", text: "Focus mode", onclick: function () { $("btnFocus").click(); } })] : []);
+    var on = !!factoryId() && !$("tab-lines").hidden, rules = !!factoryId() && !$("tab-rules").hidden;
+    Hub.dock(on ? [el("button", { type: "button", "class": "btn", text: "Focus mode", onclick: function () { $("btnFocus").click(); } })]
+           : rules ? [el("button", { type: "button", "class": "btn", text: "Add a rule", onclick: function () { editRule(null); } })] : []);
   }
   function scopeChanged() {
     var on = !!factoryId(); setTimeout(libDock, 0);
@@ -195,6 +250,8 @@
     resetUpload();
     $("fPart").value = ""; $("fTopic").value = ""; $("fClientType").value = ""; $("fClient").value = "";
     if (on) { offset = 0; loadLines.fresh = true; loadLines(); }
+    $("tryOut").textContent = "";
+    if (on && !$("tab-rules").hidden) loadRules();
   }
   $("product").addEventListener("change", function () { fillFactories(); scopeChanged(); });
   $("factory").addEventListener("change", scopeChanged);
@@ -209,7 +266,7 @@
   function lineRow(l, boxes) {
     var comp = el("input", { "class": "input", list: "answers", value: l.compliance || "", maxlength: "200", "aria-label": "Compliance" });
     var rem = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Remarks" }); rem.value = l.remarks || ""; Hub.autoGrow(rem);
-    var note = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Internal Comments" }); note.value = l.comments || ""; Hub.autoGrow(note);
+    var note = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Internal Comments", placeholder: "Note for users  # AI rule" }); note.value = l.comments || ""; Hub.autoGrow(note);
     // Enter in Compliance goes to the next line, so a run of answers is typed without the mouse
     comp.addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;
@@ -427,8 +484,8 @@
   var lastSave = Promise.resolve();
   function settled() { var p = lastSave; return p.then(function () { return p === lastSave ? null : settled(); }); }   // every save that is under way or queued
   $("modeSeg").addEventListener("click", function (e) { var b = e.target.closest(".tab"); if (b) setMode(b.getAttribute("data-mode") === "edit"); });
-  var MODE_READ = "Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification, in the Internal Comments column.";
-  var MODE_EDIT = "Edit is on. Answers save by themselves when you leave a box. Clearing Compliance and Remarks puts the line back under \"To answer\". Internal Comments show to users beside the clause.";
+  var MODE_READ = "Reading. Switch to Edit to answer or change lines. Internal Comments are your notes to the users: they show beside the clause in every user's specification. Text after a # is an AI rule for this clause only (# value is in the datasheet next to Cooling coil load kW): the AI review follows it, users do not see it.";
+  var MODE_EDIT = "Edit is on. Answers save by themselves when you leave a box. Clearing Compliance and Remarks puts the line back under \"To answer\". Internal Comments show to users beside the clause; text after a # is an AI rule for this clause, hidden from users.";
 
   function download(blob, name) {
     var url = URL.createObjectURL(blob), a = el("a", { href: url, download: name });
@@ -531,7 +588,8 @@
     var btn = $("btnImport"); btn.disabled = true;
     Api.cmAdminImport(Hub.token(), { factoryId: factoryId(), fileName: pending.fileName, rows: pending.rows }).then(function (res) {
       btn.disabled = false; var name = pending.fileName, ignored = pending.read - pending.rows.length; resetUpload();
-      $("upResultMsg").textContent = name + " added to the library for " + scopeName() + ".";
+      $("upResultMsg").textContent = name + " added to the library for " + scopeName() + "." +
+        (res.standardised ? " " + res.standardised + (res.standardised === 1 ? " answer was" : " answers were") + " put in the standard words (\u201cBy contractor\u201d \u2192 \u201cIn Contractor's Scope\u201d)." : "");
       $("rAdded").textContent = res.added; $("rUpdated").textContent = res.updated; $("rKept").textContent = res.replaced || 0; $("rSame").textContent = res.unchanged; $("rSkipped").textContent = res.skipped + ignored;
       $("upResult").hidden = false; offset = 0; loadLines();
     }, function (err) { btn.disabled = false; show($("upMsg"), err.message); });
@@ -556,6 +614,154 @@
     }, fail);
   }
 
+  // ---------- AI rules ----------
+  /* Rules and facts the AI review uses for this product: for every factory, or for the chosen one only.
+     The server decides who may see and change them (admins of the tile, the super user); this tab is only
+     shown to them. A rule with an answer and a remark answers matching clauses by itself (no model). */
+  var rulesEditor = false, ruleData = { rules: [], choices: [] };
+  var PART_LABEL = { 0: "Any Part", 1: "Part 1 General", 2: "Part 2 Products", 3: "Part 3 Execution" };
+  function productId() { return $("product").value; }
+  function productName() { var p = products.filter(function (x) { return x.id === productId(); })[0]; return p ? p.name : ""; }
+  function factoryName() { var o = $("factory").selectedOptions[0]; return o && o.value ? o.textContent : ""; }
+
+  function loadRules() {
+    if (!rulesEditor || !factoryId()) return;
+    var host = $("ruleList"), want = productId() + "|" + factoryId();
+    $("rulesTitle").textContent = "AI rules for " + productName();
+    if (!host.firstChild || loadRules.scope !== want) { host.textContent = ""; host.appendChild(Hub.skeleton(3, { label: "Loading AI rules" })); }
+    loadRules.scope = want;
+    Api.aiRulesList(Hub.token(), { productId: productId(), factoryId: factoryId() }).then(function (res) {
+      if (loadRules.scope !== want) return;
+      ruleData = res; drawRules();
+    }, function (err) { host.textContent = ""; host.appendChild(el("div", { "class": "notice error", text: err.message })); });
+  }
+  function ruleRow(r) {
+    var tags = [
+      el("span", { "class": "badge" + (r.kind === "fact" ? "" : " brand-soft"), text: r.kind === "fact" ? "Fact" : "Rule" }),
+      el("span", { "class": "badge", text: r.factory_id ? r.factory + " only" : "All " + productName() + " factories" })
+    ];
+    if (r.part) tags.push(el("span", { "class": "badge", text: PART_LABEL[r.part] }));
+    if (r.direct) tags.push(el("span", { "class": "badge ok", text: "Answers by itself" }));
+    if (!r.active) tags.push(el("span", { "class": "badge warn", text: "Off" }));
+    var lines = [el("div", { "class": "line" }, [el("b", { text: "When: " }), r.keywords ? "the clause mentions " + r.keywords : "every clause" + (r.part ? " of " + PART_LABEL[r.part] : "")])];
+    if (r.instruction) lines.push(el("div", { "class": "line", text: r.instruction }));
+    if (r.answer) lines.push(el("div", { "class": "line" }, [el("b", { text: r.answer }), r.remark ? " · " + r.remark : ""]));
+    return el("li", {}, [el("button", { type: "button", "class": "rule-item" + (r.active ? "" : " off"), onclick: function () { editRule(r); } },
+      [el("div", { "class": "t", text: r.title || (r.instruction || r.remark).slice(0, 80) }), el("div", { "class": "tags" }, tags)].concat(lines))]);
+  }
+  function drawRules() {
+    var host = $("ruleList"); host.textContent = "";
+    var rules = ruleData.rules.filter(function (r) { return r.kind === "rule"; }), facts = ruleData.rules.filter(function (r) { return r.kind === "fact"; });
+    if (!ruleData.rules.length) {
+      var box = el("div", { "class": "empty" }); host.appendChild(box);
+      Hub.emptyState(box, { title: "No AI rules for " + productName() + " yet",
+        text: "Add what the " + factoryName() + " factory offers (“Fans are direct-driven EC plug fans”) and how clauses like site work are answered. Every AI review of " + productName() + " uses them.",
+        action: { label: "Add a rule", onClick: function () { editRule(null); } } });
+      return;
+    }
+    [["Rules", rules, "How to answer clauses like these. The AI review follows them."], ["Facts", facts, "What the factory offers. The AI review may quote them."]].forEach(function (g) {
+      if (!g[1].length) return;
+      host.appendChild(el("div", { "class": "rule-group" }, [el("h3", { text: g[0] + " (" + g[1].length + ") · " + g[2] }), el("ul", {}, g[1].map(ruleRow))]));
+    });
+  }
+
+  /* The add / edit sheet: slides up on a phone (drag down to close), sits in the middle on a computer. */
+  function editRule(r) {
+    var isNew = !r; r = r || { kind: "rule", factory_id: null, title: "", keywords: "", part: 0, instruction: "", answer: "", remark: "", active: true };
+    var last = document.activeElement, kind = r.kind;
+    var title = el("input", { "class": "input", "aria-label": "Title", maxlength: "120", value: r.title, placeholder: "e.g. Site work" });
+    var scope = el("select", { "class": "input", "aria-label": "Applies to" }, [
+      el("option", { value: "", text: "All " + productName() + " factories" }),
+      el("option", { value: factoryId(), text: factoryName() + " only" })]);
+    scope.value = r.factory_id ? r.factory_id : "";
+    if (r.factory_id && r.factory_id !== factoryId()) scope.appendChild(el("option", { value: r.factory_id, text: r.factory + " only" })), scope.value = r.factory_id;
+    var keywords = el("input", { "class": "input", "aria-label": "When the clause mentions", maxlength: "600", value: r.keywords, placeholder: "e.g. install, rigging, commissioning" });
+    var part = el("select", { "class": "input", "aria-label": "Part" }, [0, 1, 2, 3].map(function (n) { return el("option", { value: String(n), text: PART_LABEL[n] }); }));
+    part.value = String(r.part || 0);
+    var instruction = el("textarea", { "class": "input", rows: "3", maxlength: "1500" }); instruction.value = r.instruction;
+    var answer = el("select", { "class": "input", "aria-label": "Answer" }, [el("option", { value: "", text: "Let the AI decide" })].concat((ruleData.choices || []).map(function (c) { return el("option", { value: c, text: c }); })));
+    answer.value = r.answer || "";
+    var remark = el("textarea", { "class": "input", "aria-label": "Remark", rows: "2", maxlength: "1000", placeholder: "e.g. Daikin scope is equipment supply only." }); remark.value = r.remark;
+    var active = el("input", { type: "checkbox" }); active.checked = r.active !== false;
+    var instrLabel = el("span"), instrHint = el("div", { "class": "hint" }), directHint = el("div", { "class": "hint" });
+    var ruleOnly = el("div", { "class": "stack" }, [
+      el("div", { "class": "two" }, [
+        el("label", { "class": "field" }, [el("span", { text: "Answer" }), answer]),
+        el("label", { "class": "field" }, [el("span", { text: "Remark" }), remark])]),
+      directHint]);
+    var seg = el("div", { "class": "tabs kind-seg", role: "group", "aria-label": "Rule or fact" }, ["rule", "fact"].map(function (k) {
+      return el("button", { type: "button", "class": "tab", "data-k": k, text: k === "rule" ? "Rule" : "Fact", onclick: function () { kind = k; paint(); } });
+    }));
+    function paint() {
+      [].forEach.call(seg.children, function (b) { b.setAttribute("aria-selected", String(b.getAttribute("data-k") === kind)); });
+      instrLabel.textContent = kind === "fact" ? "The fact" : "What the AI should do";
+      instruction.setAttribute("aria-label", instrLabel.textContent);
+      instruction.placeholder = kind === "fact" ? "e.g. Fans are direct-driven EC plug fans with IE5 motors." : "e.g. Installation, rigging and site testing clauses are In Contractor's Scope.";
+      instrHint.textContent = kind === "fact" ? "Write it as you would tell a new engineer. Numbers written here may be quoted in remarks." : "A plain sentence. The AI follows it for every clause this rule applies to.";
+      ruleOnly.hidden = kind === "fact";
+      directHint.textContent = answer.value && remark.value.trim() ? "With an answer and a remark, matching clauses get exactly this answer, without the AI." : "Optional. Give both an answer and a remark to answer matching clauses without the AI.";
+    }
+    answer.addEventListener("change", paint); remark.addEventListener("input", paint);
+    var msg = el("div", { "class": "notice error", hidden: true });
+    var save = el("button", { type: "button", "class": "btn", text: "Save" });
+    var del = isNew ? null : el("button", { type: "button", "class": "btn ghost danger-text", text: "Delete" });
+    var box = el("div", { "class": "hub-sheet rule-sheet", role: "dialog", "aria-modal": "true", "aria-label": isNew ? "Add an AI rule" : "Edit AI rule" }, [
+      el("h2", { text: isNew ? "Add an AI rule" : "Edit AI rule" }), seg,
+      el("label", { "class": "field" }, [el("span", { text: "Title" }), title]),
+      el("div", { "class": "two" }, [
+        el("label", { "class": "field" }, [el("span", { text: "Applies to" }), scope]),
+        el("label", { "class": "field" }, [el("span", { text: "Part" }), part])]),
+      el("label", { "class": "field" }, [el("span", { text: "When the clause mentions" }), keywords,
+        el("div", { "class": "hint", text: "Words or phrases, separated by commas; any one is enough. “install” also finds installation and installed. Leave empty for every clause of the Part." })]),
+      el("label", { "class": "field" }, [instrLabel, instruction, instrHint]),
+      ruleOnly,
+      el("label", { "class": "on" }, [active, "On (the AI review uses it)"]),
+      msg,
+      el("div", { "class": "hub-sheet-actions" }, [del, el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), save])
+    ]);
+    var back = el("div", { "class": "hub-sheet-back", onclick: function (e) { if (e.target === back) close(); } }, [box]);
+    function key(e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } }
+    function close() { document.removeEventListener("keydown", key, true); back.remove(); if (last && last.focus) last.focus(); }
+    save.addEventListener("click", function () {
+      msg.hidden = true; save.disabled = true;
+      Api.aiRulesSave(Hub.token(), { id: r.id, productId: productId(), factoryId: scope.value || null, kind: kind, title: title.value, keywords: keywords.value,
+        part: +part.value, instruction: instruction.value, answer: kind === "rule" ? answer.value : "", remark: kind === "rule" ? remark.value : "", active: active.checked, sort: r.sort || 0 })
+        .then(function () { close(); Hub.toast(isNew ? "AI rule added." : "AI rule saved."); loadRules(); },
+              function (err) { save.disabled = false; msg.textContent = err.message; msg.hidden = false; });
+    });
+    if (del) del.addEventListener("click", function () {
+      Hub.confirm("Delete this AI rule? The AI review stops using it at once. To pause it instead, switch it off.", { ok: "Delete", danger: true }).then(function (yes) {
+        if (!yes) return;
+        Api.aiRulesDelete(Hub.token(), r.id).then(function () { close(); Hub.toast("AI rule deleted."); loadRules(); }, function (err) { msg.textContent = err.message; msg.hidden = false; });
+      });
+    });
+    paint();
+    document.body.appendChild(back);
+    document.addEventListener("keydown", key, true);
+    Hub.dragClose(box, close);
+    (isNew ? instruction : title).focus();
+  }
+  $("btnRuleAdd").addEventListener("click", function () { editRule(null); });
+
+  $("btnTry").addEventListener("click", function () {
+    var out = $("tryOut"), text = $("tryText").value.trim();
+    out.textContent = "";
+    if (text.length < 3) { out.appendChild(el("div", { "class": "notice warn", text: "Paste a clause first." })); return; }
+    var btn = $("btnTry"); btn.disabled = true;
+    Api.aiRulesTest(Hub.token(), { productId: productId(), factoryId: factoryId(), clause: text, part: +$("tryPart").value }).then(function (res) {
+      btn.disabled = false;
+      var hit = function (r) { return el("div", { "class": "try-hit" }, [el("b", { text: (r.kind === "fact" ? "Fact: " : "Rule: ") + (r.title || r.instruction.slice(0, 60)) }),
+        r.matched && r.matched.length ? " · found: " + r.matched.join(", ") : " · applies to every clause" + (r.part ? " of " + PART_LABEL[r.part] : "")]); };
+      if (res.direct) out.appendChild(el("div", { "class": "notice ok" }, ["Answered by the rule “" + (res.direct.title || res.direct.instruction.slice(0, 60)) + "”, without the AI: ", el("b", { text: res.direct.answer }), " · " + res.direct.remark]));
+      else if (res.rules.length || res.facts.length) {
+        var what = [res.rules.length ? res.rules.length + (res.rules.length === 1 ? " rule" : " rules") : "", res.facts.length ? res.facts.length + (res.facts.length === 1 ? " fact" : " facts") : ""].filter(Boolean).join(" and ");
+        out.appendChild(el("div", { "class": "notice", text: "Goes to the AI with " + what + ", besides the library answers of similar clauses." }));
+      }
+      else out.appendChild(el("div", { "class": "notice", text: "No rule or fact applies. The AI drafts it from the library answers of similar clauses only." }));
+      res.rules.concat(res.facts).forEach(function (r) { out.appendChild(hit(r)); });
+    }, function (err) { btn.disabled = false; out.appendChild(el("div", { "class": "notice error", text: err.message })); });
+  });
+
   // ---------- tabs ----------
   [].forEach.call(document.querySelectorAll(".tab[data-tab]"), function (tab) {
     tab.addEventListener("click", function () {
@@ -564,6 +770,7 @@
         $("tab-" + t.getAttribute("data-tab")).hidden = t !== tab;
       });
       if (tab.getAttribute("data-tab") === "runs") loadRuns();
+      if (tab.getAttribute("data-tab") === "rules") loadRules();
       libDock();
     });
   });
@@ -571,7 +778,12 @@
   $("btnFilters").addEventListener("click", function () {
     var open = $("libFilters").classList.toggle("open"); this.setAttribute("aria-expanded", String(open));
   });
-  Hub.requireLogin({ edit: "compliance-maker" }).then(function () {
+  Hub.requireLogin({ edit: "compliance-maker" }).then(function (profile) {
+    // AI rules: the super user and the admins of the tile this tool sits on (the server checks the same)
+    rulesEditor = Hub.isSuper(profile.user) || (profile.categories || []).some(function (c) {
+      return c.admin && c.tools.some(function (t) { return t.id === "compliance-maker"; });
+    });
+    $("tabRules").hidden = !rulesEditor;
     Hub.autoHide($("workbar"));
     Hub.more($("btnMore"), [$("btnExport")], "Compliance review");
     return CMHighlight.load(); })
