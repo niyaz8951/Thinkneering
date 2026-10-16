@@ -11,6 +11,7 @@ import { prProject, prCanShare, prLogStmt, prLog, prLogHourly, type ProjectRow }
 import { all, now, uuid, str, trimmed, tidy, int, bool, isArray, isObject, chunks, marks, batched } from "../lib/sql";
 import { runLine, dropUnusedLine, linesById, type LineRow, type RunRow } from "./cm";
 import { aiAvailable } from "../ai/models";
+import { noteOnly } from "../ai/rules";
 
 /* One row of a record (cm_run_lines). */
 interface RL {
@@ -267,7 +268,7 @@ export const routes: Routes = {
       return { run: x.run_id, seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text,
                compliance: own ? x.compliance : x.l_compliance || "", remarks: own ? x.remarks : x.l_remarks || "",
                source: own ? (x.ai_draft ? "AI draft, not checked" : SOURCE[x.review] || "Same as the library") : x.l_status === "answered" ? "From the library" : "",
-               comments: x.l_comments || "", by: x.answered_by ? nameOf(x.answered_by) : "" };
+               comments: s.canEdit("compliance-maker") ? x.l_comments || "" : noteOnly(x.l_comments), by: x.answered_by ? nameOf(x.answered_by) : "" };
     });
     type Note = { id: string; product: string; file_names: string; created_at: string; columns: string; file_key: string };
     const notes = await all<Note>(env.DB.prepare("SELECT n.id, pd.name AS product, n.file_names, n.created_at, n.columns, n.file_key FROM pr_notes n JOIN cm_products pd ON pd.id = n.product_id WHERE n.project_id = ? ORDER BY n.created_at").bind(pj.id));
@@ -325,6 +326,7 @@ export const routes: Routes = {
     const nm = names.results[0] as { product: string; factory: string }, lines = rows.results as unknown as RLL[];
     const nameOf = await namesOf(env, [r.user_id, ...lines.map((x) => x.answered_by)]);
     // the reason behind every AI draft still on the record (the newest draft of a row wins)
+    const canComment = s.canEdit("compliance-maker");
     const reasons = new Map<number, { reason: string; confidence: string; source: string }>();
     if (lines.some((x) => x.ai_draft)) {
       const ds = await all<{ seq: number; reason: string; confidence: string; source: string }>(
@@ -334,14 +336,14 @@ export const routes: Routes = {
     return {
       run: { id: r.id, file_name: r.file_name, created_at: r.created_at, user: nameOf(r.user_id), product: nm.product, product_id: r.product_id, factory: nm.factory,
              project_id: pj.id, project: pj.name, client: pj.client_name,
-             can_comment: s.canEdit("compliance-maker"),           // may write Internal Comments (pr_run_save_comment)
+             can_comment: canComment,           // may write Internal Comments (pr_run_save_comment)
              can_review: s.prAdmin,                                 // may write TL Review (pr_run_save_review)
              can_ai: s.prAdmin, ai_available: aiAvailable(env) },           // may run the AI review (ai_review_run); whether this environment has a model
       lines: lines.map((x) => ({
         seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text, can: x.line_id != null, own: x.compliance !== "" || x.remarks !== "",
         compliance: x.compliance, remarks: x.remarks, review: x.review, by: x.answered_by ? nameOf(x.answered_by) : "",
         lib_compliance: x.l_status === "answered" ? x.l_compliance || "" : "", lib_remarks: x.l_status === "answered" ? x.l_remarks || "" : "",
-        lib_comments: x.l_comments || "", tl_review: x.tl_review, ai_draft: !!x.ai_draft, ai: x.ai_draft ? reasons.get(x.seq) || null : null
+        lib_comments: canComment ? x.l_comments || "" : noteOnly(x.l_comments), tl_review: x.tl_review, ai_draft: !!x.ai_draft, ai: x.ai_draft ? reasons.get(x.seq) || null : null
       }))
     };
   },

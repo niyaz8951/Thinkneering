@@ -55,11 +55,13 @@ export async function embed(env: Env, texts: string[], usage?: AiUsage): Promise
 
 /* A chat completion as plain text. */
 export async function complete(env: Env, model: string, system: string, user: string, usage?: AiUsage, maxTokens = 600): Promise<string> {
-  const out = await aiRun<{ response?: string }>(env, model, {
+  const out = await aiRun<{ response?: unknown }>(env, model, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
-    max_tokens: maxTokens, temperature: 0.2
+    max_tokens: maxTokens, temperature: 0.1
   }, usage);
-  return String((out && out.response) || "");
+  const r = out && out.response;
+  // some models hand back already-parsed JSON
+  return r && typeof r === "object" ? JSON.stringify(r) : String(r ?? "");
 }
 
 /* The first JSON object in a model reply (models like to wrap JSON in prose or code fences). */

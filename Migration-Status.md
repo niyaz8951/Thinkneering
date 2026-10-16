@@ -2,7 +2,7 @@
 
 Kept by Claude. Read at the start of every THINK-HUB chat; update after every delivery.
 
-Last updated: 16 Oct 2026 - Design brief Phase 1 (design pass and screen map), branch `phase1-design-pass`.
+Last updated: 16 Oct 2026, afternoon - AI rules tab, datasheet grounding and the checks on AI drafts (migration 0002); Phase 1 design pass before it.
 
 ## Live set-up (15 Oct 2026)
 - Worker `thinkneering-hub`, deployed from the laptop with `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`). Workers Builds not connected yet; it can be, with the same two commands.
@@ -40,12 +40,11 @@ Last updated: 16 Oct 2026 - Design brief Phase 1 (design pass and screen map), b
 |---|---|---|
 | 1 | Design pass and screen map (visual only) | **done 16 Oct**, branch `phase1-design-pass`: `docs/Screen-Map.md`; shell, dashboard, Projects, project page, record, focus mode, Compliance review; before / after in `docs/screens/` |
 | 2 | Review mode: keep, change or skip | next |
-| 3 | AI hardening | after 2 (includes re-building the AI rules, see below) |
+| 3 | AI hardening | **first part done 16 Oct**: AI rules tab + `#` rules rebuilt + grounding / retry / Not Comply checks + prompt version (migration 0002). Left: golden set, eval:live, daily cap, 8 s timeout, quality card |
 | 4 | Feature A (datasheet comparison) | after 3 |
 
-**Found on 16 Oct:** the 15 Oct night delivery (AI rules after `#` in Internal Comments, `splitComments` in `ai/draft.ts`,
-`docs/AI-Review.md`) is **not in the repo**; the last commit is `thinkOct15.5.1`. Either the owner uploads that zip, or Phase 3
-re-builds it (the brief's Phase 3 touches the same code and decides who sees `#` rules).
+The 15 Oct `#` rules (never pushed) were rebuilt on 16 Oct with the AI rules tab; the owner asked for the rules tab ahead of
+Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the review in plain words.
 
 ## Migration plan (standards A.11) - where we are
 
@@ -57,8 +56,9 @@ re-builds it (the brief's Phase 3 touches the same code and decides who sees `#`
 
 ## Next pieces of work, in order
 
-1. Owner: merge `phase1-design-pass`, `npm run deploy`, open thinkneering.com on a phone and an office laptop.
-2. Claude: Design brief Phase 2 (Review mode).
+1. Owner: upload the 16 Oct AI rules files, `npx wrangler d1 migrations apply DB --remote`, `npx wrangler deploy`; upload
+   `compliance-library-ahu-riyadh.xlsx` into AHU / Riyadh; load `starter-rules-ahu-riyadh.sql`; run AI review on one known spec.
+2. Claude: Design brief Phase 2 (Review mode), then the rest of Phase 3 (golden set from the reviewed records).
 3. Owner: `export-supabase` + `import-d1 --local`, then `--remote`; Claude fixes what the real data shows.
 4. Playwright suites for Datasheet Notes, Product Options, Maps.
 
@@ -72,6 +72,7 @@ re-builds it (the brief's Phase 3 touches the same code and decides who sees `#`
 
 ## Decisions log
 
+- 16 Oct 2026 (AI rules): AI rules per product, for every factory or one, written only by tile admins and the super user; facts may be quoted, numbers included; fixed-answer rules answer without the model; users never see `#` rules; uploads standardise the six answers; a library line with `#` rules is not copied blindly. From `ai-suggest.js` taken: datasheet rows with a section gate, parent clause, number grounding, echo trim, Not Comply needs a source, one retry. Not taken: a seventh answer TO VERIFY, the 8B model, batched calls.
 - 16 Oct 2026 (Phase 1): live facts win over older doc lines (thinkneering.com, D1 `thinkneering-db` / `DB`, no staging, Vectorize off, PBKDF2 100k); `npm run deploy` no longer passes `--env production` (that environment does not exist); the dev seed hashes at 100k. Design rules in standards A.13.1. The top-bar Back button is tinted, not solid, so each page has one solid blue primary action. On a phone the primary action is docked at the bottom and the secondary ones are behind More. "Answered" never counts AI drafts; `pr_get` gives `drafts` per record (read-only). Screenshots by `scripts/screens.mjs`; full sets stay out of git.
 - 15 Oct 2026: live on thinkneering.com (root domain); D1 `thinkneering-db`; no staging for now; Vectorize off until the index is created.
 - 14 Oct 2026: move to Cloudflare, D1, Workers AI, Vectorize, R2; one Worker; same route names; pages unchanged; theme unchanged; site name from `config.js`.

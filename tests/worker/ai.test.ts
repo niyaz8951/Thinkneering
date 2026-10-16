@@ -95,8 +95,11 @@ describe("AI review", () => {
     expect(by(5)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "50 mm panels, thermal break frame.", review: "" });
     expect(by(5).ai.source).toBe("library-similar");
     expect(by(5).ai.confidence).toBe("high");
-    expect(by(6)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "Panels are injected with 42 kg/m3 PU foam." });
-    expect(by(6).ai.reason).toBe("Library answer 1 covers the panel insulation.");
+    // the model wrote a density no source gives (the clause asks for 40 kg/m3; nothing says what the panel IS):
+    // code took the number out and marked the draft low
+    expect(by(6)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "Panels are injected with [value] PU foam." });
+    expect(by(6).ai.reason).toBe("Library answer 1 covers the panel insulation. Check: no source gives 42 kg/m3, check the value.");
+    expect(by(6).ai.confidence).toBe("low");
     expect(by(2)).toMatchObject({ own: true, ai_draft: false, compliance: "Noted" });        // the person's answer was kept
     expect(by(9)).toMatchObject({ own: false, ai_draft: false, lib_compliance: "Comply" });   // the library's answer was kept
     expect(rec.run.can_ai).toBe(true);
@@ -104,7 +107,7 @@ describe("AI review", () => {
     const lib = await env.DB.prepare("SELECT count(*) AS n FROM cm_lines WHERE answer_source NOT IN ('admin', '')").first<any>();
     expect(lib.n).toBe(0);
     const drafts = await env.DB.prepare("SELECT status, source, confidence FROM ai_drafts ORDER BY seq").all<any>();
-    expect(drafts.results.map((d) => [d.status, d.source, d.confidence])).toEqual([["draft", "library-similar", "high"], ["draft", "model", "medium"]]);
+    expect(drafts.results.map((d) => [d.status, d.source, d.confidence])).toEqual([["draft", "library-similar", "high"], ["draft", "model", "low"]]);
     const aud = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'ai_review_run'").first<any>();
     expect(aud.n).toBe(2);
     // AI drafts never reach the review queue or the editor's project answers
@@ -148,7 +151,7 @@ describe("AI review", () => {
     (env as any).AI = fakeAi((u) => u.includes("Fans") ? "I cannot help with that." : { compliance: "Noted", remarks: "", reason: "r", confidence: "low" }).ai;
     const r = await ok("ai_review_run", { p_token: t, p_run_id: runId, p_limit: 25 });
     expect(r).toMatchObject({ done: 3, failed: 1, remaining: 0 });
-    expect(r.errors[0]).toMatch(/did not answer with JSON/);
+    expect(r.errors[0]).toMatch(/did not give a usable answer \(the reply was not one JSON object\)/);
     const again = await ok("ai_review_run", { p_token: t, p_run_id: runId, p_limit: 25 });
     expect(again).toMatchObject({ done: 0, failed: 1, remaining: 0, open: 1 });
   });
@@ -158,6 +161,6 @@ describe("AI review", () => {
       similar: [{ id: "x", factory_id: "f", spec_text: "Panels shall be 50 mm.", compliance: "Comply", remarks: "50 mm PU", comments: "", status: "answered", section: "CASING", score: 0.8, how: "lexical" }] });
     expect(u).toMatch(/Part 2 Products \/ CASING, label B\./);
     expect(u).toMatch(/similarity 0.80\) Clause: Panels shall be 50 mm\./);
-    expect(u).toMatch(/Internal comments for this clause \(library team\): Say 50 mm foam\./);
+    expect(u).toMatch(/Internal note for this clause \(library team\): Say 50 mm foam\./);
   });
 });

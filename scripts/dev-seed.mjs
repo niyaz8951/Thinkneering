@@ -51,6 +51,10 @@ if (n > 0) {
     for (const c of u.cats || []) lines.push(`INSERT INTO app_user_categories (user_id, category_id) VALUES (${q(id)}, ${q(c)});`);
     for (const t of u.edit || []) lines.push(`INSERT INTO app_tool_editors (user_id, tool_id) VALUES (${q(id)}, ${q(t)});`);
   }
+  // two example AI rules for AHU (Compliance review > AI rules): one answers by itself, one is a fact
+  lines.push(`INSERT INTO ai_rules (id, product_id, factory_id, kind, title, keywords, part, instruction, answer, remark) VALUES
+    (${q(randomUUID())}, 'ahu', NULL, 'rule', 'Site work', 'install, rigging, site test, field test, commissioning, start-up', 3, 'Site work is done by the contractor.', 'In Contractor''s Scope', 'Daikin scope is equipment supply only.'),
+    (${q(randomUUID())}, 'ahu', 'ahu-dubai', 'fact', 'Fans (demo)', 'fan, motor', 0, 'Demo fact: fans are direct-driven plug fans with EC motors.', '', '');`);
   sql(lines.join("\n"));
   console.log("Demo users created: admin / admin12345, team.admin / admin12345, sales.user / sales12345, sbu.user / sbu12345, new.joiner (pending).");
 }
