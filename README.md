@@ -2,7 +2,7 @@
 
 The DAME Tools Hub on Cloudflare: one Worker serves the site (`public/`, the DAME pages unchanged) and its API
 (`worker/src`, the old database functions as routes of the same name), D1 holds the data, R2 the files, Workers AI
-the models. Address: `tools.thinkneering.com` (staging: `staging.tools.thinkneering.com`).
+the models. Address: `https://thinkneering.com` (no staging; `npm run dev:offline` is the place to try things).
 
 Rules: `Thinkneering-Hub-Standards.md` in the Claude project (section A = this build, section B = the DAME page
 rules, also in `docs/DAME-STANDARDS.md`). Progress: `Migration-Status.md`. AI: `AI-Roadmap.md`. Operations: `RUNBOOK.md`.
@@ -32,7 +32,7 @@ npm run test:e2e       # Playwright on wrangler dev --env local: sign in, projec
 ## Layout
 
 ```
-wrangler.toml          bindings and the three environments (local / staging / production); no ids or secrets of value
+wrangler.toml          bindings: the live site at the top level, `env.local` offline; no secrets
 public/                the site: DAME pages, assets, tools (only api.js and config.js changed in the move)
 worker/src/index.ts    router: POST /api/rpc/<name>, GET /api/file/<key>, GET /api/ping, static assets
 worker/src/auth.ts     sessions (PBKDF2, 12 h, one per user), roles, tile admins, "Can edit", audit
@@ -47,7 +47,6 @@ tests/worker/          Vitest; tests/e2e/ Playwright
 
 ## Deploy
 
-Pushing to GitHub deploys through Cloudflare Workers Builds (`main` = production, `staging` = staging); build
-command `npm ci`, deploy command `npx wrangler d1 migrations apply hub-db --remote && npx wrangler deploy`
-(with `--env production` / `--env staging`). From a laptop: `npm run deploy` / `npm run deploy:staging`.
+From the laptop: `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`).
+Workers Builds can be connected later with build `npm ci` and the same deploy command.
 First-time set-up, moving to another account, restoring, secrets: `RUNBOOK.md`.

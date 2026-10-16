@@ -112,6 +112,10 @@ describe("AI review", () => {
     expect(review.items.map((x: any) => x.seq)).toEqual([2]);                              // only the person's answer waits
     const lines = await ok("cm_admin_lines", { p_token: t, p_factory_id: "ahu-dubai", p_status: "all" });
     expect(lines.lines.find((l: any) => l.id === near.id).project_answers).toEqual([]);
+    // the project page counts the drafts apart from the answers people stand behind
+    const { projectId } = { projectId: rec.run.project_id };
+    const card = (await ok("pr_get", { p_token: t, p_id: projectId })).runs[0];
+    expect(card).toMatchObject({ clauses: 4, filled: 4, answered: 1, drafts: 2 });
   });
 
   it("a person who edits a draft turns it into a project answer; keeping it accepts it; clear takes drafts off", async () => {

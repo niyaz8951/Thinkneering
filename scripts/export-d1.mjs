@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Exports everything (standards A.12): D1 as SQL and as JSON per table, and the list of R2 keys.
-     node scripts/export-d1.mjs --env production [out-dir]
+     node scripts/export-d1.mjs [out-dir]        (the live D1; --env <name> only if an environment is added)
    The nightly cron keeps the same JSON files in R2 under backups/<date>/; this is the on-demand copy. */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";

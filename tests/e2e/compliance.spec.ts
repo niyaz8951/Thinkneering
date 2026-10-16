@@ -75,7 +75,7 @@ test.describe("Compliance Maker on the new site", () => {
     await expect(page.locator("#rc-name")).toHaveText("AHU Specs");
     await expect(page.locator("#rc-table tr.part")).toHaveCount(3);
     await expect(page.locator("#rc-table tr.sect")).toHaveCount(4);
-    await expect(page.locator("#rc-count")).toContainText("0 of 6 clauses filled");
+    await expect(page.locator("#rc-count")).toContainText("0 of 6 clauses answered");
     await expect(page.locator("#rc-ai")).toBeVisible();                     // the super user may run the AI review
 
     // fill one clause in Edit: it is saved and goes to review
@@ -85,7 +85,7 @@ test.describe("Compliance Maker on the new site", () => {
     await first.locator('textarea[aria-label="Remarks"]').fill("General clause.");
     await first.locator('textarea[aria-label="Remarks"]').blur();
     await expect(first.locator(".state")).toHaveText("Saved, in review");
-    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses filled, 1 waiting for review");
+    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered, 1 waiting for review");
   });
 
   test("AI review drafts the open clauses and marks them; editing a draft makes it a person's answer", async ({ page }, info) => {
@@ -93,12 +93,15 @@ test.describe("Compliance Maker on the new site", () => {
     runId = runId || await findRun(page);
     await signIn(page, "admin", "admin12345");
     await page.goto("/tools/projects/record.html?run=" + runId);
-    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses filled");
+    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered");
     await page.click("#rc-ai");
     await page.click(".hub-sheet button:has-text('Start')");
-    await expect(page.locator("#rc-count")).toContainText("6 of 6 clauses filled", { timeout: 30000 });
+    await expect(page.locator("#rc-count")).toContainText("1 of 6 clauses answered, 5 AI drafts to check", { timeout: 30000 });
     await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(5);
     await expect(page.locator("#rc-table tr.line.ai .state").first()).toContainText("AI draft, check it");
+    // the reason is a visible line under the clause, not a hover
+    await expect(page.locator("#rc-table tr.line.ai .why").first()).toBeVisible();
+    await expect(page.locator("#rc-table tr.line.ai .why").first()).toContainText("low confidence");
     await expect(page.locator("#rc-ai-clear")).toBeVisible();
     // the AI drafts are not in the review queue: only the person's answer waits
     await expect(page.locator("#rc-count")).toContainText("1 waiting for review");
@@ -117,7 +120,7 @@ test.describe("Compliance Maker on the new site", () => {
     await page.click("#rc-ai-clear");
     await page.click(".hub-sheet button:has-text('Remove drafts')");
     await expect(page.locator("#rc-table tr.line.ai")).toHaveCount(0);
-    await expect(page.locator("#rc-count")).toContainText("2 of 6 clauses filled");
+    await expect(page.locator("#rc-count")).toContainText("2 of 6 clauses answered");
   });
 
   test("a plain user cannot see the AI review button or open another user's record", async ({ page }, info) => {
@@ -147,5 +150,30 @@ test.describe("Compliance Maker on the new site", () => {
     await signIn(page, "admin", "admin12345");
     await page.goto("/tools/projects/record.html?run=" + runId);
     await expect(page.locator(".cf-spec").first()).toBeVisible({ timeout: 20000 });
+    // nothing runs off a 390px screen: the pane's top bar fits
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    const top = await page.locator(".cf-top").boundingBox(), count = await page.locator(".cf-count").boundingBox();
+    expect(count!.x + count!.width).toBeLessThanOrEqual(top!.x + top!.width + 1);
+  });
+
+  test("phone: the primary action is docked at the bottom, secondary ones behind More, lists show skeletons then content", async ({ page }, info) => {
+    test.skip(info.project.name !== "phone", "phone flow");
+    await signIn(page, "admin", "admin12345");
+    await page.goto("/tools/projects/index.html");
+    const dock = page.locator(".dock .btn");
+    await expect(dock).toHaveText("New project");
+    const box = await dock.boundingBox();
+    expect(box!.y).toBeGreaterThan(844 / 2);                                 // bottom half, under the thumb
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator("#pr-review")).toBeHidden();                   // in More on a phone
+    await page.click("#pr-more");
+    await expect(page.locator(".hub-sheet.actions")).toContainText("Compliance review");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#pr-body tr").first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    // a project that cannot be opened says so, with one way out
+    await page.goto("/tools/projects/project.html?id=nope");
+    await expect(page.locator("#pj-error .empty-title")).toHaveText("This project cannot be opened");
+    await expect(page.locator("#pj-error a.btn")).toHaveText("Back to Projects");
   });
 });

@@ -60,6 +60,20 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026 - Design brief Phase 1 (no AI logic change)
+- Every AI draft now shows its reason and confidence as a visible line: under the clause on the record page (`.why`)
+  and as a box above the answers in focus mode (`.cf-why`); the proposed answer is tinted until a person owns it.
+- Counts never call a draft "answered": "10 of 38 clauses answered, 12 AI drafts to check". `pr_get` gives `drafts` per record.
+- **Missing from the repo:** the 15 Oct entry below (AI rules after `#`, `splitComments`, `docs/AI-Review.md`) was described
+  but its code is not in `niyaz8951/Thinkneering` (last commit `thinkOct15.5.1`). To upload, or re-build in Phase 3.
+
+### 15 Oct 2026 - live on thinkneering.com; AI rules in Internal Comments (code not in the repo, see above)
+- The site is live (D1 `thinkneering-db`, R2 `hub-files`, Workers AI; Vectorize still off, lexical search in use).
+- AI rules: in a library clause's Internal Comments, text before the first `#` is the note for users; every `#` starts an
+  AI rule that wins over the library answers for that clause; rules of similar clauses are hints; a clause with its own
+  rule is never copied blindly from a >= 0.90 match. Open: hide the `#` part from users (brief Phase 3 decides: users see
+  the note, editors see both).
+
 ### 14 Oct 2026 - first delivery of the new repo: AI review on project records (Phase 1 plumbing + a first cut of Phase 3)
 
 What is built (`worker/src/ai/*`, `worker/src/api/ai.ts`, `tools/projects/record.html`):

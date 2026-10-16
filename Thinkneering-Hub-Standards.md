@@ -4,11 +4,13 @@ Follow this for every page, route and tool. Section A is the Cloudflare build; s
 
 # A. Cloudflare build
 
+> Live facts (15 Oct 2026) win over any older line: domain `thinkneering.com`, D1 `thinkneering-db` with binding `DB`, no staging, Vectorize off, PBKDF2 at 100,000 iterations. Fixed on 16 Oct 2026.
+
 
 ## 1. Architecture
 
 ```
-tools.thinkneering.com
+thinkneering.com
         |
   Cloudflare Worker "thinkneering-hub"
   |-- static assets  (public/*)          the DAME pages, unchanged
@@ -16,11 +18,11 @@ tools.thinkneering.com
   |-- auth.ts                             sessions, roles, per-tile admin, "Can edit"
   |-- ai/*                                Workers AI calls, Vectorize search, drafts
   |-- jobs.ts                             Cron Triggers: indexing, clean-up, backups
-  bindings: D1 hub-db | R2 hub-files | Vectorize hub-vectors | AI | AI Gateway | Rate limiter
+  bindings: D1 thinkneering-db (DB) | R2 hub-files (FILES) | AI | AI Gateway | Vectorize hub-vectors (VECTORS, off for now)
 ```
 
-- **Code on GitHub, hosting on Cloudflare** (owner's decision, 14 Oct 2026). The repo `niyaz8951/thinkneering-hub` is the single source; Cloudflare Workers Builds is connected to it through the Cloudflare GitHub app and deploys on every push: branch `main` -> production, branch `staging` -> staging. The owner commits with GitHub Desktop as before; nobody needs `wrangler deploy` on a laptop. The build command in the Cloudflare project is `npm ci`, the deploy command `npx wrangler d1 migrations apply hub-db --remote --env production && npx wrangler deploy --env production` (staging: `--env staging`; migrations first, then the code, so a page never meets a table that is not there yet). Secrets are set in the Cloudflare dashboard (or `wrangler secret put` once), never in the repo. The repo may be private on GitHub; the static files are still treated as public. Pull requests get a preview build from Workers Builds, which is the review step before merging.
-- **One Worker, one `wrangler.toml`, three environments** (`local`, `staging`, `production`); staging and production each have their own D1, R2 and Vectorize; `local` is the offline copy (section 13). Secrets: `SESSION_SECRET`, `AI_GATEWAY_TOKEN`; nothing else. Account id and zone come from the Cloudflare login, never from the code.
+- **Live set-up (15 Oct 2026; these facts win over any older line in this doc).** Address `https://thinkneering.com` (the root domain, attached in the Worker's Domains tab; the Worker is also on `thinkneering-hub.<account>.workers.dev`). Code on GitHub (`niyaz8951/Thinkneering`), hosting on Cloudflare. D1 database `thinkneering-db`, binding `DB`; R2 bucket `hub-files`, binding `FILES`; Workers AI, binding `AI`; Vectorize is **off** (binding `VECTORS` commented out in `wrangler.toml` until the index is created; the clause search uses word overlap meanwhile). **There is no staging**: the top level of `wrangler.toml` is the live site and `env.local` is the offline copy (section 13). Deploy from the owner's laptop: `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`; migrations first, so a page never meets a table that is not there yet). Workers Builds can be connected later with the same two commands. Secrets: `SESSION_SECRET` (and `AI_GATEWAY_TOKEN` only if the gateway is set to authenticated), set with `wrangler secret put`, never in the repo. The repo may be private on GitHub; the static files are still treated as public. Account id and zone come from the Cloudflare login, never from the code.
+- **One Worker, one `wrangler.toml`, two environments**: the top level (live) and `local` (offline, stand-in AI). A staging environment is added only when the owner asks; it would get its own D1, R2 and Vectorize.
 - **Static assets** are served by the Worker's assets binding (`[assets] directory = "public"`, `html_handling = "none"` so every DAME address stays as it is), with `run_worker_first = ["/api/*", "/"]`: only API calls and the site root reach the code (the root serves `index.html`). `404.html` stays the not-found page.
 - **Routing:** `POST /api/rpc/<name>` with a JSON body = the old RPC call. `api.js` posts to `/api/rpc/` + name instead of Supabase; the demo back end is gone (the local site with its seed is the demo now). Pages do not change. GET routes exist only for files (`/api/file/<key>`) and health (`/api/ping`).
 - **Why the same names:** 60+ pages and scripts call `Api.*`; keeping the names means the port is server-only and every old Playwright test still runs. New routes follow the same naming (`ai_*`).
@@ -38,7 +40,7 @@ tools.thinkneering.com
 
 ## 3. Sessions, passwords, roles (`worker/src/auth.ts`)
 
-- **Passwords:** PBKDF2-SHA256, 600,000 iterations, 16-byte salt, through Web Crypto; stored as `pbkdf2$<iter>$<salt>$<hash>`. Imported DAME users carry their old bcrypt hash (`bcrypt$...`); `bcryptjs` verifies it once at the next login and the password is re-hashed with PBKDF2. `app__check_password` rules stay (8+ characters, not only spaces).
+- **Passwords:** PBKDF2-SHA256, 100,000 iterations (the most Web Crypto allows on Workers; `PBKDF2_ITERATIONS` in `lib/password.ts`; older hashes with fewer iterations are re-hashed at the next login), 16-byte salt, through Web Crypto; stored as `pbkdf2$<iter>$<salt>$<hash>`. Imported DAME users carry their old bcrypt hash (`bcrypt$...`); `bcryptjs` verifies it once at the next login and the password is re-hashed with PBKDF2. `app__check_password` rules stay (8+ characters, not only spaces).
 - **Sessions:** a random 32-byte token; D1 stores only its SHA-256 hash salted with `SESSION_SECRET` (so a copy of the database alone gives no sessions, and rotating the secret signs everyone out) with user id, created and last-seen times; 12-hour life, one session per user (a new login deletes the old row, so the old tab signs out, as before). The browser keeps the token in `localStorage` and sends it in the JSON body as `p_token`, exactly as before, so `hub.js` does not change. `SESSION_EXPIRED` is still the error code pages react to.
 - **Rate limiting:** the old lock-out after 5 failed attempts on the user row is there; the Cloudflare rate limiting binding on `app_login` and `app_register` (10 per minute per IP) is still to add (it needs the Paid plan's binding).
 - **Roles and checks are one module:** one `Session` object per request (the user row, his tile admin rows, tile access, edit grants, the tiles and tools table, loaded in one batch) with `isAdmin`, `isSuper`, `isTileAdmin(tile)`, `canOpen(tile)`, `canEdit(toolId)`, `prAdmin`, `requireAdmin()`, `requireSuper()`, `requireEditor(toolId)`, `requirePrAdmin()`, `profile()`; `prProject`, `prCanShare` in `lib/project.ts`; `mpRights` in `api/mp.ts`. Every route calls these first; the mirror in the pages (`Hub.isAdmin`, `Hub.canEdit`) only shows or hides. The rules themselves are those of DAME standards section 1 (super user, per-tile admins, users, "Can edit", project sharing, map sharing) and do not change in the port.
@@ -79,13 +81,13 @@ Day and night; 390px with no sideways page scroll; validated inputs with plain m
 - [ ] No hard-coded colours, no external scripts or fonts, no account ids or secrets in the code
 - [ ] Vitest: allowed + refused tests for every new route; Playwright flow on `wrangler dev --env local`
 - [ ] Migration added (never edited), `scripts/dev-seed.mjs` and the test fixtures updated, `Migration-Status.md` updated
-- [ ] Deployed to staging and opened from an office laptop before production
+- [ ] Tried on `npm run dev:offline` (and with `npm run dev` against Workers AI when AI changed), then deployed and opened on thinkneering.com from an office laptop and a phone
 
 ## 10. Repository layout
 
 ```
 thinkneering-hub/
-  wrangler.toml            bindings, environments (local / staging / production), assets, crons
+  wrangler.toml            bindings, environments (live top level / local), assets, crons
   package.json             dev, dev:offline, test, test:e2e, deploy, reindex, export scripts
   public/                  the site (DAME public files: index.html, dashboard.html, admin.html, tools/..., assets/...)
   worker/src/index.ts      router: /api/rpc/<name>, /api/file, /api/ping, static assets
@@ -108,14 +110,14 @@ thinkneering-hub/
 
 Order chosen so the old site keeps working until the switch, and every step can be checked.
 
-1. **Skeleton (2 days).** Repo, `wrangler.toml`, Worker with assets + `/api/ping`, D1 `0001_init.sql` (all tables, SQLite types), `auth.ts`, `app_*` routes, demo seed, `npm run dev`, Playwright login test. Staging deployed on `staging.tools.thinkneering.com`; opened from an office laptop. *(done 14 Oct 2026, staging deploy pending the account set-up)*
+1. **Skeleton (2 days).** Repo, `wrangler.toml`, Worker with assets + `/api/ping`, D1 `0001_init.sql` (all tables, SQLite types), `auth.ts`, `app_*` routes, demo seed, `npm run dev`, Playwright login test. *(done 14 Oct 2026; live on thinkneering.com since 15 Oct 2026, no staging)*
 2. **Port by family, tests first (about 3 weeks).** For each of `cm_*`, `dn_*`, `po_*`, `pr_*`, `mp_*`: port the pure logic to `lib/` with unit tests from the Postgres examples; port the routes; run the old e2e suite for that tool on `wrangler dev`. Order: `dn` + `po` (smallest), `cm`, `pr`, `mp`. `Migration-Status.md` ticks each function. *(done 14 Oct 2026)*
-3. **Export and import (1 day, repeatable).** `scripts/export-supabase.mjs` dumps every table to JSON (service key, run once by the owner); `scripts/import-d1.mjs` maps types, writes blobs to R2, loads D1 in batches, queues Vectorize. Run on staging, compare counts (users, clauses, answers, projects, notes, maps, images) with the Supabase counts, open a sample of every kind in the browser. *(scripts written and tried on a fixture; real run pending)*
-4. **Parallel week.** Staging holds a fresh import; the team tries their daily work there; findings fixed. The old site stays live.
-5. **Cut-over (1 evening).** Old site set read-only (a banner, `app_login` refused except the super user), final export and import, DNS `tools.thinkneering.com` to the Worker, GitHub Pages site replaced by one page that points to the new address. Supabase project kept paused for 30 days, then deleted.
+3. **Export and import (1 day, repeatable).** `scripts/export-supabase.mjs` dumps every table to JSON (service key, run once by the owner); `scripts/import-d1.mjs` maps types, writes blobs to R2, loads D1 in batches, queues Vectorize. Run on a local copy first (`--local`), then on the live D1 before the team moves; compare counts (users, clauses, answers, projects, notes, maps, images) with the Supabase counts, open a sample of every kind in the browser. *(scripts written and tried on a fixture; real run pending)*
+4. **Parallel week.** thinkneering.com holds a fresh import; the team tries their daily work there; findings fixed. The old site stays live.
+5. **Cut-over (1 evening).** Old site set read-only (a banner, `app_login` refused except the super user), final export and import, the team pointed to `thinkneering.com`, GitHub Pages site replaced by one page that points to the new address. Supabase project kept paused for 30 days, then deleted.
 6. **After:** the AI roadmap (Part 3) continues on the new stack.
 
-What changes for users: the address, and nothing else. What changes for the owner: a push to `main` deploys (Workers Builds) instead of a zip upload; migrations in the repo instead of re-running one SQL file; secrets in Cloudflare instead of `config.js`.
+What changes for users: the address, and nothing else. What changes for the owner: `npm run deploy` from the laptop (or Workers Builds later) instead of a zip upload; migrations in the repo instead of re-running one SQL file; secrets in Cloudflare instead of `config.js`.
 
 ## 12. Portability for the IT team (what `RUNBOOK.md` covers)
 - Move to another Cloudflare account: `wrangler login` on the new account, create D1 / R2 / Vectorize with the same binding names, `d1 execute --file` from the latest export, `r2 object put` from the key list, `npm run reindex`, set the two secrets, `wrangler deploy`, point the domain. No code change.
@@ -133,6 +135,19 @@ What changes for users: the address, and nothing else. What changes for the owne
 - **AI review on a project record** (owner's request, 14 Oct 2026): a button for admins of the Projects tile and the super user (`pr_run_get` returns `can_ai`, the route checks `prAdmin` itself). `ai_review_run(token, run_id, limit, replace, since)` drafts up to `limit` (max 25, the page uses 10) clauses that show no answer - no person's answer, no library answer - and the page calls it again while `remaining > 0`, passing `since` back so a "draft again" ends. For every clause: the factory's answered clauses are searched (Vectorize when indexed, else word overlap); a near-identical answered clause (>= 0.90) is copied without the model (`library-similar`, confidence high); otherwise the 70B model drafts from the three nearest library answers, their Internal Comments and the clause's Part / section (`ai/prompts/draft.md`), code maps the wording onto the six standard answers, confidence is capped at medium unless an answered library clause >= 0.6 backs it; a reply without JSON or a standard answer fails that clause only (reported, not retried in the loop). The draft is written on the record row (`cm_run_lines.compliance / remarks`, `ai_draft = 1`, `review = ''`, nobody as `answered_by`) only if the row is still the same clause and still shows no person's answer; reason, sources, confidence, model and status go to `ai_drafts`. On the page a draft is blue, says "AI draft, check it (low confidence)" with the reason on hover, has its own filter, is flagged "AI suggestion" in the Excel, and shows in focus mode. **A draft never reaches `cm_lines`, the review queue (`pr_review_list`, `cm_admin_lines.project_answers`) or another person's answer.** A person who edits or keeps a draft (record page, focus mode, section fill, Excel upload) turns it into his own answer with the usual review rules; the draft is marked accepted / edited / rejected and audited. Split / Join move drafts with their rows. `ai_review_clear` takes every draft off a record. Every batch is audited with the token counts.
 - **Delivery = a zip of the repo (or a branch) with `npm test` and `npm run test:e2e` green**; `Migration-Status.md`, `AI-Roadmap.md` and this file updated.
 
+
+### 13.1 Design pass (16 Oct 2026, Design brief Phase 1)
+
+The brief's three standards (simple like WhatsApp, designed like Apple inside the DAME theme, AI engineered like Claude) override older page rules where they disagree. `docs/Screen-Map.md` lists every core screen with its one job, its one primary action and its empty state; a page is checked against it before delivery, and a new screen gets a row there first.
+
+- **Headers** are sentence case, small and in the secondary colour: `.section-label` (13px, 600, `--text-soft`). Table heads and the phone labels of reading sheets are sentence case too. No `text-transform: uppercase`, no letter-spaced headers on any page that is touched (Product Options, Maps and Container Calculator still have some; they change when those tools are touched).
+- **Figures** use tabular numbers (`.table td`, `.badge`, `.count`, `.meta`, `.small`, `.hint`, `.stat`, `.num`).
+- **Numbers say what they count.** On the record: "22 of 38 clauses answered, 12 AI drafts to check, 5 waiting for review." *Answered* = a person's answer or the library's; an AI draft is never counted as answered. `pr_get` gives `drafts` per record for this (read-only count). Progress bars show answered in green and drafts in light blue (`.meter2`).
+- **Loading** shows a skeleton (`Hub.skeleton(rows, { flat })`), never "Loading…" or a spinner. **Empty** lists say what is missing and offer the one button that changes it (`Hub.emptyState(host, { title, text, action })`). An error that stops a page is an empty state with one way out ("Back to Projects").
+- **Phone (640px and less):** the screen's primary action is docked at the bottom (`Hub.dock([button])`, 50px high, glass bar, safe area), and the in-place copy carries `.dock-hide`. Secondary actions sit in line on a computer and behind one **More** button on a phone (`.more-items` + `Hub.more(button, [elements], title)`: an action sheet that presses the original buttons). Long filter rows wait behind a **Filters** button that shows how many are set. Tap targets 44px, inputs 16px.
+- **Reasons are visible.** An AI draft shows "AI draft, <confidence> confidence — <reason>" as a line under the clause on the record (`.why`) and as a box above the answers in focus mode (`.cf-why`); the proposed answer chip is tinted, not solid, until a person owns it. Nothing relies on hover.
+- **Sheets** have a grabber on a phone and close by dragging down (`Hub.dragClose(box, close)`, used by `Hub.confirm / ask / tell` and `Hub.more`); motion respects `prefers-reduced-motion`.
+- **Screenshots** of the core screens at 390px and 1440px, day and night: `node scripts/screens.mjs <out-dir>` on `npm run dev:offline` (it seeds one demo project once). Before / after sheets of a delivery go in `docs/screens/compare-*.png`; the full sets stay out of git.
 
 ---
 
@@ -162,7 +177,7 @@ Compliance Maker, Coil Data Extractor, Container Calculator, Centre of Gravity a
 - Each tool tile has its own icon, picked by tool id in `dashboard.html` from `Hub.ICON` (`checklist`, `table`, `tree`, `coil`, `box`, `target`, `curve`, `book`; the document icon is the fallback). A new tool gets an icon there (Maps uses `tree`).
 - When the guard sends a signed-in user to the dashboard for lack of access, the dashboard shows one toast: "That page is not available for your account." (set in `hub.js`). It names no tool.
 - `404.html` at the repo root is the "Page not found" page for GitHub Pages. It works out the site root itself, so it works at any depth.
-- **Back button** (5 Oct 2026): a solid blue "Back to <place>" button sits in the top bar beside the site name on every page that has somewhere to go back to (phone: "Back"). `hub.js` draws it. A page keeps its ordinary back link in the page head (`<p class="small"><a href="...">&larr; General</a></p>`, or `.hub-back a` on the older tools); `hub.js` moves it into the top bar and hides the paragraph. A page whose target depends on what is open calls `Hub.setBack(label, url or function)` itself (dashboard, a tool opened from a project). A page opened with `?from=admin` goes back to Admin for admins.
+- **Back button** (5 Oct 2026; tinted instead of solid since 16 Oct 2026, so the page's own primary action is the one solid blue button): a "Back to <place>" button sits in the top bar beside the site name on every page that has somewhere to go back to (phone: "Back"). `hub.js` draws it. A page keeps its ordinary back link in the page head (`<p class="small"><a href="...">&larr; General</a></p>`, or `.hub-back a` on the older tools); `hub.js` moves it into the top bar and hides the paragraph. A page whose target depends on what is open calls `Hub.setBack(label, url or function)` itself (dashboard, a tool opened from a project). A page opened with `?from=admin` goes back to Admin for admins.
 - A tool marked `app_tools.project_tool = true` (Compliance Maker, Datasheet Notes) is not shown on its team tile while the Projects tool is live there: it is opened from a project (section 2i).
 - A failed sign-in check never signs the user out unless the database says the session has expired; network problems show a "Try again" screen.
 

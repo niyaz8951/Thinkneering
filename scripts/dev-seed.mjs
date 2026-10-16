@@ -11,7 +11,7 @@ import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 
 const fresh = process.argv.includes("--fresh");
-const ITER = 600000;
+const ITER = 100000;   // = PBKDF2_ITERATIONS in worker/src/lib/password.ts (the Workers maximum)
 
 function hash(password) {
   const salt = randomBytes(16);

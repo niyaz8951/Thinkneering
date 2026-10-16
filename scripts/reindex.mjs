@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Queues every library clause for Vectorize; the 5-minute cron embeds them in batches of 100.
-     node scripts/reindex.mjs --env staging|production
+     node scripts/reindex.mjs              (the live site; --env <name> only if an environment is added)
    This is also how the index is rebuilt on a new Cloudflare account (Vectorize is never backed up). */
 import { execFileSync } from "node:child_process";
 const i = process.argv.indexOf("--env");

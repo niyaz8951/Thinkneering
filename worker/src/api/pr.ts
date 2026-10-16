@@ -138,7 +138,7 @@ async function noteRows(env: Env, key: string): Promise<unknown[]> {
 /* pr_get's body, shared with pr_export. */
 async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Record<string, unknown>> {
   type RunCard = { id: string; created_at: string; user_id: string | null; product_id: string; product: string; factory: string; source: string; file_name: string; line_count: number; matched_count: number };
-  type Counts = { run_id: string; clauses: number; filled: number; answered: number; pending: number; approved: number; rejected: number };
+  type Counts = { run_id: string; clauses: number; filled: number; answered: number; drafts: number; pending: number; approved: number; rejected: number };
   type Note = { id: string; created_at: string; user_id: string | null; product_id: string; product: string; file_names: string; units: number; row_count: number };
   type Log = { created_at: string; user_id: string | null; action: string; detail: string };
   const [mem, runs, counts, notes, log] = await env.DB.batch([
@@ -151,6 +151,7 @@ async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Recor
                            sum(CASE WHEN rl.line_id IS NOT NULL THEN 1 ELSE 0 END) AS clauses,
                            sum(CASE WHEN rl.line_id IS NOT NULL AND (rl.compliance <> '' OR rl.remarks <> '' OR l.status = 'answered') THEN 1 ELSE 0 END) AS filled,
                            sum(CASE WHEN (rl.compliance <> '' OR rl.remarks <> '') AND rl.ai_draft = 0 THEN 1 ELSE 0 END) AS answered,
+                           sum(CASE WHEN (rl.compliance <> '' OR rl.remarks <> '') AND rl.ai_draft = 1 THEN 1 ELSE 0 END) AS drafts,
                            sum(CASE WHEN rl.review = 'pending' THEN 1 ELSE 0 END) AS pending,
                            sum(CASE WHEN rl.review = 'approved' THEN 1 ELSE 0 END) AS approved,
                            sum(CASE WHEN rl.review = 'rejected' THEN 1 ELSE 0 END) AS rejected
@@ -172,7 +173,7 @@ async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Recor
       const c = countOf.get(r.id);
       return { id: r.id, created_at: r.created_at, user: nameOf(r.user_id), product_id: r.product_id, product: r.product, factory: r.factory,
                source: r.source, file_name: r.file_name, lines: r.line_count, from_library: r.matched_count,
-               clauses: c?.clauses ?? 0, filled: c?.filled ?? 0, answered: c?.answered ?? 0, pending: c?.pending ?? 0, approved: c?.approved ?? 0, rejected: c?.rejected ?? 0 };
+               clauses: c?.clauses ?? 0, filled: c?.filled ?? 0, answered: c?.answered ?? 0, drafts: c?.drafts ?? 0, pending: c?.pending ?? 0, approved: c?.approved ?? 0, rejected: c?.rejected ?? 0 };
     }),
     notes: noteList.map((n) => ({ id: n.id, created_at: n.created_at, user: nameOf(n.user_id), product_id: n.product_id, product: n.product, file_names: n.file_names, units: n.units, rows: n.row_count })),
     log: logList.map((g) => ({ at: g.created_at, user: nameOf(g.user_id), action: g.action, detail: g.detail }))

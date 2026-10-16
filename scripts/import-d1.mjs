@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Loads the JSON export of the DAME site (scripts/export-supabase.mjs) into D1 and R2 (standards A.11 step 3).
-     node scripts/import-d1.mjs <export-dir> --env staging        (or --env production, or --local)
+     node scripts/import-d1.mjs <export-dir> --local   (or --remote = the live D1 at the top level of wrangler.toml)
    Repeatable: it empties the data tables first (never the reference rows seeded by the migration: tiles,
    tools, products, factories, lists - those are kept as they are on the new site; users' rows that reference
    them must match by id). Type mapping: uuid -> TEXT as is; booleans -> 0/1; timestamptz -> ISO UTC;
@@ -13,11 +13,11 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const dir = process.argv[2];
-if (!dir || !existsSync(dir)) { console.error("Usage: node scripts/import-d1.mjs <export-dir> --env staging|production | --local"); process.exit(1); }
+if (!dir || !existsSync(dir)) { console.error("Usage: node scripts/import-d1.mjs <export-dir> --local | --remote"); process.exit(1); }
 const envIdx = process.argv.indexOf("--env");
-const target = process.argv.includes("--local") ? ["--local"] : envIdx > 0 ? ["--remote", "--env", process.argv[envIdx + 1]] : null;
-if (!target) { console.error("Say where: --env staging, --env production, or --local"); process.exit(1); }
-const envArgs = target[0] === "--local" ? [] : ["--env", target[2]];
+const target = process.argv.includes("--local") ? ["--local"] : envIdx > 0 ? ["--remote", "--env", process.argv[envIdx + 1]] : process.argv.includes("--remote") ? ["--remote"] : null;
+if (!target) { console.error("Say where: --local or --remote (the live site)"); process.exit(1); }
+const envArgs = target.length === 3 ? ["--env", target[2]] : [];
 const where = target[0];
 
 const read = (t) => existsSync(join(dir, t + ".json")) ? JSON.parse(readFileSync(join(dir, t + ".json"), "utf8")) : [];
