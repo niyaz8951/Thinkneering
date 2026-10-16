@@ -60,6 +60,31 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 16 Oct 2026, 14:30 - agreed design for the next deliveries (owner's decisions, not built yet)
+**Three levels, one order of evidence per clause.** 1. the project's datasheet (what this unit IS) -> 2. Product
+Options of the factory (what it CAN offer: values seen, special options, AI notes) -> 3. the library (how the clause
+was answered, the wording). AI rules = answering policy. The model only writes the sentence; it is not a source of
+facts. Every blue answer names its level ("From the datasheet: Panel 62 mm").
+Decisions:
+- Datasheet wins over a library answer when a value conflicts: the green answer becomes a blue datasheet draft with
+  the reason "library says 62 mm, this project's datasheet 50 mm".
+- A number with no minimum / maximum that differs from the datasheet: Comply with Remarks, stating the offer.
+  Not Comply only when an explicit limit is broken ("not less than", "maximum", "at least" ...). Code decides.
+- Product facts live in the Options tree only, as AI notes per section and per row (po_extras kind 'ai'), written by
+  the people who edit Product Options; the AI rules tab keeps answering rules; the 12 starter facts move to the tree.
+- Free plan stays: the model only where datasheet, options, rules, library and earlier answers cannot settle it;
+  focus mode gets a ready suggestion for everyone (next 2 prepared ahead), Keep / change / skip; project answers of
+  other projects are a source ranked below the library; corrections become rule suggestions for admins.
+Build order:
+1. Service-worker kill switch (old thinkneering.com cache served stale hub.js: "Hub.more is not a function");
+   datasheet-first answers: the server uses the same clause-to-row matching as the blue chips (port CMRows.match),
+   code comparison with operators and units, the row's Response template ($) as the remark (no model call), several
+   units grouped, source on every blue answer.
+2. AI notes in the Options tree; Product Options as level 2; starter facts moved.
+3. Focus mode suggestions and learning (prepared ahead, same-record / same-section answers, project answers, rule
+   suggestions from corrections, daily neuron budget).
+4. Golden set and the quality line for admins.
+
 ### 16 Oct 2026 - AI rules per product / factory, datasheet grounding, code checks (Design brief Phase 3, first part)
 - **AI rules tab** in Compliance review (admins of the Compliance Maker tile + super user; routes `ai_rules_list /
   save / delete / test`, migration `0002_ai_rules.sql`, table `ai_rules` with a `tool` column so other tools can
