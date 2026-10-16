@@ -21,11 +21,15 @@
   .pr-name:hover { text-decoration: underline; }
   .pr-counts { display: flex; gap: 6px; flex-wrap: wrap; }
   .pr-sum { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .pr-sum h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); margin-bottom: 6px; }
+  .pr-sum h3 { margin-bottom: 6px; }
   .pr-sum li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .pr-sum ul { list-style: none; margin: 0; padding: 0; }
   .pr-sum li:last-child { border-bottom: 0; }
+  .pr-filter-btn { display: none; }
   @media (max-width: 640px) {
+    /* a phone: Find stays, the other filters wait behind one Filters button */
+    .pr-filter-btn { display: inline-flex; justify-self: start; }
+    .pr-filters:not(.open) .field.opt { display: none; }
     /* the history list becomes one card per project */
     .pr-table thead { display: none; }
     .pr-table, .pr-table tbody, .pr-table tr, .pr-table td { display: block; width: 100%; }
@@ -46,9 +50,12 @@
       <p id="pr-intro">Every specification and datasheet is saved in a project. You see the projects you created and the ones shared with you.</p>
     </div>
     <div class="row">
-      <a class="btn ghost" id="pr-review" href="../compliance-maker/library.html?from=projects" hidden>Compliance review</a>
-      <a class="btn ghost" id="pr-options" href="../product-options/index.html?from=projects" hidden>Product Options</a>
-      <button type="button" class="btn" id="pr-add">Add New Project</button>
+      <span class="more-items">
+        <a class="btn ghost" id="pr-review" href="../compliance-maker/library.html?from=projects" hidden>Compliance review</a>
+        <a class="btn ghost" id="pr-options" href="../product-options/index.html?from=projects" hidden>Product Options</a>
+      </span>
+      <button type="button" class="btn ghost more-btn" id="pr-more" hidden>More</button>
+      <button type="button" class="btn dock-hide" id="pr-add">New project</button>
     </div>
   </div>
 
@@ -69,25 +76,21 @@
       </div>
     </form>
 
-    <section class="card stack" id="pr-summary" hidden aria-labelledby="h-sum">
-      <h2 id="h-sum">All projects at a glance</h2>
-      <div class="pr-sum" id="pr-sum"></div>
-    </section>
-
     <section class="card stack" aria-labelledby="h-list">
       <div class="pr-head">
-        <h2 id="h-list">Project history</h2>
+        <h2 id="h-list">Your projects</h2>
         <button type="button" class="btn ghost sm" id="pr-download" hidden>Download list (Excel)</button>
       </div>
       <div class="pr-filters" id="pr-filters" hidden>
         <label class="field"><span>Find</span><input class="input" id="f-q" type="search" placeholder="Project or client" autocomplete="off"></label>
-        <label class="field"><span>Region</span><select class="input" id="f-region"></select></label>
-        <label class="field"><span>Client type</span><select class="input" id="f-type"></select></label>
-        <label class="field" id="f-by-wrap" hidden><span>Created by</span><select class="input" id="f-by"></select></label>
+        <button type="button" class="btn ghost pr-filter-btn" id="f-more" aria-expanded="false">Filters</button>
+        <label class="field opt"><span>Region</span><select class="input" id="f-region"></select></label>
+        <label class="field opt"><span>Client type</span><select class="input" id="f-type"></select></label>
+        <label class="field opt" id="f-by-wrap" hidden><span>Created by</span><select class="input" id="f-by"></select></label>
       </div>
       <p class="small muted" id="pr-count" role="status"></p>
       <div class="notice error" id="pr-error" role="alert" hidden></div>
-      <div class="empty" id="pr-loading">Loading projects…</div>
+      <div id="pr-loading"></div>
       <div class="empty" id="pr-empty" hidden></div>
       <div class="table-wrap" id="pr-wrap" hidden>
         <table class="table pr-table">
@@ -95,6 +98,12 @@
           <tbody id="pr-body"></tbody>
         </table>
       </div>
+    </section>
+
+    <!-- reference for admins: after the list, which is the work -->
+    <section class="card stack" id="pr-summary" hidden aria-labelledby="h-sum">
+      <h2 id="h-sum">All projects at a glance</h2>
+      <div class="pr-sum" id="pr-sum"></div>
     </section>
   </div>
 </main>
@@ -119,7 +128,7 @@
     if (open) { form.elements.name.focus(); form.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
   }
   $("pr-add").addEventListener("click", function () { openForm(form.hidden); });
-  $("pr-cancel").addEventListener("click", function () { form.reset(); openForm(false); });
+  $("pr-cancel").addEventListener("click", function () { form.reset(); openForm(false); if (!projects.length) render(); });
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var f = form.elements, msg = $("pr-new-msg");
@@ -141,6 +150,8 @@
   }
   function render() {
     var list = shown(), body = $("pr-body"); body.textContent = "";
+    var nf = ["f-region", "f-type", "f-by"].filter(function (k) { return $(k).value; }).length;
+    $("f-more").textContent = nf ? "Filters (" + nf + ")" : "Filters";
     list.forEach(function (p) {
       var href = "project.html?id=" + encodeURIComponent(p.id);
       var counts = el("div", { "class": "pr-counts" }, [
@@ -162,13 +173,17 @@
       body.appendChild(tr);
     });
     $("pr-wrap").hidden = !list.length;
-    var empty = $("pr-empty"); empty.hidden = !!list.length;
-    empty.textContent = projects.length ? "No project matches these filters." : "No projects yet. Press Add New Project to start the first one.";
+    var empty = $("pr-empty");
+    if (list.length) empty.hidden = true;
+    else if (projects.length) Hub.emptyState(empty, { title: "No project matches", text: "Nothing in the list fits this search and these filters.", action: { label: "Clear filters", ghost: true, onClick: function () {
+      $("f-q").value = ""; $("f-region").value = ""; $("f-type").value = ""; $("f-by").value = ""; render(); } } });
+    else Hub.emptyState(empty, { title: "No projects yet", text: "A project holds the specifications and datasheets of one job. Start one to convert its specification.", action: form.hidden ? { label: "New project", onClick: function () { openForm(true); } } : null });
     $("pr-count").textContent = projects.length ? list.length + " of " + projects.length + (projects.length === 1 ? " project" : " projects") + (all ? ", from all users" : "") : "";
     $("pr-filters").hidden = projects.length < 2;
     $("pr-download").hidden = !all || !projects.length;
   }
   ["f-q", "f-region", "f-type", "f-by"].forEach(function (id) { $(id).addEventListener(id === "f-q" ? "input" : "change", render); });
+  $("f-more").addEventListener("click", function () { var open = $("pr-filters").classList.toggle("open"); this.setAttribute("aria-expanded", String(open)); });
 
   $("pr-download").addEventListener("click", function () {
     var rows = [["Project", "Client type", "Client name", "Region", "Created by", "Created", "Compliance sheets", "Datasheet tables", "Answers in review", "Last activity"]];
@@ -180,17 +195,21 @@
   function summary(s) {
     var host = $("pr-sum"); host.textContent = "";
     [["By region", s.by_region], ["By client type", s.by_client_type], ["By product", s.by_product]].forEach(function (g) {
-      host.appendChild(el("div", {}, [el("h3", { text: g[0] }),
+      host.appendChild(el("div", {}, [el("h3", { "class": "section-label", text: g[0] }),
         (g[1] || []).length ? el("ul", {}, g[1].map(function (x) { return el("li", {}, [el("span", { text: x.name }), el("b", { text: String(x.n) })]); }))
                             : el("p", { "class": "small muted", text: "Nothing yet." })]));
     });
     $("pr-summary").hidden = !s.projects;
   }
 
+  $("pr-loading").appendChild(Hub.skeleton(4, { flat: true, label: "Loading projects" }));
   Hub.requireLogin({ tool: "projects" }).then(function (profile) {
     var t = Hub.token();
+    Hub.more($("pr-more"), [$("pr-review"), $("pr-options")]);
+    Hub.dock([el("button", { type: "button", "class": "btn", text: "New project", onclick: function () { openForm(true); } })]);
     if (Hub.canEdit(profile, "compliance-maker") || Hub.isAdmin(profile.user)) $("pr-review").hidden = false;
     if (profile.categories.some(function (c) { return c.allowed && c.tools.some(function (x) { return x.id === "product-options" && x.status === "live"; }); })) $("pr-options").hidden = false;
+    $("pr-more").hidden = $("pr-review").hidden && $("pr-options").hidden;
     Api.prOptions(t).then(function (o) {
       fill(form.elements.clientType, o.client_types || [], "Choose a client type");
       fill(form.elements.region, o.regions || [], "Choose a region");
@@ -198,11 +217,11 @@
     Api.prList(t).then(function (res) {
       projects = res.projects || []; all = !!res.all;
       $("pr-loading").hidden = true;
-      if (all) $("pr-intro").textContent = "Projects of every user. Open one to see its compliance sheets, datasheet tables and history.";
+      if (all) { $("pr-intro").textContent = "Projects of every user. Open one to see its specifications, datasheets and history."; $("h-list").textContent = "All projects"; }
       $("th-by").hidden = !all; $("f-by-wrap").hidden = !all;
       fill($("f-region"), uniq("region"), "All regions"); fill($("f-type"), uniq("client_type"), "All client types"); fill($("f-by"), uniq("created_by"), "Everyone");
-      render();
       if (Hub.param("new") === "1" || !projects.length) openForm(true);
+      render();
     }, function (err) {
       $("pr-loading").hidden = true; $("pr-error").hidden = false;
       $("pr-error").textContent = "Could not load the projects: " + err.message + " Refresh the page to try again.";

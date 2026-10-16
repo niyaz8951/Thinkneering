@@ -24,7 +24,7 @@
   /* next step: one headline, one progress line, one button */
   .pj-next { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; padding: 24px; }
   .pj-next-text { flex: 1 1 320px; min-width: 0; display: grid; gap: 6px; }
-  .pj-eyebrow { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); }
+  .pj-eyebrow { margin: 0; }
   .pj-next h2 { font-size: 24px; letter-spacing: -.02em; overflow-wrap: anywhere; }
   .pj-next-actions { display: flex; gap: 10px; flex-wrap: wrap; }
   .pj-next-actions .btn { min-height: 46px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
@@ -66,8 +66,8 @@
 <body>
 <header id="topbar"></header>
 <main class="page">
-  <div class="empty" id="pj-loading">Loading the project…</div>
-  <div class="notice error" id="pj-error" role="alert" hidden></div>
+  <div id="pj-loading"></div>
+  <div class="empty" id="pj-error" role="alert" hidden></div>
 
   <div id="pj-main" hidden>
     <div class="page-head pj-head">
@@ -77,9 +77,12 @@
         <div class="pj-facts" id="pj-facts"></div>
       </div>
       <div class="row">
-        <button type="button" class="btn" id="pj-export">Download project (Excel)</button>
-        <button type="button" class="btn ghost" id="pj-share" hidden>Share</button>
-        <button type="button" class="btn ghost" id="pj-edit">Edit details</button>
+        <span class="more-items">
+          <button type="button" class="btn ghost" id="pj-export">Download project (Excel)</button>
+          <button type="button" class="btn ghost" id="pj-share" hidden>Share</button>
+          <button type="button" class="btn ghost" id="pj-edit">Edit details</button>
+        </span>
+        <button type="button" class="btn ghost more-btn" id="pj-more">More</button>
       </div>
     </div>
 
@@ -100,15 +103,15 @@
       <!-- where the project stands, and the one thing to do next -->
       <section class="card pj-next" id="pj-next" aria-labelledby="pj-next-title">
         <div class="pj-next-text">
-          <p class="pj-eyebrow" id="pj-next-eyebrow">Next step</p>
+          <p class="pj-eyebrow section-label" id="pj-next-eyebrow">Next step</p>
           <h2 id="pj-next-title"></h2>
           <p class="muted" id="pj-next-sub"></p>
           <div class="pj-meter" id="pj-meter" hidden>
-            <div class="pj-meter-bar" role="img" id="pj-meter-bar"><i id="pj-meter-fill"></i></div>
+            <div class="meter2" role="img" id="pj-meter-bar"><i class="ok" id="pj-meter-fill"></i><i class="ai" id="pj-meter-ai"></i></div>
             <span class="small muted" id="pj-meter-text"></span>
           </div>
         </div>
-        <div class="pj-next-actions" id="pj-next-actions"></div>
+        <div class="pj-next-actions dock-hide" id="pj-next-actions"></div>
       </section>
 
       <section aria-labelledby="h-tools">
@@ -121,10 +124,10 @@
         <h2 id="h-runs">Compliance records</h2>
         <p class="small muted">One record per converted specification, grouped by product. Click a name to read it and fill Compliance and Remarks online, or upload the Excel you filled. Your answers are kept in the project; new ones go to the library team for review.</p>
         <div class="notice" id="pj-up-msg" role="status" aria-live="polite" hidden></div>
-        <div class="empty" id="pj-runs-empty" hidden>No specification converted in this project yet. Open the Compliance Maker above.</div>
+        <div class="empty" id="pj-runs-empty" hidden></div>
         <div class="table-wrap" id="pj-runs-wrap" hidden>
           <table class="table pj-table">
-            <thead><tr><th>Specification</th><th style="width:190px">Filled</th><th>Answers</th><th>By</th><th></th></tr></thead>
+            <thead><tr><th>Specification</th><th style="width:190px">Answered</th><th>Answers</th><th>By</th><th></th></tr></thead>
             <tbody id="pj-runs"></tbody>
           </table>
         </div>
@@ -140,7 +143,7 @@
       <section class="card stack" aria-labelledby="h-notes">
         <h2 id="h-notes">Datasheet notes</h2>
         <p class="small muted">One table per datasheet run. Click a name to view it. These stay in the project; they are not part of the compliance library.</p>
-        <div class="empty" id="pj-notes-empty" hidden>No datasheet read in this project yet. Open Datasheet Notes above.</div>
+        <div class="empty" id="pj-notes-empty" hidden></div>
         <div class="table-wrap" id="pj-notes-wrap" hidden>
           <table class="table pj-table">
             <thead><tr><th>Datasheet</th><th>Product</th><th>Size</th><th>By</th><th></th></tr></thead>
@@ -178,7 +181,8 @@
   function fail(err) { Hub.toast((err && err.message) || String(err), true); }
 
   /* ---------- draw ---------- */
-  function pct(r) { return r.clauses ? Math.round(100 * (r.filled || 0) / r.clauses) : 0; }
+  function pct(r) { return share(r, (r.filled || 0) - (r.drafts || 0)); }
+  function share(r, n) { return r.clauses ? Math.round(100 * n / r.clauses) : 0; }
   function tile(toolId, name, text, icon, n, one, many, href) {
     if (!hasTool(toolId)) return null;
     return el("a", { "class": "tile pj-tile " + (n ? "has" : "none"), href: href || "../" + toolId + "/index.html?project=" + encodeURIComponent(id) }, [
@@ -189,8 +193,8 @@
 
   /* The one thing to do next, worked out from what the project holds. */
   function nextStep() {
-    var runs = data.runs, clauses = 0, filled = 0, pending = 0;
-    runs.forEach(function (r) { clauses += r.clauses || 0; filled += r.filled || 0; pending += r.pending || 0; });
+    var runs = data.runs, clauses = 0, filled = 0, pending = 0, drafts = 0;
+    runs.forEach(function (r) { clauses += r.clauses || 0; filled += r.filled || 0; pending += r.pending || 0; drafts += r.drafts || 0; });
     var open = runs.filter(function (r) { return (r.clauses || 0) > (r.filled || 0); }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); })[0];
     var title, sub, acts = [], eyebrow = "Next step";
     function act(text, href, ghost) { acts.push(el("a", { "class": "btn" + (ghost ? " ghost" : ""), href: href, text: text })); }
@@ -202,7 +206,7 @@
     } else if (open) {
       var left = open.clauses - open.filled;
       title = (open.filled ? "Continue " : "Fill ") + (bare(open.file_name) || "the specification");
-      sub = plural(left, "clause is", "clauses are") + " still to fill" + (open.filled ? ", " + open.filled + " done." : ". " + (open.from_library ? open.from_library + " came filled from the library." : ""));
+      sub = plural(left, "clause is", "clauses are") + " still open" + (open.drafts ? ", " + plural(open.drafts, "AI draft", "AI drafts") + " to check" : "") + "." + (!open.filled && open.from_library ? " " + open.from_library + " came answered from the library." : "");
       act(open.filled ? "Continue filling" : "Start filling", "record.html?run=" + encodeURIComponent(open.id));
     } else if (runs.length && !data.notes.some(function (n) { return runs.some(function (r) { return r.product_id === n.product_id; }); }) && hasTool("datasheet-notes")) {
       title = "Read the datasheet"; sub = "Every clause is filled. Read the datasheet to put what the units have beside what the specification asks.";
@@ -211,18 +215,23 @@
       title = "Add the specification"; sub = "The datasheet is in. Add the specification to fill its compliance and compare the two.";
       if (hasTool("compliance-maker")) act("Add a specification", addSpec);
     } else {
-      eyebrow = "Up to date"; title = "Everything is filled";
-      sub = pending ? plural(pending, "answer is", "answers are") + " with the library team for review. You can download the project now." : "Download the project, or add another specification or datasheet.";
+      eyebrow = "Up to date"; title = drafts ? "Every clause shows an answer" : "Everything is answered";
+      sub = drafts ? plural(drafts, "AI draft is", "AI drafts are") + " still to check: open the record and keep or correct them." : pending ? plural(pending, "answer is", "answers are") + " with the library team for review. You can download the project now." : "Download the project, or add another specification or datasheet.";
       act("Download project (Excel)", "#download");
     }
     $("pj-next-eyebrow").textContent = eyebrow; $("pj-next-title").textContent = title; $("pj-next-sub").textContent = sub;
     var box = $("pj-next-actions"); box.textContent = ""; acts.forEach(function (a) { box.appendChild(a); });
+    // on a phone the one next step sits at the bottom of the screen, under the thumb
+    var first = acts[0]; Hub.dock(first ? [first.cloneNode(true)] : []);
+    var docked = document.querySelector(".dock .btn");
+    if (docked && first.getAttribute("href") === "#download") docked.addEventListener("click", function (e) { e.preventDefault(); $("pj-export").click(); });
     [].forEach.call(box.querySelectorAll('a[href="#download"]'), function (a) { a.addEventListener("click", function (e) { e.preventDefault(); $("pj-export").click(); }); });
     $("pj-meter").hidden = !clauses;
     if (clauses) {
-      var p = Math.round(100 * filled / clauses);
-      $("pj-meter-fill").style.width = p + "%"; $("pj-meter-bar").setAttribute("aria-label", p + "% of the clauses filled");
-      $("pj-meter-text").textContent = filled + " of " + clauses + " clauses filled" + (pending ? " · " + pending + " in review" : "");
+      var answered = filled - drafts, p = Math.round(100 * answered / clauses);
+      $("pj-meter-fill").style.width = p + "%"; $("pj-meter-ai").style.width = Math.round(100 * drafts / clauses) + "%";
+      $("pj-meter-bar").setAttribute("aria-label", p + "% of the clauses answered");
+      $("pj-meter-text").textContent = answered + " of " + clauses + " clauses answered" + (drafts ? ", " + plural(drafts, "AI draft", "AI drafts") + " to check" : "") + (pending ? ", " + pending + " waiting for review" : "") + ".";
     }
   }
 
@@ -230,6 +239,7 @@
     var badges = el("div", { "class": "pj-badges" }, [
       r.from_library ? el("span", { "class": "badge", text: r.from_library + " from the library" }) : null,
       r.answered ? el("span", { "class": "badge ok", text: r.answered + " filled by the project" }) : null,
+      r.drafts ? el("span", { "class": "badge brand-soft", text: plural(r.drafts, "AI draft", "AI drafts") + " to check" }) : null,
       r.pending ? el("span", { "class": "badge warn", text: r.pending + " in review" }) : null,
       r.approved ? el("span", { "class": "badge ok", text: r.approved + " approved" }) : null,
       r.rejected ? el("span", { "class": "badge", text: r.rejected + " not taken" }) : null,
@@ -238,8 +248,9 @@
     return el("tr", {}, [
       el("td", {}, [el("a", { "class": "pj-file pj-link", href: "record.html?run=" + encodeURIComponent(r.id), title: "Read and fill online", text: bare(r.file_name) || "Pasted text" }),
         el("div", { "class": "small muted", text: r.factory + " factory · " + when(r.created_at, true) })]),
-      el("td", {}, [el("div", { "class": "pj-meter-bar sm", role: "img", "aria-label": pct(r) + "% filled" }, [el("i", { style: "width:" + pct(r) + "%" })]),
-        el("div", { "class": "small muted", text: (r.filled || 0) + " of " + (r.clauses || 0) + " clauses" })]),
+      el("td", { "data-label": "Answered" }, [el("div", { "class": "meter2", role: "img", style: "max-width:150px;margin:6px 0 4px", "aria-label": pct(r) + "% answered" },
+          [el("i", { "class": "ok", style: "width:" + share(r, (r.filled || 0) - (r.drafts || 0)) + "%" }), el("i", { "class": "ai", style: "width:" + share(r, r.drafts || 0) + "%" })]),
+        el("div", { "class": "small muted", text: ((r.filled || 0) - (r.drafts || 0)) + " of " + (r.clauses || 0) + " answered" })]),
       el("td", {}, [badges]),
       el("td", { "data-label": "By", "class": "small", text: r.user }),
       el("td", { "class": "act" }, [
@@ -315,25 +326,29 @@
       mine.forEach(function (r) { body.appendChild(runRow(r)); });
     });
     $("pj-runs-wrap").hidden = !data.runs.length; $("pj-runs-empty").hidden = !!data.runs.length;
+    if (!data.runs.length) Hub.emptyState($("pj-runs-empty"), { title: "No specification yet", text: "Add the PDF or paste the text: the clauses come ready to answer, with what the company library already knows.",
+      action: hasTool("compliance-maker") ? { label: "Add a specification", href: "add-spec.html?project=" + encodeURIComponent(id), ghost: true } : null });
 
     var nb = $("pj-notes"); nb.textContent = "";
     data.notes.forEach(function (n) { nb.appendChild(noteRow(n)); });
     $("pj-notes-wrap").hidden = !data.notes.length; $("pj-notes-empty").hidden = !!data.notes.length;
+    if (!data.notes.length) Hub.emptyState($("pj-notes-empty"), { title: "No datasheet yet", text: "Read the selection datasheet: one column per unit, and its values show beside the clauses that ask about them.",
+      action: hasTool("datasheet-notes") ? { label: "Read a datasheet", href: "../datasheet-notes/index.html?project=" + encodeURIComponent(id), ghost: true } : null });
 
     var log = $("pj-log"); log.textContent = "";
     data.log.forEach(function (g) {
       log.appendChild(el("li", {}, [el("b", { text: g.action }), g.detail ? " - " + g.detail : "",
         el("div", { "class": "small muted", text: g.user + ", " + when(g.at, true) })]));
     });
-    if (!data.log.length) log.appendChild(el("li", { "class": "muted", text: "Nothing yet." }));
+    if (!data.log.length) log.appendChild(el("li", { "class": "muted", text: "Nothing has happened in this project yet." }));
   }
 
   function load() {
     return Api.prGet(Hub.token(), id).then(function (res) {
       data = res; $("pj-loading").hidden = true; $("pj-main").hidden = false; render();
     }, function (err) {
-      $("pj-loading").hidden = true; $("pj-main").hidden = true;
-      $("pj-error").hidden = false; $("pj-error").textContent = err.message + " Go back to Projects and open it from the list.";
+      $("pj-loading").hidden = true; $("pj-main").hidden = true; Hub.dock([]);
+      Hub.emptyState($("pj-error"), { title: "This project cannot be opened", text: err.message, action: { label: "Back to Projects", href: "index.html" } });
     });
   }
 
@@ -520,10 +535,12 @@
     }, fail).then(function () { btn.disabled = false; });
   });
 
+  $("pj-loading").appendChild(Hub.skeleton(3, { label: "Loading the project" }));
   Hub.requireLogin({ tool: "projects" }).then(function (p) {
     profile = p;
     Hub.setBack("Projects", "index.html");
-    if (!id) { $("pj-loading").hidden = true; $("pj-error").hidden = false; $("pj-error").textContent = "No project was chosen. Go back to Projects and open one from the list."; return; }
+    if (!id) { $("pj-loading").hidden = true; Hub.emptyState($("pj-error"), { title: "No project was chosen", text: "Open a project from the list.", action: { label: "Back to Projects", href: "index.html" } }); return; }
+    Hub.more($("pj-more"), [$("pj-export"), $("pj-share"), $("pj-edit")], "Project");
     load();
   });
 })();

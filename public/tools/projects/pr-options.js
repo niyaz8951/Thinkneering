@@ -21,7 +21,7 @@
     '.po-panel { max-width: 520px; max-height: min(86vh, 720px); overflow-y: auto; gap: 14px; }',
     '.po-panel h2 { overflow-wrap: anywhere; }',
     '.po-panel .where { color: var(--text-soft); font-size: 14px; margin-top: -8px; }',
-    '.po-panel h3 { margin: 0 0 6px; font: 650 12px/1.3 var(--font); text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); }',
+    '.po-panel h3 { margin: 0 0 6px; font: 600 13px/1.3 var(--font); color: var(--text-soft); }',
     '.po-panel .vals { display: flex; flex-wrap: wrap; gap: 6px; }',
     '.po-panel .v { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 14px; background: var(--surface-2); overflow-wrap: anywhere; }',
     '.po-panel .v small { color: var(--text-soft); font-size: 12px; white-space: nowrap; }',

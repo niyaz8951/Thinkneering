@@ -105,6 +105,7 @@ a  { color: var(--link); }
 .badge.warn   { background: var(--warn-bg);   color: var(--warn); }
 .badge.danger { background: var(--danger-bg); color: var(--danger); }
 .badge.brand  { background: var(--brand);     color: var(--on-brand); }
+.badge.brand-soft { background: color-mix(in srgb, var(--brand-sky) 22%, var(--surface)); color: var(--link); }
 .tile .badge { position: absolute; top: 18px; right: 18px; }
 
 .notice {
@@ -140,7 +141,7 @@ a  { color: var(--link); }
 .table-wrap { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 14px; background: var(--surface); }
 table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th, .table td { padding: 10px 12px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
-.table th { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); white-space: nowrap; }
+.table th { font-size: 13px; font-weight: 600; color: var(--text-soft); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); white-space: nowrap; }
 .table tr:last-child td { border-bottom: 0; }
 .table select.input { min-height: 34px; padding: 4px 8px; width: auto; }
 .table .user-cell { min-width: 210px; }   /* Admin > Users: room for a full name on one line */
@@ -195,7 +196,7 @@ table.sheet { table-layout: fixed; font-size: 15px; }
   .sheet tr.part td, .sheet tr.sect td { background: none; }
   .sheet td:first-child { grid-column: 1; grid-row: 1; }
   .sheet td:empty:not(:first-child) { display: none; }
-  .sheet td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); margin-bottom: 2px; font-style: normal; }
+  .sheet td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; color: var(--text-soft); margin-bottom: 2px; font-style: normal; }
   .sheet td .input { font-size: 16px; min-height: 44px; }
   .sheet tr:first-child { border-radius: 13px 13px 0 0; }
 }
@@ -235,3 +236,59 @@ table.sheet { table-layout: fixed; font-size: 15px; }
   .tile > :not(.tile-icon):not(.badge) { grid-column: 2; }
   .tile .meta { margin-top: 4px; }
 }
+
+
+/* ============================================================
+   Design pass (16 Oct 2026, Design brief section 3). Shared pieces for every page:
+   section labels, figures, skeletons, empty states, the phone dock and "More".
+   ============================================================ */
+/* a header inside a card or list: sentence case, small, secondary colour (never uppercase, never letter-spaced) */
+.section-label { display: block; margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-soft); }
+/* figures line up: counts, tables, badges, meters */
+.table td, .badge, .count, .meta, .small, .hint, .stat, .num { font-variant-numeric: tabular-nums; }
+
+/* skeleton: the shape of what is coming, in place of "Loading..." (Hub.skeleton) */
+.skel { display: grid; gap: 10px; }
+.skel-row { display: grid; gap: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 14px; }
+.skel i { display: block; height: 12px; border-radius: 6px; max-width: 100%;
+  background: linear-gradient(90deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 35%, var(--surface)) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%; animation: skel-shine 1.3s linear infinite; }
+.skel i.lg { height: 18px; } .skel i.sm { height: 10px; }
+.skel.flat .skel-row { border: 0; border-radius: 0; border-bottom: 1px solid var(--border); background: none; }
+@keyframes skel-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* empty state: what is missing, what to do, one button (Hub.emptyState) */
+.empty .empty-title { display: block; color: var(--text); font-weight: 650; font-size: 16px; }
+.empty .empty-text { margin: 4px auto 0; max-width: 46ch; }
+.empty .btn { margin-top: 16px; }
+
+/* a reason, always visible (an AI draft says why, in one line) */
+.why { display: block; margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--brand-strong); }
+:root[data-theme="dark"] .why { color: var(--brand-sky); }
+.why b { font-weight: 650; }
+
+/* progress with meaning: answered (green), then AI drafts to check (light blue) */
+.meter2 { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.meter2 i { display: block; height: 100%; width: 0; transition: width .4s var(--ease); }
+.meter2 i.ok { background: var(--ok); } .meter2 i.ai { background: var(--brand-sky); }
+
+/* "More": secondary actions sit in line on a computer and behind one button on a phone (Hub.more) */
+.more-items { display: contents; }
+.more-btn { display: none; }
+/* the dock: on a phone the screen's primary action sits at the bottom, under the thumb */
+.dock { display: none; }
+@media (max-width: 640px) {
+  .more-items { display: none !important; }
+  .more-btn { display: inline-flex; }
+  .dock-hide { display: none !important; }
+  .dock { display: flex; gap: 10px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+    padding: 10px calc(14px + env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) calc(14px + env(safe-area-inset-left, 0px));
+    background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(18px); backdrop-filter: saturate(180%) blur(18px);
+    border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+  .dock .btn { flex: 1 1 0; min-height: 50px; font-size: 17px; border-radius: 14px; }
+  body.has-dock .page { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* action sheet (Hub.more): a list of full-width actions */
+.hub-sheet.actions .hub-sheet-list { display: grid; gap: 8px; }
+.hub-sheet.actions .hub-sheet-list .btn { width: 100%; justify-content: center; }

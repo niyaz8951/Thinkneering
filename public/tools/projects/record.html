@@ -13,8 +13,13 @@
 <style>
   .rc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .rc-facts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-  .rc-progress { height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; flex: 1 0 100%; margin: 0 2px -2px; }
-  .rc-progress i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+  .rc-progress { display: flex; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; flex: 1 0 100%; margin: 0 2px -2px; }
+  .rc-progress i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; } .rc-progress i.ai { background: var(--brand-sky); }
+  /* one line that says what the colours mean */
+  .rc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 4px; font-size: 13px; color: var(--text-soft); }
+  .rc-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; background: var(--surface-2); }
+  .rc-legend .lg-lib::before { background: var(--ok); } .rc-legend .lg-ai::before { background: var(--brand-sky); } .rc-legend .lg-own::before { background: var(--text-soft); }
+  @media (max-width: 640px) { .workbar .count { flex: 1 0 100%; white-space: normal; order: 9; } #rc-mode { display: none; } }
   .rc th:nth-child(1) { width: 80px; } .rc th:nth-child(3) { width: 150px; } .rc th:nth-child(4) { width: 17%; } .rc th:nth-child(5) { width: 13%; } .rc th:nth-child(6) { width: 13%; } .rc th:nth-child(7) { width: 96px; }
   .rc td.tl { white-space: pre-line; font-size: 14px; color: var(--warn); }
   /* a notes column with nothing in it, that this person cannot write in, gives its room to the specification */
@@ -27,7 +32,8 @@
   /* an AI draft: blue until a person edits or keeps it */
   .rc tr.ai .input { background: color-mix(in srgb, var(--brand-sky) 18%, var(--surface)); }
   .rc tr.ai td.read { color: var(--brand-strong); }
-  .rc .state.ai { color: var(--brand-strong); cursor: help; }
+  .rc .state.ai { color: var(--brand-strong); }
+  :root[data-theme="dark"] .rc tr.ai td.read, :root[data-theme="dark"] .rc .state.ai { color: var(--brand-sky); }
   .rc-ai-wrap { display: inline-flex; gap: 6px; }
   .rc .state.err { color: var(--danger); }
   .mode-seg { flex: 0 0 auto; } .mode-seg .tab { min-width: 64px; }
@@ -51,8 +57,8 @@
 <body>
 <header id="topbar"></header>
 <main class="page wide">
-  <div class="empty" id="rc-loading">Loading the specification…</div>
-  <div class="notice error" id="rc-error" role="alert" hidden></div>
+  <div id="rc-loading"></div>
+  <div class="empty" id="rc-error" role="alert" hidden></div>
 
   <div id="rc-main" hidden>
     <div class="page-head" style="margin-bottom:14px">
@@ -72,17 +78,21 @@
       <input class="input grow" id="rc-q" type="search" placeholder="Find a word in the specification" aria-label="Find" autocomplete="off">
       <span class="count" id="rc-count" role="status"></span>
       <div class="tabs mode-seg" id="rc-seg" role="group" aria-label="Read or edit"><button type="button" class="tab" data-mode="read" aria-selected="true">Read</button><button type="button" class="tab" data-mode="edit" aria-selected="false">Edit</button></div>
-      <button type="button" class="btn" id="rc-focus">Focus mode</button>
-      <button type="button" class="btn ghost" id="rc-download">Download Excel</button>
-      <span class="rc-ai-wrap" id="rc-ai-wrap" hidden><button type="button" class="btn" id="rc-ai">AI review</button><button type="button" class="btn ghost" id="rc-ai-clear" hidden>Remove AI drafts</button></span>
-      <div class="rc-progress" aria-hidden="true"><i id="rc-bar"></i></div>
+      <button type="button" class="btn dock-hide" id="rc-focus">Focus mode</button>
+      <span class="more-items">
+        <button type="button" class="btn ghost" id="rc-download">Download Excel</button>
+        <span class="rc-ai-wrap" id="rc-ai-wrap" hidden><button type="button" class="btn ghost" id="rc-ai">AI review</button><button type="button" class="btn ghost danger" id="rc-ai-clear" hidden>Remove AI drafts</button></span>
+      </span>
+      <button type="button" class="btn ghost more-btn" id="rc-more">More</button>
+      <div class="rc-progress" aria-hidden="true"><i id="rc-bar"></i><i class="ai" id="rc-bar-ai"></i></div>
     </div>
 
     <div class="rc-notes">
+      <p class="rc-legend" id="rc-legend"><span class="lg-lib">Green: company library</span><span class="lg-ai">Blue: AI draft, check it</span><span class="lg-own">Plain: answered in this project</span></p>
       <p class="hint" id="rc-mode"></p>
       <p class="hint" id="rc-sheet-note" hidden></p>
     </div>
-    <div class="empty" id="rc-empty" hidden>No row matches.</div>
+    <div class="empty" id="rc-empty" hidden></div>
     <div class="table-wrap sheet-wrap" id="rc-wrap">
       <table class="table sheet rc" id="rc-table">
         <thead><tr><th>Sr</th><th>Specifications</th><th>Compliance</th><th>Remarks</th><th>TL Review</th><th>Internal Comments</th><th></th></tr></thead>
@@ -114,14 +124,23 @@
   function filled(l) { var s = shown(l); return !!(s.c || s.r); }
   function stateText(l) {
     if (!l.own) return filled(l) ? "From the library" : "";
-    if (l.ai_draft) return "AI draft, check it" + (l.ai && l.ai.confidence && l.ai.confidence !== "high" ? " (" + l.ai.confidence + " confidence)" : "");
+    if (l.ai_draft) return "AI draft, check it";                // the reason and confidence are the visible line under the clause
     return l.review === "pending" ? "Saved, in review" : l.review === "approved" ? "Saved, approved" : l.review === "rejected" ? "Saved, project only" : "Saved";
   }
 
+  /* The numbers say what they count: answered (by a person or the library), AI drafts still to check, waiting for review. */
   function counts() {
-    var can = lines.filter(function (l) { return l.can; }), done = can.filter(filled).length, rev = can.filter(function (l) { return l.own && l.review === "pending"; }).length;
-    $("rc-count").textContent = done + " of " + can.length + " clauses filled" + (rev ? ", " + rev + " waiting for review" : "") + ".";
+    var can = lines.filter(function (l) { return l.can; }), drafts = can.filter(function (l) { return l.ai_draft; }).length;
+    var done = can.filter(filled).length - drafts, rev = can.filter(function (l) { return l.own && l.review === "pending"; }).length;
+    $("rc-count").textContent = done + " of " + can.length + " clauses answered" + (drafts ? ", " + drafts + (drafts === 1 ? " AI draft" : " AI drafts") + " to check" : "") + (rev ? ", " + rev + " waiting for review" : "") + ".";
     $("rc-bar").style.width = (can.length ? Math.round(100 * done / can.length) : 0) + "%";
+    $("rc-bar-ai").style.width = (can.length ? Math.round(100 * drafts / can.length) : 0) + "%";
+  }
+  /* An AI draft says why, in one visible line (hover does not exist on a phone). */
+  function why(l) {
+    if (!l.ai_draft) return null;
+    var a = l.ai || {}, conf = a.confidence ? a.confidence + " confidence" : "";
+    return el("span", { "class": "why" }, [el("b", { text: "AI draft" + (conf ? ", " + conf : "") }), a.reason ? " \u2014 " + a.reason : ""]);
   }
 
   // sent with every write: the database refuses it when the row with this number is no longer this clause
@@ -144,7 +163,8 @@
       if (l.type === "section") { sect = (l.sr ? l.sr + " " : "") + l.spec; return; }
       if (!l.can) return;
       var s = shown(l);
-      items.push({ line: l, part: part, section: sect, sr: l.sr, spec: l.spec, compliance: s.c, remarks: s.r, info: stateText(l), lib: !l.own && filled(l),
+      items.push({ line: l, part: part, section: sect, sr: l.sr, spec: l.spec, compliance: s.c, remarks: s.r, info: l.ai_draft ? "" : stateText(l), lib: !l.own && filled(l),
+                   draft: l.ai_draft ? { reason: (l.ai && l.ai.reason) || "", confidence: (l.ai && l.ai.confidence) || "" } : null,
                    comments: run.can_comment ? l.lib_comments || "" : undefined,
                    review: l.tl_review || "", canReview: !!run.can_review,       // a box for the people who may write them, a line of text for everyone else
                    others: (l.lib_comments && !run.can_comment ? ["Internal comment · " + l.lib_comments] : []).concat((sheetOf[lines.indexOf(l)] || []).map(function (d) { return "Datasheet · " + d.component + ": " + valueText(d.cells); })) });
@@ -164,6 +184,7 @@
           : Api.prRunSaveReview(Hub.token(), { run: runId, seq: it.line.seq, text: v.review, check: rowKey(it.line) }).then(function () { it.line.tl_review = v.review; it.review = v.review; });
         return Promise.all([answer, note, tl]).then(function () {
           var s = shown(it.line); it.compliance = s.c; it.remarks = s.r; it.lib = !it.line.own && filled(it.line); it.info = stateText(it.line);
+          if (!it.line.ai_draft) it.draft = null;
           return { info: it.line.own && it.line.review === "pending" ? "sent for review" : "", lib: it.lib };
         });
       },
@@ -216,13 +237,13 @@
         PROptions.open({ productId: run.product_id, product: run.product, factory: match.factory, key: d.key, section: d.section, component: d.component, values: d.cells });
       } }, [el("b", { text: d.component }), el("span", { text: valueText(d.cells) })]);
     })) : null;
-    var state = el("span", { "class": "state" + (l.ai_draft ? " ai" : ""), text: stateText(l), title: l.ai_draft && l.ai && l.ai.reason ? "Why: " + l.ai.reason : "" });
+    var state = el("span", { "class": "state" + (l.ai_draft ? " ai" : ""), text: stateText(l) }), reason = why(l);
     var rowClass = !l.own && filled(l) ? " lib" : l.ai_draft ? " ai" : "";
 
     // read: plain text, so the page can be searched (Ctrl+F) and read like the document
     if (!editing || (!boxes && lazy.on)) {
       var plain = el("tr", { "class": "line" + rowClass }, [
-        el("td", { "class": "sr " + kind, text: l.sr }), el("td", {}, [text, chips]),
+        el("td", { "class": "sr " + kind, text: l.sr }), el("td", {}, [text, reason, chips]),
         el("td", { "class": "read", "data-label": "Compliance", text: s.c }), el("td", { "class": "read", "data-label": "Remarks", text: s.r }),
         el("td", { "class": "tl", "data-label": "TL Review", text: l.tl_review || "" }),
         el("td", { "class": "note", "data-label": "Internal Comments", text: l.lib_comments || "" }),
@@ -235,7 +256,7 @@
     var comp = el("input", { "class": "input", value: s.c, maxlength: "200", list: "rc-words", "aria-label": "Compliance" });
     var rem = el("textarea", { "class": "input", rows: "1", maxlength: "4000", "aria-label": "Remarks" }); rem.value = s.r; Hub.autoGrow(rem);
     var tr = el("tr", { "class": "line edit" + rowClass }, [
-      el("td", { "class": "sr " + kind, text: l.sr }), el("td", {}, [text, chips]), el("td", { "data-label": "Compliance" }, [comp]), el("td", { "data-label": "Remarks" }, [rem]),
+      el("td", { "class": "sr " + kind, text: l.sr }), el("td", {}, [text, reason, chips]), el("td", { "data-label": "Compliance" }, [comp]), el("td", { "data-label": "Remarks" }, [rem]),
       run.can_review ? el("td", { "data-label": "TL Review" }, [reviewBox(l)]) : el("td", { "class": "tl", "data-label": "TL Review", text: l.tl_review || "" }),
       run.can_comment ? el("td", { "data-label": "Internal Comments" }, [commentBox(l)]) : el("td", { "class": "note", "data-label": "Internal Comments", text: l.lib_comments || "" }),
       el("td", { "class": "end" }, [state, tools(l)])
@@ -260,6 +281,7 @@
         busy = null;
         if (!l.own) { comp.value = l.lib_compliance; rem.value = l.lib_remarks; }
         tr.className = "line edit" + (!l.own && filled(l) ? " lib" : "");
+        if (reason && !l.ai_draft) { reason.remove(); reason = null; }
         state.textContent = stateText(l); counts(); return true;
       }, function (err) { busy = null; state.className = "state err"; state.textContent = "Not saved"; Hub.toast(err.message, true); return false; }));
     }
@@ -404,8 +426,8 @@
   function reload() {
     return refresh().then(null, function () {
       $("rc-body").textContent = "";
-      $("rc-main").hidden = true; $("rc-error").hidden = false;
-      $("rc-error").textContent = "The change was saved, but the page could not read the record again. Reload the page to carry on.";
+      $("rc-main").hidden = true; Hub.dock([]);
+      Hub.emptyState($("rc-error"), { title: "Saved, but the page is out of date", text: "The change was saved, but the page could not read the record again.", action: { label: "Reload", onClick: function () { window.location.reload(); } } });
     });
   }
   function refresh() {
@@ -442,6 +464,8 @@
     });
     body.textContent = ""; body.appendChild(frag);
     $("rc-wrap").hidden = !n; $("rc-empty").hidden = !!n;
+    if (!n) Hub.emptyState($("rc-empty"), { title: "No clause matches", text: show === "ai" ? "There is no AI draft on this record." : show === "review" ? "No answer of this record is waiting for review." : show === "open" ? "Every clause shows an answer." : "Nothing fits this search.",
+      action: { label: "Show all rows", ghost: true, onClick: function () { $("rc-show").value = "all"; $("rc-q").value = ""; draw(); } } });
   }
   var timer;
   $("rc-show").addEventListener("change", draw);
@@ -452,8 +476,8 @@
   function setMode(on, quiet) {
     editing = !!on;
     [].forEach.call($("rc-seg").children, function (b) { b.setAttribute("aria-selected", String((b.getAttribute("data-mode") === "edit") === editing)); });
-    $("rc-mode").textContent = editing ? "Edit is on. Every change saves as you leave the box; Enter in Compliance goes to the next clause. A row the converter got wrong: Split makes several rows of it, Join up puts it back on the row above. Green boxes are answers from the company library; empty both boxes to go back to the library answer. Blue boxes are AI drafts: check them, and leaving the box keeps or corrects them as your answer."
-                                       : "Reading. Switch to Edit to fill or change answers, or Focus mode for one clause at a time. Green answers come from the company library; blue ones are AI drafts that nobody has checked yet. Internal Comments are notes from the library team for you, not for the client.";
+    $("rc-mode").textContent = editing ? "Edit: a change saves when you leave the box; Enter goes to the next clause. Change a blue answer to make it yours. Split and Join up fix rows the converter got wrong."
+                                       : "Reading. Edit to change answers, or Focus mode for one clause at a time. Internal Comments are for you, not the client.";
     if (!quiet) settled().then(remode, remode);      // a box that was just left is saved first
   }
   /* The rows are not drawn again: to Edit, every clause is watched and gets its boxes as it nears the
@@ -502,6 +526,7 @@
     Hub.toast("Excel downloaded.");
   });
 
+  $("rc-loading").appendChild(Hub.skeleton(6, { flat: true, label: "Loading the specification" }));
   Hub.requireLogin({ tool: "projects" }).then(function () {
     Hub.setBack("Projects", "index.html");
     if (!runId) throw new Error("No specification was chosen.");
@@ -516,12 +541,14 @@
     $("rc-loading").hidden = true; $("rc-main").hidden = false;
     setMode(false, true); counts(); draw(); aiButtons();
     Hub.autoHide($("rc-workbar"));
+    Hub.more($("rc-more"), [$("rc-download"), $("rc-ai"), $("rc-ai-clear")], "This specification");
+    Hub.dock([el("button", { type: "button", "class": "btn", text: "Focus mode", onclick: focusMode })]);
     loadMatch();
     // on a phone the table is hard to fill: start in the full-screen mode, "Done" shows the table
     if (window.matchMedia("(max-width: 640px)").matches && lines.some(function (l) { return l.can; })) { setMode(true, true); focusMode(); }
   }, function (err) {
-    $("rc-loading").hidden = true; $("rc-error").hidden = false;
-    $("rc-error").textContent = ((err && err.message) || err) + " Go back to Projects and open it from the project page.";
+    $("rc-loading").hidden = true; Hub.dock([]);
+    Hub.emptyState($("rc-error"), { title: "This specification cannot be opened", text: String((err && err.message) || err), action: { label: "Back to Projects", href: "index.html" } });
   });
 
   // the datasheet rows this specification talks about, and their values when the project has the datasheet

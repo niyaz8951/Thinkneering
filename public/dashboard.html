@@ -75,7 +75,8 @@
     document.title = (only ? "Dashboard" : c.name) + " - DAME Tools Hub";
     var host = document.getElementById("tools"); host.textContent = "";
     if (!c.tools.length) {
-      host.appendChild(el("div", { "class": "empty", style: "grid-column:1/-1", text: "No tools have been added to " + c.name + " yet." }));
+      host.appendChild(Hub.emptyState(el("div", { "class": "empty", style: "grid-column:1/-1" }), { title: "No tools in " + c.name + " yet",
+        text: "An admin adds tools to a team. The other teams are one tap away.", action: only ? null : { label: "All teams", onClick: back, ghost: true } }));
       return;
     }
     tiles(c).forEach(function (t) {

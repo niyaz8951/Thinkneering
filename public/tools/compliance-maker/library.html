@@ -34,8 +34,16 @@
   .drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px; text-align: center; cursor: pointer; }
   .drop:hover, .drop.over { border-color: var(--brand); background: var(--surface-2); }
   .result { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-  @media (max-width: 600px) { .stats { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { .stats { grid-template-columns: 1fr 1fr; gap: 8px; } .stat { padding: 10px 12px; } .stat b { font-size: 20px; } }
   .mode-seg { flex: 0 0 auto; } .mode-seg .tab { min-width: 64px; }
+  .lib-filters { display: contents; } .lib-filter-btn { display: none; }
+  @media (max-width: 640px) {
+    /* a phone: the four narrowing filters wait behind one Filters button */
+    .lib-filter-btn { display: inline-flex; }
+    .lib-filters { display: none; } .lib-filters.open { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1 0 100%; }
+    .lib-filters.open .input { width: 100%; }
+  }
+  .lib td.lib-empty { padding: 0; } .lib td.lib-empty .empty { border: 0; }
 </style>
 </head>
 <body>
@@ -44,7 +52,7 @@
   <div class="page-head">
     <p class="small"><a href="./">&larr; Compliance Maker</a></p>
     <h1>Compliance review</h1>
-    <p>The master compliance library. Every clause converted by anyone lands here once, under its Part and section, in the order of the specification it came from. Fill in Compliance and Remarks, and the next conversion that contains the same clause gets them automatically. Answers users filled in their projects are shown under the clause with their name.</p>
+    <p>The company library: answer a clause once here and every later specification that has it comes answered. What users answered in their projects shows under the clause, with their name.</p>
   </div>
 
   <div class="card stack">
@@ -53,10 +61,10 @@
       <label class="field"><span>Factory</span><select class="input" id="factory"></select></label>
     </div>
     <div class="stats" id="stats" hidden>
-      <div class="stat"><b id="sAll">0</b><span>unique lines</span></div>
-      <div class="stat"><b id="sOpen">0</b><span>to answer</span></div>
-      <div class="stat"><b id="sDone">0</b><span>answered</span><div class="bar"><i id="sBar"></i></div></div>
-      <div class="stat"><b id="sReview">0</b><span>filled by users, to review</span></div>
+      <div class="stat"><b id="sAll">0</b><span>clauses in this library</span></div>
+      <div class="stat"><b id="sOpen">0</b><span>still to answer</span></div>
+      <div class="stat"><b id="sDone">0</b><span>answered by the library</span><div class="bar"><i id="sBar"></i></div></div>
+      <div class="stat"><b id="sReview">0</b><span>users' answers to review</span></div>
     </div>
   </div>
 
@@ -74,14 +82,18 @@
         <select class="input" id="fStatus" aria-label="Show">
           <option value="open">To answer</option><option value="answered">Answered</option><option value="review">Filled by users, to review</option><option value="all">All lines</option>
         </select>
-        <select class="input" id="fPart" aria-label="Part of the specification"><option value="">All parts</option></select>
-        <select class="input" id="fTopic" aria-label="Topic"><option value="">All topics</option></select>
-        <select class="input" id="fClientType" aria-label="Client type"><option value="">All client types</option></select>
-        <select class="input" id="fClient" aria-label="Client name"><option value="">All clients</option></select>
         <input class="input grow" id="fSearch" type="search" placeholder="Search clause text" aria-label="Search clause text">
-        <button class="btn" type="button" id="btnFocus">Focus mode</button>
+        <button class="btn ghost lib-filter-btn" type="button" id="btnFilters" aria-expanded="false" aria-controls="libFilters">Filters</button>
+        <span class="lib-filters" id="libFilters">
+          <select class="input" id="fPart" aria-label="Part of the specification"><option value="">All parts</option></select>
+          <select class="input" id="fTopic" aria-label="Topic"><option value="">All topics</option></select>
+          <select class="input" id="fClientType" aria-label="Client type"><option value="">All client types</option></select>
+          <select class="input" id="fClient" aria-label="Client name"><option value="">All clients</option></select>
+        </span>
+        <button class="btn dock-hide" type="button" id="btnFocus">Focus mode</button>
         <div class="tabs mode-seg" id="modeSeg" role="group" aria-label="Read or edit"><button type="button" class="tab" data-mode="read" aria-selected="true">Read</button><button type="button" class="tab" data-mode="edit" aria-selected="false">Edit</button></div>
-        <button class="btn ghost" type="button" id="btnExport">Download library (Excel)</button>
+        <span class="more-items"><button class="btn ghost" type="button" id="btnExport">Download library (Excel)</button></span>
+        <button class="btn ghost more-btn" type="button" id="btnMore">More</button>
       </div>
       <div class="table-wrap sheet-wrap">
         <table class="table sheet lib">
@@ -171,13 +183,18 @@
     (p ? p.factories : []).forEach(function (f) { s.appendChild(el("option", { value: f.id, text: f.name })); });
     s.disabled = !p;
   }
+  // on a phone, Focus mode sits at the bottom once there are lines to read (Lines tab)
+  function libDock() {
+    var on = !!factoryId() && !$("tab-lines").hidden;
+    Hub.dock(on ? [el("button", { type: "button", "class": "btn", text: "Focus mode", onclick: function () { $("btnFocus").click(); } })] : []);
+  }
   function scopeChanged() {
-    var on = !!factoryId();
+    var on = !!factoryId(); setTimeout(libDock, 0);
     $("work").hidden = !on; $("stats").hidden = !on;
     $("upScope").textContent = scopeName();
     resetUpload();
     $("fPart").value = ""; $("fTopic").value = ""; $("fClientType").value = ""; $("fClient").value = "";
-    if (on) { offset = 0; loadLines(); }
+    if (on) { offset = 0; loadLines.fresh = true; loadLines(); }
   }
   $("product").addEventListener("change", function () { fillFactories(); scopeChanged(); });
   $("factory").addEventListener("change", scopeChanged);
@@ -279,8 +296,20 @@
     ]));
     return row;
   }
+  function clearFilters() { ["fPart", "fTopic", "fClientType", "fClient", "fSearch"].forEach(function (k) { $(k).value = ""; }); filterCount(); offset = 0; loadLines(); }
+  function allLines() { $("fStatus").value = "all"; offset = 0; loadLines(); }
+  function filterCount() {
+    var n = ["fPart", "fTopic", "fClientType", "fClient"].filter(function (k) { return $(k).value; }).length;
+    $("btnFilters").textContent = n ? "Filters (" + n + ")" : "Filters";
+  }
   function loadLines() {
     if (!factoryId()) return;
+    filterCount();
+    if (loadLines.fresh || !$("rows").firstChild) {          // a new product or factory: the shape of the list, not a blank
+      loadLines.fresh = false; lazy.stop();
+      $("rows").textContent = "";
+      $("rows").appendChild(el("tr", {}, [el("td", { colspan: "7", "class": "lib-empty" }, [Hub.skeleton(5, { flat: true, label: "Loading clauses" })])]));
+    }
     var req = factoryId() + "|" + offset + "|" + $("fPart").value + "|" + $("fTopic").value + "|" + $("fClientType").value + "|" + $("fClient").value + "|" + $("fStatus").value;
     loadLines.last = req;
     Api.cmAdminLines(Hub.token(), { factoryId: factoryId(), status: $("fStatus").value, search: $("fSearch").value.replace(/\s+/g, " ").trim(), limit: PAGE, offset: offset,
@@ -289,13 +318,14 @@
       shownLines = res.lines; total = res.total; setCounts(res.counts); fillGroups(res.groups || []); fillClients(res.client_types || [], res.client_names || []);
       var body = $("rows"); body.textContent = ""; lazy.stop();
       if (!res.lines.length) {
-        var msg = res.counts.all === 0 ? "No lines yet for this factory. They appear here after the first conversion or upload."
-                : $("fClientType").value || $("fClient").value ? "No lines here for this client."
-                : $("fPart").value || $("fTopic").value ? "No lines here for this part and topic."
-                : $("fStatus").value === "review" ? "No answer from a user is waiting for this factory."
-                : $("fSearch").value ? "No lines match that search."
-                : $("fStatus").value === "open" ? "Nothing left to answer for this factory." : "No lines here.";
-        body.appendChild(el("tr", {}, [el("td", { colspan: "7", "class": "muted", style: "padding:28px;text-align:center", text: msg })]));
+        var narrowed = $("fClientType").value || $("fClient").value || $("fPart").value || $("fTopic").value || $("fSearch").value;
+        var msg = res.counts.all === 0 ? ["No clauses yet for this factory", "They arrive with the first specification converted for it, or with an uploaded library.", null]
+                : narrowed ? ["No clause matches", "Nothing fits this search and these filters.", { label: "Clear filters", ghost: true, onClick: clearFilters }]
+                : $("fStatus").value === "review" ? ["Nothing to review", "No answer from a user is waiting for this factory.", { label: "Show all lines", ghost: true, onClick: allLines }]
+                : $("fStatus").value === "open" ? ["Every clause is answered", "Nothing is left to answer for this factory.", { label: "Show all lines", ghost: true, onClick: allLines }]
+                : ["No clauses here", "", { label: "Show all lines", ghost: true, onClick: allLines }];
+        var box = el("div", { "class": "empty" });
+        body.appendChild(el("tr", {}, [el("td", { colspan: "7", "class": "lib-empty" }, [Hub.emptyState(box, { title: msg[0], text: msg[1], action: msg[2] })])]));
       }
       layout(res.lines).forEach(function (it) {
         if (it.kind === "part") body.appendChild(el("tr", { "class": "part" }, [el("td"), el("td", { colspan: "6", text: it.text })]));
@@ -511,7 +541,7 @@
   function loadRuns() {
     Api.cmAdminRuns(Hub.token(), { limit: 100 }).then(function (res) {
       var body = $("runRows"); body.textContent = "";
-      if (!res.runs.length) body.appendChild(el("tr", {}, [el("td", { colspan: "8", "class": "muted", text: "No conversions yet." })]));
+      if (!res.runs.length) body.appendChild(el("tr", {}, [el("td", { colspan: "8", "class": "muted", text: "No conversions yet. A specification converted in any project shows here." })]));
       res.runs.forEach(function (r) {
         var up = r.kind === "library-upload";
         body.appendChild(el("tr", {}, [
@@ -534,10 +564,17 @@
         $("tab-" + t.getAttribute("data-tab")).hidden = t !== tab;
       });
       if (tab.getAttribute("data-tab") === "runs") loadRuns();
+      libDock();
     });
   });
 
-  Hub.requireLogin({ edit: "compliance-maker" }).then(function () { Hub.autoHide($("workbar")); return CMHighlight.load(); })
+  $("btnFilters").addEventListener("click", function () {
+    var open = $("libFilters").classList.toggle("open"); this.setAttribute("aria-expanded", String(open));
+  });
+  Hub.requireLogin({ edit: "compliance-maker" }).then(function () {
+    Hub.autoHide($("workbar"));
+    Hub.more($("btnMore"), [$("btnExport")], "Compliance review");
+    return CMHighlight.load(); })
     .then(function () { return Api.cmOptions(Hub.token()); }).then(function (res) {
     products = res.products || [];
     var s = $("product"); s.appendChild(el("option", { value: "", text: "Choose a product" }));

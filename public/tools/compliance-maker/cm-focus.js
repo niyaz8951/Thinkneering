@@ -10,6 +10,7 @@
    CMFocus.open({
      title,                         name shown at the top
      items: [{ part, section, sr, spec, compliance, remarks,
+               draft,               { reason, confidence } when the answer shown is an AI draft: the reason is a visible line
                comments,            undefined = no Internal Comments box
                info,                small line under the answer ("From the library")
                lib,                 true = the answer shown is the library's (green)
@@ -52,7 +53,12 @@
     '.cf-top { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px; background: var(--surface); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }',
     '.cf-top h2 { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; }',
     '.cf-count { font-size: 13px; color: var(--text-soft); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 21ch; text-align: right; }',      // fixed room: the buttons beside it never shift as the numbers change
-    '@media (max-width: 560px) { .cf-count { min-width: 0; } }',
+    '@media (max-width: 560px) { .cf-count { min-width: 0; } .cf-count .cf-sum { display: none; } .cf-top { gap: 8px; padding-left: 10px; padding-right: 10px; } .cf-top h2 { display: none; } .cf-count { margin-left: auto; } .cf-top .btn, .cf-mode .tab { min-height: 44px; } }',
+    /* an AI draft: the proposed answer is tinted, not solid, and its reason is a visible line */
+    '.cf-why { display: grid; gap: calc(2px * var(--cf-k, 1)); padding: calc(10px * var(--cf-k, 1)) calc(12px * var(--cf-k, 1)); border-radius: calc(12px * var(--cf-k, 1)); background: color-mix(in srgb, var(--brand-sky) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-sky) 45%, transparent); font-size: calc(14px * var(--cf-k, 1)); line-height: 1.45; overflow-wrap: anywhere; }',
+    '.cf-why b { font-weight: 650; color: var(--link); }',
+    '.cf.ai .cf-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--brand-sky) 24%, var(--surface)); border-color: var(--brand); color: var(--text); }',
+    '.cf.ai .cf-read .cf-val:not(.soft):not(.none):not(.tl) { color: var(--link); }',
     '.cf-bar { height: 4px; background: var(--surface-2); } .cf-bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }',
     '.cf-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px 24px; }',
     '.cf-in { max-width: 760px; margin: 0 auto; display: grid; gap: calc(14px * var(--cf-k, 1)); }',
@@ -149,8 +155,10 @@
     var comp, rem, note, tl, state, saving = Promise.resolve();
 
     function progress() {
-      var done = items.filter(filled).length;
-      count.textContent = (i + 1) + ' of ' + items.length + ' · ' + done + ' filled';
+      var drafts = items.filter(function (it) { return it.draft; }).length, done = items.filter(filled).length - drafts;
+      count.textContent = '';
+      count.appendChild(document.createTextNode('Clause ' + (i + 1) + ' of ' + items.length));
+      count.appendChild(el('span', { 'class': 'cf-sum', text: ' \u00b7 ' + done + ' answered' + (drafts ? ', ' + drafts + (drafts === 1 ? ' draft' : ' drafts') + ' to check' : '') }));
       bar.style.width = Math.round(100 * done / items.length) + '%';
       prev.disabled = i === 0; next.disabled = i === items.length - 1;
       var more = items.some(function (it, k) { return k !== i && !filled(it); });
@@ -168,7 +176,8 @@
       saving = saving.then(function () { return o.save(it, v); }).then(function (res) {
         if (at === i) {
           st.className = 'cf-state ok'; st.textContent = 'Saved' + (res && res.info ? ' · ' + res.info : '');
-          root.classList.toggle('lib', !!(res && res.lib));
+          root.classList.toggle('lib', !!(res && res.lib)); root.classList.toggle('ai', !!it.draft);
+          if (!it.draft && whyBox) { whyBox.remove(); whyBox = null; }
           // show what was stored, but never over something typed while the save was on its way
           if (comp && comp.value.trim() === v.compliance) comp.value = it.compliance || '';
           if (rem && rem.value.trim() === v.remarks) rem.value = it.remarks || '';
@@ -198,7 +207,13 @@
       }, then);
     }
 
-    var chipBox;
+    var chipBox, whyBox;
+    function why(it) {
+      if (!it.draft) return null;
+      var d = it.draft;
+      return el('div', { 'class': 'cf-why', role: 'note' }, [el('b', { text: 'AI draft' + (d.confidence ? ', ' + d.confidence + ' confidence' : '') }),
+        el('span', { text: d.reason || 'No reason was given. Check it against the specification.' })]);
+    }
     function chips() {
       if (chipBox) [].forEach.call(chipBox.children, function (b) { b.setAttribute('aria-pressed', b.textContent.toLowerCase() === comp.value.trim().toLowerCase() ? 'true' : 'false'); });
     }
@@ -207,7 +222,7 @@
       var it = items[i];
       inner.textContent = '';
       inner.className = 'cf-in cf-slide' + (back ? ' back' : '');
-      root.classList.toggle('lib', !!it.lib);
+      root.classList.toggle('lib', !!it.lib); root.classList.toggle('ai', !!it.draft);
       function ctx(k) {
         var x = items[k]; if (!x) return null;
         return el('button', { type: 'button', 'class': 'cf-ctx', title: k < i ? 'Previous clause' : 'Next clause', onclick: function () { go(k, k < i); } }, [el('b', { text: x.sr || '\u2022' }), x.spec]);
@@ -224,11 +239,13 @@
         comp = rem = note = tl = chipBox = null;
         state = el('div', { 'class': 'cf-state', role: 'status', text: it.info || '' });
         var has = it.compliance || it.remarks;
+        whyBox = why(it);
         inner.appendChild(el('div', { 'class': 'cf-answer cf-read' }, [
           el('div', { 'class': 'cf-label', text: 'Compliance' }), el('div', { 'class': 'cf-val' + (it.compliance ? '' : ' none'), text: it.compliance || (has ? '-' : 'Not answered yet. Switch to Edit to answer.') }),
           it.remarks ? el('div', { 'class': 'cf-label', text: 'Remarks' }) : null, it.remarks ? el('div', { 'class': 'cf-val', text: it.remarks }) : null,
           it.review ? el('div', { 'class': 'cf-label', text: 'TL Review' }) : null, it.review ? el('div', { 'class': 'cf-val tl', text: it.review }) : null,
-          it.comments ? el('div', { 'class': 'cf-label', text: 'Internal Comments' }) : null, it.comments ? el('div', { 'class': 'cf-val soft', text: it.comments }) : null, state]));
+          it.comments ? el('div', { 'class': 'cf-label', text: 'Internal Comments' }) : null, it.comments ? el('div', { 'class': 'cf-val soft', text: it.comments }) : null,
+          whyBox ? el('div', { style: 'height:10px' }) : null, whyBox, state]));
         if (it.others && it.others.length) inner.appendChild(el('div', { 'class': 'cf-others' }, it.others.map(function (t) { return el('div', { text: t }); })));
         var afterR = ctx(i + 1); if (afterR) inner.appendChild(afterR);
         body.scrollTop = 0; progress(); return;
@@ -253,7 +270,8 @@
       chips();
       comp.addEventListener('input', chips);
       [comp, rem, note, tl].forEach(function (b) { if (b) b.addEventListener('change', commit); });
-      inner.appendChild(el('div', { 'class': 'cf-answer' }, [el('div', { 'class': 'cf-label', text: 'Compliance' }), chipBox,
+      whyBox = why(it);
+      inner.appendChild(el('div', { 'class': 'cf-answer' }, [el('div', { 'class': 'cf-label', text: 'Compliance' }), whyBox, whyBox ? el('div', { style: 'height:8px' }) : null, chipBox,
         el('div', { style: 'height:8px' }), comp, el('div', { style: 'height:10px' }), el('div', { 'class': 'cf-label', text: 'Remarks' }), rem,
         tl || it.review ? el('div', { style: 'height:10px' }) : null, tl || it.review ? el('div', { 'class': 'cf-label', text: 'TL Review' }) : null, tl || (it.review ? el('div', { 'class': 'cf-val tl', text: it.review }) : null),
         note ? el('div', { style: 'height:10px' }) : null, note ? el('div', { 'class': 'cf-label', text: 'Internal Comments' }) : null, note, state]));

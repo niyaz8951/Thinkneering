@@ -122,8 +122,85 @@
       var back = el("div", { "class": "hub-sheet-back", onclick: function (e) { if (e.target === back) no(); } }, [box]);
       document.body.appendChild(back);
       document.addEventListener("keydown", key, true);
+      dragClose(box, no);
       (input || okBtn).focus();
     });
+  }
+
+  /* A sheet on a phone can be dragged down to close, like any iOS sheet (the grabber shows it).
+     Starts only on the sheet's own surface, not in a box or on a button, and only when its content is at the top. */
+  function dragClose(box, close) {
+    var y0 = null, dy = 0;
+    box.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse" || !window.matchMedia("(max-width: 560px)").matches) return;
+      if (/^(INPUT|TEXTAREA|SELECT|BUTTON|A|LABEL)$/.test(e.target.tagName) || e.target.closest("button, a, label, .pj-people") || box.scrollTop > 0) return;
+      y0 = e.clientY; dy = 0; box.classList.add("dragging");
+    });
+    box.addEventListener("pointermove", function (e) {
+      if (y0 === null) return;
+      dy = Math.max(0, e.clientY - y0); box.style.transform = dy ? "translateY(" + dy + "px)" : "";
+    });
+    function end() {
+      if (y0 === null) return;
+      y0 = null; box.classList.remove("dragging");
+      if (dy > 90) { box.style.transform = "translateY(110%)"; setTimeout(close, 180); } else box.style.transform = "";
+    }
+    box.addEventListener("pointerup", end); box.addEventListener("pointercancel", end);
+  }
+
+  /* ---------- design pass helpers (16 Oct 2026) ----------
+     Hub.skeleton(rows, { flat })   grey shapes of what is loading, in place of "Loading..."
+     Hub.emptyState(host, { title, text, action: { label, href | onClick, ghost } })
+                                    an empty list says what to do next, with its one button
+     Hub.more(button, [elements], title)
+                                    on a phone the secondary actions live behind one "More" button: a sheet
+                                    lists the elements that are shown, and pressing one presses the original
+     Hub.dock([buttons])            on a phone the screen's primary action sits at the bottom, under the thumb */
+  function skeleton(rows, o) {
+    o = o || {};
+    var widths = ["62%", "88%", "45%", "74%", "56%", "81%"], box = el("div", { "class": "skel" + (o.flat ? " flat" : ""), "aria-busy": "true", "aria-label": o.label || "Loading" });
+    for (var k = 0; k < (rows || 3); k++) box.appendChild(el("div", { "class": "skel-row" }, [
+      el("i", { "class": "lg", style: "width:" + widths[k % 6] }), el("i", { style: "width:" + widths[(k + 2) % 6] }), el("i", { "class": "sm", style: "width:" + widths[(k + 4) % 6] })]));
+    return box;
+  }
+  function emptyState(host, o) {
+    host.textContent = "";
+    if (o.title) host.appendChild(el("span", { "class": "empty-title", text: o.title }));
+    if (o.text) host.appendChild(el("p", { "class": "empty-text", text: o.text }));
+    var a = o.action;
+    if (a) host.appendChild(a.href ? el("a", { "class": "btn" + (a.ghost ? " ghost" : ""), href: a.href, text: a.label })
+                                   : el("button", { type: "button", "class": "btn" + (a.ghost ? " ghost" : ""), text: a.label, onclick: a.onClick }));
+    host.hidden = false;
+    return host;
+  }
+  function shownEl(n) { return n && !n.hidden && !n.closest("[hidden]") && !n.disabled; }
+  function more(btn, items, title) {
+    btn.addEventListener("click", function () {
+      var list = items.filter(shownEl);
+      if (!list.length) return;
+      var box, back;
+      function close() { document.removeEventListener("keydown", key, true); back.remove(); btn.focus(); }
+      function key(e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } }
+      box = el("div", { "class": "hub-sheet actions", role: "dialog", "aria-modal": "true", "aria-label": title || "More" }, [
+        el("h2", { text: title || "More" }),
+        el("div", { "class": "hub-sheet-list" }, list.map(function (n) {
+          var danger = /danger/.test(n.className);
+          return el("button", { type: "button", "class": "btn ghost", style: danger ? "color:var(--danger)" : null, text: n.textContent.trim(), onclick: function () { close(); n.click(); } });
+        })),
+        el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close })])
+      ]);
+      back = el("div", { "class": "hub-sheet-back", onclick: function (e) { if (e.target === back) close(); } }, [box]);
+      document.body.appendChild(back); document.addEventListener("keydown", key, true); dragClose(box, close);
+      box.querySelector(".hub-sheet-list .btn").focus();
+    });
+    return btn;
+  }
+  function dock(buttons) {
+    var d = document.querySelector(".dock") || document.body.appendChild(el("div", { "class": "dock" }));
+    d.textContent = "";
+    [].concat(buttons || []).forEach(function (b) { if (b) d.appendChild(b); });
+    document.body.classList.toggle("has-dock", !!d.firstChild);
+    return d;
   }
   function confirmSheet(message, o) { return sheet(message, o, "confirm"); }
   function askSheet(message, o) { return sheet(message, o, "ask"); }
@@ -421,6 +498,7 @@
 
   window.Hub = {
     autoHide: autoHide, autoGrow: autoGrow, lazyRows: lazyRows,
+    skeleton: skeleton, emptyState: emptyState, more: more, dock: dock, dragClose: dragClose,
     setBack: setBack, param: param, confirm: confirmSheet, ask: askSheet, tell: tellSheet, date: fmtDate,
     ICON: ICON, el: el, toast: toast, url: url, go: go,
     token: token, setToken: setToken, logout: logout,
