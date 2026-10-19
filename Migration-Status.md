@@ -56,7 +56,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Next pieces of work, in order
 
-000. Requirement fingerprints (owner, 19 Oct 2026 night): phase 0 experiment first - `docs/Requirement-Fingerprints.md`. Owner to answer its section 6 (who maintains the vocabulary, granularity, capability vs selection, AHU first).
+000. Vocabulary map, step A (`docs/Vocabulary-Experiment-2026-10-19.md` section 5): map kind `vocabulary`, its template and reader, tested on the 10 experiment lines. Phase 0 of `docs/Requirement-Fingerprints.md` is done (the 10-line experiment).
 00. Owner (19 Oct push, branch `fixes-2026-10-19`): `npm install`, then `npm run deploy` (applies migration **0005**
    then deploys). Then Compliance review > AI rules > **Update from template** once per rule book (the new 5-part brief).
    Re-read one datasheet per open project to save its factory and the EN 1886 / EN 13053 rows (the old table is replaced).
@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 19 Oct 2026 (night): unique project codes (migration 0008) and the library filter / download by code. Two maps, two jobs: the rule book holds only instructions and if / then rules; a new vocabulary map holds the product (types, terms, equivalences, capabilities). Source order: datasheet, Product Options, library, vocabulary map; the vocabulary also identifies each clause first. 10-line experiment and roadmap: `docs/Vocabulary-Experiment-2026-10-19.md`.
 - 19 Oct 2026 (evening, later): values read from datasheets wait for an admin's approval before they are options of the factory (migration 0007); existing values stay approved.
 - 19 Oct 2026 (evening): Product Options keeps only datasheet values and special options / notes; AI notes moved to Maps (migration 0006, knowledge map per factory). Owner runs `npx wrangler d1 migrations apply DB --remote` after the push.
 - 19 Oct 2026 (afternoon): the AI review of a whole record is switched off ("coming soon" pop-up; server refuses unless `AI_WHOLE_REVIEW = "1"`); the AI proposes answers in Focus mode only, for every user, so people read the specification clause by clause.

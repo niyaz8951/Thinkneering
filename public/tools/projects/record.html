@@ -594,7 +594,7 @@
     document.title = bare(run.file_name) + " - Thinkneering Tools";
     $("rc-name").textContent = bare(run.file_name);
     var facts = $("rc-facts");
-    [run.project, run.product + ", " + run.factory + " factory", "Converted by " + run.user + ", " + when(run.created_at)].forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
+    [(run.project_code ? run.project_code + " · " : "") + run.project, run.product + ", " + run.factory + " factory", "Converted by " + run.user + ", " + when(run.created_at)].forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
     $("rc-loading").hidden = true; $("rc-main").hidden = false;
     setMode(false, true); counts(); draw(); aiButtons(); reviewNote();
     Hub.autoHide($("rc-workbar"));

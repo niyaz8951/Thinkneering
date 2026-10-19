@@ -132,22 +132,27 @@ export const routes: Routes = {
     const q = trimmed(p.p_search).toLowerCase();
     const limit = Math.min(Math.max(int(p.p_limit, 100), 1), 300), offset = Math.max(int(p.p_offset, 0), 0);
     const wantPart = p.p_part === "" || p.p_part == null ? null : int(p.p_part, 0);
-    const topic = trimmed(p.p_topic), ct = trimmed(p.p_client_type), cn = trimmed(p.p_client_name);
+    const topic = trimmed(p.p_topic), ct = trimmed(p.p_client_type), cn = trimmed(p.p_client_name), code = trimmed(p.p_project_code).toUpperCase();
 
     const allLines = await all<LineRow & { run_at: string | null; file_name: string }>(env.DB.prepare(
       "SELECT l.*, r.created_at AS run_at, coalesce(r.file_name, '') AS file_name FROM cm_lines l LEFT JOIN cm_runs r ON r.id = l.home_run WHERE l.factory_id = ?").bind(f.id));
     // every project answer and every project sighting of this factory's lines
     type PA = { line_id: string; run_id: string; seq: number; compliance: string; remarks: string; review: string; answered_by: string | null; answered_at: string | null; ai_draft: number;
-                project: string; client: string; client_type: string; region: string };
+                project: string; client: string; client_type: string; region: string; code: string | null; run_at: string };
     const pas = await all<PA>(env.DB.prepare(
       `SELECT rl.line_id, rl.run_id, rl.seq, rl.compliance, rl.remarks, rl.review, rl.answered_by, rl.answered_at, rl.ai_draft,
-              pj.name AS project, pj.client_name AS client, pj.client_type, pj.region
+              pj.name AS project, pj.client_name AS client, pj.client_type, pj.region, pj.code, r.created_at AS run_at
          FROM cm_run_lines rl JOIN cm_runs r ON r.id = rl.run_id JOIN pr_projects pj ON pj.id = r.project_id
         WHERE r.factory_id = ? AND rl.line_id IS NOT NULL`).bind(f.id));
     const nameOf = await namesOf(env, [...allLines.map((l) => l.answered_by), ...pas.map((x) => x.answered_by)]);
     const byLine = new Map<string, { list: PA[]; clients: PA[] }>();
-    const types = new Set<string>(), names = new Set<string>();
+    const types = new Set<string>(), names = new Set<string>(), codes = new Map<string, string>();
+    // with a project code: where each line first appears in that project's specifications (run date, then Sr order),
+    // so the lines read section by section, sub-section by sub-section, as in the project's own specs
+    const place = new Map<string, string>();
     for (const x of pas) {
+      if (x.code) codes.set(x.code, x.project);
+      if (code && x.code === code) { const k = x.run_at + "|" + String(x.seq).padStart(6, "0"); if (!place.has(x.line_id) || k < place.get(x.line_id)!) place.set(x.line_id, k); }
       const e = byLine.get(x.line_id) || { list: [], clients: [] };
       e.clients.push(x);
       if ((x.compliance || x.remarks) && !x.ai_draft) e.list.push(x);
@@ -168,23 +173,27 @@ export const routes: Routes = {
       && (wantPart === null || l.part === wantPart)
       && (!topic || cmTopic(l.section) === topic)
       && (!q || l.spec_text.toLowerCase().includes(q))
-      && ((!ct && !cn) || (byLine.get(l.id)?.clients || []).some((x) => (!ct || x.client_type === ct) && (!cn || x.client === cn))));
-    const ordered = cmLibraryOrder(passes);
+      && ((!ct && !cn) || (byLine.get(l.id)?.clients || []).some((x) => (!ct || x.client_type === ct) && (!cn || x.client === cn)))
+      && (!code || place.has(l.id)));
+    const ordered = code ? passes.slice().sort((a, b) => place.get(a.id)!.localeCompare(place.get(b.id)!)) : cmLibraryOrder(passes);
+    const codesOf = (id: string) => [...new Set((byLine.get(id)?.clients || []).map((x) => x.code).filter((c): c is string => !!c))].sort();
     const page = ordered.slice(offset, offset + limit).map((l) => ({
       id: l.id, spec_text: l.spec_text, compliance: l.compliance, remarks: l.remarks, comments: l.comments, status: l.status, times_seen: l.times_seen,
       last_seen_at: l.last_seen_at, answered_at: l.answered_at, answer_source: l.answer_source,
       part: l.part, section: l.section, topic: cmTopic(l.section), sr: l.sr, row_type: l.row_type, section_sr: l.section_sr,
       home_run: l.home_run, file_name: l.file_name, answered_by: l.answered_by ? nameOf(l.answered_by) : null,
+      project_codes: codesOf(l.id),
       project_answers: (byLine.get(l.id)?.list || []).slice()
         .sort((a, b) => ((a.review !== "pending" ? 1 : 0) - (b.review !== "pending" ? 1 : 0)) || String(b.answered_at).localeCompare(String(a.answered_at))).slice(0, 6)
         .map((x) => ({ run: x.run_id, seq: x.seq, compliance: x.compliance, remarks: x.remarks, review: x.review, by: nameOf(x.answered_by), at: x.answered_at,
-                       project: x.project, client: x.client, client_type: x.client_type, region: x.region }))
+                       project: x.project, code: x.code || "", client: x.client, client_type: x.client_type, region: x.region }))
     }));
     return {
       counts: { all: allLines.length, open: allLines.filter((l) => l.status === "open").length, answered: allLines.filter((l) => l.status === "answered").length,
                 review: allLines.filter((l) => waiting(l.id)).length },
       groups: [...groups.values()].sort((a, b) => ((a.part === 0 ? 1 : 0) - (b.part === 0 ? 1 : 0)) || a.part - b.part || a.topic.localeCompare(b.topic)),
       client_types: [...types].sort(), client_names: [...names].sort(),
+      project_codes: [...codes].sort((a, b) => b[0].localeCompare(a[0])).map(([c, n]) => ({ code: c, project: n })),
       total: passes.length, lines: page, can_edit: s.canEdit("compliance-maker")
     };
   },
@@ -241,13 +250,25 @@ export const routes: Routes = {
   },
 
   /* Everything of a factory in reading order, for the "Download library" button. */
+  /* With p_project_code: only the lines of that project's specifications, in their order there. Every line carries
+     the codes of the projects whose specifications hold it. */
   async cm_admin_export(env, p) {
     (await sessionUser(env, p.p_token)).requireEditor("compliance-maker");
     const f = await cmFactory(env, p.p_factory_id);
-    const lines = await all<LineRow & { run_at: string | null; file_name: string }>(env.DB.prepare(
-      "SELECT l.*, r.created_at AS run_at, coalesce(r.file_name, '') AS file_name FROM cm_lines l LEFT JOIN cm_runs r ON r.id = l.home_run WHERE l.factory_id = ?").bind(f.id));
-    return { lines: cmLibraryOrder(lines).map((l) => ({ spec_text: l.spec_text, compliance: l.compliance, remarks: l.remarks, comments: l.comments, times_seen: l.times_seen,
-      part: l.part, section: l.section, topic: cmTopic(l.section), sr: l.sr, row_type: l.row_type, section_sr: l.section_sr, home_run: l.home_run, file_name: l.file_name })) };
+    const code = trimmed(p.p_project_code).toUpperCase();
+    const [lines, seen] = await Promise.all([
+      all<LineRow & { run_at: string | null; file_name: string }>(env.DB.prepare(
+        "SELECT l.*, r.created_at AS run_at, coalesce(r.file_name, '') AS file_name FROM cm_lines l LEFT JOIN cm_runs r ON r.id = l.home_run WHERE l.factory_id = ?").bind(f.id)),
+      all<{ line_id: string; code: string; at: string }>(env.DB.prepare(
+        `SELECT rl.line_id, pj.code, min(r.created_at || '|' || printf('%06d', rl.seq)) AS at FROM cm_run_lines rl JOIN cm_runs r ON r.id = rl.run_id JOIN pr_projects pj ON pj.id = r.project_id
+          WHERE r.factory_id = ? AND rl.line_id IS NOT NULL AND pj.code IS NOT NULL GROUP BY rl.line_id, pj.code`).bind(f.id))
+    ]);
+    const codes = new Map<string, string[]>(), place = new Map<string, string>();
+    for (const x of seen) { (codes.get(x.line_id) || codes.set(x.line_id, []).get(x.line_id)!).push(x.code); if (x.code === code) place.set(x.line_id, x.at); }
+    const list = code ? lines.filter((l) => place.has(l.id)).sort((a, b) => place.get(a.id)!.localeCompare(place.get(b.id)!)) : cmLibraryOrder(lines);
+    return { code, lines: list.map((l) => ({ spec_text: l.spec_text, compliance: l.compliance, remarks: l.remarks, comments: l.comments, times_seen: l.times_seen,
+      part: l.part, section: l.section, topic: cmTopic(l.section), sr: l.sr, row_type: l.row_type, section_sr: l.section_sr, home_run: l.home_run, file_name: l.file_name,
+      project_codes: (codes.get(l.id) || []).sort() })) };
   },
 
   /* Reset a compliance library (super user). Without p_with_projects: answers, comments, answer history and the

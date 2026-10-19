@@ -297,7 +297,7 @@
     $("pj-name").textContent = p.name;
     $("pj-client").textContent = p.client_name;
     var facts = $("pj-facts"); facts.textContent = "";
-    [p.client_type, p.region, "Created by " + p.created_by + ", " + when(p.created_at)].forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
+    [p.code ? "Code " + p.code : "", p.client_type, p.region, "Created by " + p.created_by + ", " + when(p.created_at)].filter(Boolean).forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
     var acc = data.access || {}, members = acc.members || [];
     if (members.length) facts.appendChild(el("span", { "class": "badge brand", title: members.join(", "),
       text: "Shared with " + (members.length <= 2 ? members.join(" and ") : members.slice(0, 2).join(", ") + " and " + (members.length - 2) + " more") }));
@@ -483,7 +483,7 @@
       var p = x.project, runs = {};
       x.runs.forEach(function (r) { runs[r.id] = r; });
 
-      var info = [["Project information", ""], ["Project name", p.name], ["Client type", p.client_type], ["Client name", p.client_name], ["Region", p.region],
+      var info = [["Project information", ""], ["Project code", p.code || ""], ["Project name", p.name], ["Client type", p.client_type], ["Client name", p.client_name], ["Region", p.region],
         ["Created by", p.created_by], ["Created", when(p.created_at, true)], ["Last changed by", p.updated_by], ["Last changed", when(p.updated_at, true)],
         ["Compliance records", x.runs.length], ["Datasheet tables", x.notes.length], ["Downloaded", when(new Date().toISOString(), true)]];
 

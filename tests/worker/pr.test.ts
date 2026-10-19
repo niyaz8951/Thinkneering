@@ -35,6 +35,40 @@ async function draftOn(run: string, seq: number, compliance: string, remarks: st
 describe("pr_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
+  it("every project gets a code that is never used again; Compliance review filters and downloads by it (19 Oct 2026)", async () => {
+    const sbu = await login("sbu");
+    const a = await ok("pr_save", { p_token: sbu, p_id: null, ...PROJECT, p_name: "Code A" });
+    const b = await ok("pr_save", { p_token: sbu, p_id: null, ...PROJECT, p_name: "Code B" });
+    const year = new Date().toISOString().slice(0, 4);
+    expect(a.code).toMatch(new RegExp("^P-" + year + "-\\d{4}$"));
+    const num = (c: string) => +c.slice(-4);
+    expect(num(b.code)).toBe(num(a.code) + 1);
+    await ok("pr_delete", { p_token: sbu, p_id: b.id });
+    const c = await ok("pr_save", { p_token: sbu, p_id: null, ...PROJECT, p_name: "Code C" });
+    expect(num(c.code)).toBe(num(b.code) + 1);                    // the deleted project's number is not reused
+    // renaming keeps the code; the list, the project and its records show it
+    await ok("pr_save", { p_token: sbu, p_id: a.id, ...PROJECT, p_name: "Code A2" });
+    expect((await ok("pr_get", { p_token: sbu, p_id: a.id })).project.code).toBe(a.code);
+    expect((await ok("pr_list", { p_token: sbu })).projects.find((x: any) => x.id === a.id).code).toBe(a.code);
+    const run = await convert(sbu, a.id);
+    expect((await ok("pr_run_get", { p_token: sbu, p_run_id: run })).run.project_code).toBe(a.code);
+    // Compliance review: the code on every line, a filter by code in the spec's order, the download by code
+    await convert(sbu, c.id, SPEC_LINES.slice(0, 3), "Other.pdf");
+    const ta = await login("teamAdmin");
+    const all = await ok("cm_admin_lines", { p_token: ta, p_factory_id: "ahu-dubai", p_status: "all", p_limit: 300 });
+    expect(all.project_codes.map((x: any) => x.code)).toEqual(expect.arrayContaining([a.code, c.code]));
+    const onlyC = await ok("cm_admin_lines", { p_token: ta, p_factory_id: "ahu-dubai", p_status: "all", p_limit: 300, p_project_code: c.code });
+    expect(onlyC.total).toBeGreaterThan(0);
+    expect(onlyC.total).toBeLessThan(all.total);
+    expect(onlyC.lines.every((l: any) => l.project_codes.includes(c.code))).toBe(true);
+    const seqs = await env.DB.prepare("SELECT rl.line_id FROM cm_run_lines rl JOIN cm_runs r ON r.id = rl.run_id WHERE r.project_id = ? AND rl.line_id IS NOT NULL ORDER BY rl.seq").bind(c.id).all<any>();
+    expect(onlyC.lines.map((l: any) => l.id)).toEqual([...new Set(seqs.results.map((x: any) => x.line_id))]);   // the spec's own order
+    const ex = await ok("cm_admin_export", { p_token: ta, p_factory_id: "ahu-dubai", p_project_code: c.code });
+    expect(ex.lines.length).toBe(onlyC.total);
+    expect((await ok("cm_admin_export", { p_token: ta, p_factory_id: "ahu-dubai" })).lines.length).toBe(all.total);
+    expect(await refused("cm_admin_export", { p_token: await login("sbu"), p_factory_id: "ahu-dubai", p_project_code: c.code })).toMatch(/edit/i);
+  });
+
   it("pr_note_save keeps the datasheet's factory and replaces an earlier table of the same units (19 Oct 2026)", async () => {
     const sbu = await login("sbu"), sales = await login("sales");
     const pid = await project(sbu);

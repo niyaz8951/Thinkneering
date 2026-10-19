@@ -185,7 +185,7 @@ async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Recor
   const nameOf = await namesOf(env, [p.created_by, p.updated_by, ...runList.map((r) => r.user_id), ...noteList.map((n) => n.user_id), ...logList.map((g) => g.user_id)]);
   const countOf = new Map((counts.results as unknown as Counts[]).map((c) => [c.run_id, c]));
   return {
-    project: { id: p.id, name: p.name, client_type: p.client_type, client_name: p.client_name, region: p.region, created_at: p.created_at,
+    project: { id: p.id, code: p.code || "", name: p.name, client_type: p.client_type, client_name: p.client_name, region: p.region, created_at: p.created_at,
                created_by: nameOf(p.created_by), updated_at: p.updated_at, updated_by: nameOf(p.updated_by) },
     access: { owner: p.created_by === s.id, can_share: prCanShare(s, p), can_delete: p.created_by === s.id || s.prAdmin,
               members: (mem.results as { full_name: string }[]).map((x) => x.full_name) },
@@ -228,7 +228,7 @@ export const routes: Routes = {
     const cards = list.map((x) => {
       const r = runOf.get(x.id), n = noteOf.get(x.id), m = memOf.get(x.id);
       const last = [x.updated_at, r?.at || x.created_at, n?.at || x.created_at].sort().pop()!;
-      return { id: x.id, name: x.name, client_type: x.client_type, client_name: x.client_name, region: x.region, created_at: x.created_at,
+      return { id: x.id, code: x.code || "", name: x.name, client_type: x.client_type, client_name: x.client_name, region: x.region, created_at: x.created_at,
                created_by: nameOf(x.created_by), mine: x.created_by === s.id, shared_with_me: !!(m && m.mine), members: m?.n ?? 0,
                compliance: r?.n ?? 0, notes: n?.n ?? 0, pending: pendOf.get(x.id)?.n ?? 0, last_at: last };
     });
@@ -250,12 +250,17 @@ export const routes: Routes = {
       const dup = await env.DB.prepare("SELECT 1 AS x FROM pr_projects WHERE created_by = ? AND lower(name) = lower(?)").bind(s.id, name).first();
       if (dup) fail("You already have a project with this name. Open it from the list, or use another name.");
       const id = uuid();
+      // the project code: the counter goes up and the new number is taken in the same batch (one transaction), so
+      // two projects made at the same moment never share a number; a deleted project's number is never reused
       await env.DB.batch([
-        env.DB.prepare("INSERT INTO pr_projects (id, name, client_type, client_name, region, created_by, created_at, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(id, name, type, client, region, s.id, at, s.id, at),
+        env.DB.prepare("INSERT INTO app_counters (name, value) VALUES ('project', 1) ON CONFLICT (name) DO UPDATE SET value = value + 1"),
+        env.DB.prepare(`INSERT INTO pr_projects (id, name, client_type, client_name, region, created_by, created_at, updated_by, updated_at, code)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT 'P-' || ? || '-' || printf('%04d', value) FROM app_counters WHERE name = 'project'))`)
+          .bind(id, name, type, client, region, s.id, at, s.id, at, at.slice(0, 4)),
         prLogStmt(env, id, s.id, "Project created", name)
       ]);
-      return { ok: true, id };
+      const made = await env.DB.prepare("SELECT code FROM pr_projects WHERE id = ?").bind(id).first<{ code: string }>();
+      return { ok: true, id, code: made?.code || "" };
     }
     const old = await prProject(env, s, p.p_id);
     await env.DB.batch([
@@ -394,7 +399,7 @@ export const routes: Routes = {
     }
     return {
       run: { id: r.id, file_name: r.file_name, created_at: r.created_at, user: nameOf(r.user_id), product: nm.product, product_id: r.product_id, factory: nm.factory,
-             project_id: pj.id, project: pj.name, client: pj.client_name,
+             project_id: pj.id, project: pj.name, project_code: pj.code || "", client: pj.client_name,
              can_comment: canComment,           // may write Internal Comments (pr_run_save_comment)
              can_review: s.prAdmin,                                 // may write TL Review (pr_run_save_review)
              can_ai: s.prAdmin, ai_available: aiAvailable(env),             // may run the AI review (ai_review_run); whether this environment has a model

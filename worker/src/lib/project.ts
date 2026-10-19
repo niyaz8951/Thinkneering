@@ -5,7 +5,7 @@ import { fail } from "../errors";
 import { now } from "./sql";
 
 export interface ProjectRow {
-  id: string; name: string; client_type: string; client_name: string; region: string;
+  id: string; name: string; client_type: string; client_name: string; region: string; code: string | null;
   created_by: string | null; created_at: string; updated_by: string | null; updated_at: string;
 }
 

@@ -112,6 +112,7 @@
           <select class="input" id="fTopic" aria-label="Topic"><option value="">All topics</option></select>
           <select class="input" id="fClientType" aria-label="Client type"><option value="">All client types</option></select>
           <select class="input" id="fClient" aria-label="Client name"><option value="">All clients</option></select>
+          <select class="input" id="fCode" aria-label="Project code"><option value="">All projects</option></select>
         </span>
         <button class="btn dock-hide" type="button" id="btnFocus">Focus mode</button>
         <div class="tabs mode-seg" id="modeSeg" role="group" aria-label="Read or edit"><button type="button" class="tab" data-mode="read" aria-selected="true">Read</button><button type="button" class="tab" data-mode="edit" aria-selected="false">Edit</button></div>
@@ -265,7 +266,7 @@
     $("work").hidden = !on; $("stats").hidden = !on;
     $("upScope").textContent = scopeName();
     resetUpload();
-    $("fPart").value = ""; $("fTopic").value = ""; $("fClientType").value = ""; $("fClient").value = "";
+    $("fPart").value = ""; $("fTopic").value = ""; $("fClientType").value = ""; $("fClient").value = ""; $("fCode").value = "";
     if (on) { offset = 0; loadLines.fresh = true; loadLines(); }
     $("tryOut").textContent = "";
     if (on && !$("tab-rules").hidden) loadRules();
@@ -319,7 +320,7 @@
           if (yes) Api.cmAdminDeleteLine(Hub.token(), l.id).then(function () { Hub.toast("Line deleted"); loadLines(); }, fail);
         });
       } });
-    var meta = "Seen in " + l.times_seen + (l.times_seen === 1 ? " conversion" : " conversions") +
+    var meta = (l.project_codes && l.project_codes.length ? "Projects " + l.project_codes.join(", ") + " · " : "") + "Seen in " + l.times_seen + (l.times_seen === 1 ? " conversion" : " conversions") +
       (l.answered_at && (l.compliance || l.remarks) ? " · answered " + fmt(l.answered_at) + (l.answered_by ? " by " + l.answered_by : "") + (l.answer_source === "upload" ? " (upload)" : "") : "");
     var text = el("div", {}, CMHighlight.runs(l.spec_text).map(function (r) {
       return r.style ? el("span", { "class": "hl-" + r.style, text: r.text }) : r.text;
@@ -339,7 +340,7 @@
         }, function (err) { btn.disabled = false; fail(err); });
       }
       users.appendChild(el("div", { "class": "pa-item" + (wait ? " wait" : "") }, [
-        el("div", {}, [el("b", { text: a.by }), " · " + a.project + " · " + a.client + " (" + a.client_type + ")" + (a.at ? " · " + fmt(a.at) : "")]),
+        el("div", {}, [el("b", { text: a.by }), " · " + (a.code ? a.code + " " : "") + a.project + " · " + a.client + " (" + a.client_type + ")" + (a.at ? " · " + fmt(a.at) : "")]),
         el("div", { text: (a.compliance || "(no compliance)") + (a.remarks ? " - " + a.remarks : "") }),
         wait && !editing ? el("div", { "class": "meta", text: "Waiting for a decision. Switch to Edit to take it or turn it down." }) :
         wait ? el("div", { "class": "row" }, [
@@ -370,10 +371,10 @@
     ]));
     return row;
   }
-  function clearFilters() { ["fPart", "fTopic", "fClientType", "fClient", "fSearch"].forEach(function (k) { $(k).value = ""; }); filterCount(); offset = 0; loadLines(); }
+  function clearFilters() { ["fPart", "fTopic", "fClientType", "fClient", "fCode", "fSearch"].forEach(function (k) { $(k).value = ""; }); filterCount(); offset = 0; loadLines(); }
   function allLines() { $("fStatus").value = "all"; offset = 0; loadLines(); }
   function filterCount() {
-    var n = ["fPart", "fTopic", "fClientType", "fClient"].filter(function (k) { return $(k).value; }).length;
+    var n = ["fPart", "fTopic", "fClientType", "fClient", "fCode"].filter(function (k) { return $(k).value; }).length;
     $("btnFilters").textContent = n ? "Filters (" + n + ")" : "Filters";
   }
   function loadLines() {
@@ -384,15 +385,15 @@
       $("rows").textContent = "";
       $("rows").appendChild(el("tr", {}, [el("td", { colspan: "7", "class": "lib-empty" }, [Hub.skeleton(5, { flat: true, label: "Loading clauses" })])]));
     }
-    var req = factoryId() + "|" + offset + "|" + $("fPart").value + "|" + $("fTopic").value + "|" + $("fClientType").value + "|" + $("fClient").value + "|" + $("fStatus").value;
+    var req = factoryId() + "|" + offset + "|" + $("fPart").value + "|" + $("fTopic").value + "|" + $("fClientType").value + "|" + $("fClient").value + "|" + $("fCode").value + "|" + $("fStatus").value;
     loadLines.last = req;
     Api.cmAdminLines(Hub.token(), { factoryId: factoryId(), status: $("fStatus").value, search: $("fSearch").value.replace(/\s+/g, " ").trim(), limit: PAGE, offset: offset,
-                                     part: $("fPart").value, topic: $("fTopic").value, clientType: $("fClientType").value, clientName: $("fClient").value }).then(function (res) {
+                                     part: $("fPart").value, topic: $("fTopic").value, clientType: $("fClientType").value, clientName: $("fClient").value, projectCode: $("fCode").value }).then(function (res) {
       if (loadLines.last !== req) return;
-      shownLines = res.lines; total = res.total; setCounts(res.counts); fillGroups(res.groups || []); fillClients(res.client_types || [], res.client_names || []);
+      shownLines = res.lines; total = res.total; setCounts(res.counts); fillGroups(res.groups || []); fillClients(res.client_types || [], res.client_names || []); fillCodes(res.project_codes || []);
       var body = $("rows"); body.textContent = ""; lazy.stop();
       if (!res.lines.length) {
-        var narrowed = $("fClientType").value || $("fClient").value || $("fPart").value || $("fTopic").value || $("fSearch").value;
+        var narrowed = $("fClientType").value || $("fClient").value || $("fCode").value || $("fPart").value || $("fTopic").value || $("fSearch").value;
         var msg = res.counts.all === 0 ? ["No clauses yet for this factory", "They arrive with the first specification converted for it, or with an uploaded library.", null]
                 : narrowed ? ["No clause matches", "Nothing fits this search and these filters.", { label: "Clear filters", ghost: true, onClick: clearFilters }]
                 : $("fStatus").value === "review" ? ["Nothing to review", "No answer from a user is waiting for this factory.", { label: "Show all lines", ghost: true, onClick: allLines }]
@@ -418,18 +419,18 @@
   /* Lines come from the database in reading order. Put a PART row where the part changes and a
      section row where the section, or the specification it came from, changes. The same list
      feeds the screen and the Excel download, so both read the same. */
-  function layout(lines) {
-    var out = [], part = null, block = null;
+  function layout(lines, code) {
+    var out = [], part = null, block = null, byCode = code === undefined ? !!$("fCode").value : !!code;
     lines.forEach(function (l) {
       if (l.part !== part) { part = l.part; block = null; out.push({ kind: "part", part: partName(l.part), text: partName(l.part).toUpperCase().replace(/^(PART \d+) /, "$1 - ") }); }
-      var b = (l.section || "").toLowerCase() + "|" + (l.home_run || "") + "|" + (l.section_sr || "");
+      var b = (l.section || "").toLowerCase() + "|" + (byCode ? "" : (l.home_run || "")) + "|" + (l.section_sr || "");
       if (b !== block) {
         block = b;
         out.push({ kind: "section", part: partName(l.part), topic: l.topic || "", section: l.section || "", sr: l.section_sr || "",
                    text: l.section || "(no section heading)", source: l.file_name || "" });
       }
       out.push({ kind: "line", line: l, part: partName(l.part), topic: l.topic || "", section: l.section || "", sr: l.sr || "", type: l.row_type || "",
-                 spec: l.spec_text, compliance: l.compliance || "", remarks: l.remarks || "", comments: l.comments || "" });
+                 spec: l.spec_text, compliance: l.compliance || "", remarks: l.remarks || "", comments: l.comments || "", codes: (l.project_codes || []).join(", ") });
     });
     return out;
   }
@@ -463,6 +464,14 @@
   }
   $("fClientType").addEventListener("change", function () { $("fClient").value = ""; offset = 0; loadLines(); });
   $("fClient").addEventListener("change", function () { offset = 0; loadLines(); });
+  // Project code: the lines of one project's specifications, in their order there (section by section)
+  function fillCodes(list) {
+    var sel = $("fCode"), keep = sel.value; sel.textContent = "";
+    sel.appendChild(el("option", { value: "", text: "All projects" }));
+    list.forEach(function (x) { sel.appendChild(el("option", { value: x.code, text: x.code + " · " + x.project })); });
+    sel.value = keep; if (sel.value !== keep) sel.value = "";
+  }
+  $("fCode").addEventListener("change", function () { offset = 0; loadLines(); });
   $("fPart").addEventListener("change", function () { $("fTopic").value = ""; offset = 0; loadLines(); });
   $("fTopic").addEventListener("change", function () { offset = 0; loadLines(); });
   $("fStatus").addEventListener("change", function () { offset = 0; loadLines(); });
@@ -508,10 +517,12 @@
     var url = URL.createObjectURL(blob), a = el("a", { href: url, download: name });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
+  // the whole library, or with a project code chosen, only the lines of that project's specifications in their order
   $("btnExport").addEventListener("click", function () {
-    Api.cmAdminExport(Hub.token(), factoryId()).then(function (res) {
+    var code = $("fCode").value;
+    Api.cmAdminExport(Hub.token(), factoryId(), code).then(function (res) {
       if (!res.lines.length) { Hub.toast("There are no lines to download yet."); return; }
-      download(xlsxWriter.buildLibrary(layout(res.lines), CMHighlight.runs), "compliance-library-" + factoryId() + ".xlsx");
+      download(xlsxWriter.buildLibrary(layout(res.lines, code), CMHighlight.runs), "compliance-library-" + factoryId() + (code ? "-" + code : "") + ".xlsx");
     }, fail);
   });
 

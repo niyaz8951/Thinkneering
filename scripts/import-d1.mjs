@@ -104,6 +104,10 @@ insert("mp_images", ["id", "map_id", "node_id", "caption", "file_key", "thumb_ke
   return { ...r, file_key: key, thumb_key: tkey, bytes: data.length, created_at: ts(r.created_at) };
 });
 
+// 6b. project codes (migration 0008): imported projects get P-<year>-<number> in creation order; the counter follows
+sqlFile([`UPDATE pr_projects SET code = 'P-' || substr(created_at, 1, 4) || '-' || printf('%04d', (SELECT count(*) FROM pr_projects p2 WHERE p2.created_at < pr_projects.created_at OR (p2.created_at = pr_projects.created_at AND p2.id <= pr_projects.id))) WHERE code IS NULL;`,
+         "INSERT INTO app_counters (name, value) VALUES ('project', (SELECT count(*) FROM pr_projects)) ON CONFLICT (name) DO UPDATE SET value = max(value, excluded.value);"]);
+
 // 7. queue every clause for Vectorize
 sqlFile(["INSERT INTO ai_jobs (kind, ref_id) SELECT 'clause', id FROM cm_lines;"]);
 

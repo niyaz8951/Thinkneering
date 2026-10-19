@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026, night (later) - 10-line experiment; vocabulary map in Maps; rule book = instructions only
+Fingerprints typed 10 of 10 Qiddiya lines (8 before two fixes), linked 5 of 5 datasheet rows right (keyword chips: 2), decided 4 by code; the 6 open ones each need one piece of product knowledge (capability, material rule, equivalence). The vocabulary lives in a Maps map of the new kind `vocabulary` (edited, verified, imported like other maps); the rule book loses its Facts. Report and roadmap (steps A to E): `docs/Vocabulary-Experiment-2026-10-19.md`.
+
 ### 19 Oct 2026, night - direction: requirement fingerprints and the capability matrix (planned, not built)
 Owner's decision: identify the requirement behind each clause from its landmarks (component, property, standard, class, value, limit) and compare its level with the factory's capability by code; the AI answers descriptive clauses, writes remarks, reviews, and proposes types / synonyms / capabilities for approval. Whole specs matched to earlier ones as templates, so only the changes need review. Plan, phases and proofs: `docs/Requirement-Fingerprints.md` (project: `claude/Requirement-Fingerprints.md`). Next: phase 0 experiment (2 days).
 

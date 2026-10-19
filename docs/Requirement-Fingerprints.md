@@ -32,6 +32,8 @@ Today these live in three code files and two tables. The plan puts them in one p
 
 ## 3. Changes
 
+> **Update, 19 Oct 2026 (night), owner:** the vocabulary and the capabilities live in a **Maps map of kind `vocabulary`** (one per product, one per factory for its capabilities), not in the `rq_types` / `rq_terms` / `rq_capabilities` tables below; the rule book keeps only instructions and if / then rules. Fingerprints, the hash index and template matching stay as tables (derived data). Source order: datasheet, Product Options, library, vocabulary map. See `Vocabulary-Experiment-2026-10-19.md`.
+
 ### 3.1 Data (one migration, 0008)
 - `rq_types` - id (`casing.air_leakage_class`), product_id, component, property, kind (`value` | `class` | `standard` | `choice` | `presence`), unit family, direction (higher / lower / equal), scale (JSON, worst to best), status (to verify / verified), who, when.
 - `rq_terms` - type_id or component, term, role (component / property / synonym). "air tightness" = "air leakage" = "casing leakage".
