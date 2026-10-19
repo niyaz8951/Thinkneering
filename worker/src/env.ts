@@ -7,7 +7,8 @@ export interface Env {
   ASSETS: Fetcher;
   ENV_NAME: string;
   AI_GATEWAY_ID?: string;
-  AI_FAKE?: string;          // "1" on the offline local env: a stand-in model so the AI review flow can be tried without Workers AI
+  AI_FAKE?: string;
+  AI_WHOLE_REVIEW?: string;  // "1" switches on the AI review of a whole record (ai_review_run); off since 19 Oct 2026: Focus mode only          // "1" on the offline local env: a stand-in model so the AI review flow can be tried without Workers AI
   SESSION_SECRET?: string;
   AI_GATEWAY_TOKEN?: string;
 }

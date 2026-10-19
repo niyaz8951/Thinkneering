@@ -40,6 +40,13 @@ export function neuronRate(model: string): [number, number] { return RATES[model
 
 export const NOT_AVAILABLE = "AI review is not available on this environment (no Workers AI binding). On the live site it is; locally run `npm run dev` with a Cloudflare login.";
 
+/* The AI review of a whole record (ai_review_run) is off unless AI_WHOLE_REVIEW = "1" (owner, 19 Oct 2026): people read
+   the specification clause by clause in Focus mode, where the AI proposes an answer for the clause on screen. */
+export function wholeReview(env: Env): boolean {
+  return env.AI_WHOLE_REVIEW === "1";
+}
+export const WHOLE_REVIEW_OFF = "The AI review of a whole specification is coming soon: its database is being built. Meanwhile, Focus mode proposes an answer for each clause as you read it.";
+
 export function aiAvailable(env: Env): boolean {
   return !!env.AI || env.AI_FAKE === "1";
 }

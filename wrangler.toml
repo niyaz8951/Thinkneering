@@ -22,6 +22,7 @@ run_worker_first = ["/api/*", "/", "/tools/*", "/sw.js", "/service-worker.js", "
 
 [vars]
 ENV_NAME = "production"
+# AI_WHOLE_REVIEW = "1"                # switches on the AI review of a whole record; off since 19 Oct 2026 (Focus mode only)
 AI_GATEWAY_ID = "default"               # AI > AI Gateway: the account's "default" gateway; calls fall back to Workers AI directly without it
 
 [[d1_databases]]

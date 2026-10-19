@@ -31,7 +31,7 @@ import { prProject, prLogHourly } from "../lib/project";
 import { CHOICES } from "../lib/cm";
 import { all, now, uuid, int, bool, batched, str, trimmed, sha256 } from "../lib/sql";
 import type { RunRow } from "./cm";
-import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, type AiUsage } from "../ai/models";
+import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, wholeReview, WHOLE_REVIEW_OFF, type AiUsage } from "../ai/models";
 import { ClauseSearch } from "../ai/search";
 import { loadContext, compareDatasheet, libraryConflict, type Context, type RunRowFull } from "../ai/evidence";
 import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai/decide";
@@ -151,6 +151,7 @@ export const routes: Routes = {
   async ai_review_run(env, p) {
     const s = await sessionUser(env, p.p_token);
     const r = await runFor(env, s, p.p_run_id, true);
+    if (!wholeReview(env)) fail(WHOLE_REVIEW_OFF, 403);
     if (!aiAvailable(env)) fail(NOT_AVAILABLE, 503);
     const limit = Math.min(Math.max(int(p.p_limit, 12), 1), 25), replace = bool(p.p_replace);
     const since = /^\d{4}-\d{2}-\d{2}T/.test(String(p.p_since || "")) ? String(p.p_since) : now();

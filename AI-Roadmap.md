@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026, afternoon - whole-record AI review off, Focus mode only
+The AI review button shows "coming soon"; `ai_review_run` refuses unless `AI_WHOLE_REVIEW = "1"` ([vars]). Focus-mode proposals (`ai_suggest`) stay on for every user. To switch the whole review back on: add the var and deploy.
+
 ### 19 Oct 2026 - base fixes and the master prompt's essence (built, branch `fixes-2026-10-19`)
 Reports: `Base-Flow-Test-2026-10-19.md`, `Master-Prompt-Integration.md`, `Rollout-Plan-2026-10-19.md`. Rules: standards A.13.8.
 - Datasheet evidence: every row of a key is an entry with its qualifier (Filter 1 / Filter 2, Supply / Return); newest table per unit; tables of another factory are skipped with a warning on the review.

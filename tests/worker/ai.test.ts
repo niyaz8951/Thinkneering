@@ -72,6 +72,22 @@ describe("AI review", () => {
     expect(await refused("ai_review_run", { p_token: t, p_run_id: loose.run_id })).toMatch(/not in a project/);
   });
 
+  it("switched off (no AI_WHOLE_REVIEW): the whole-record review is refused as coming soon, Focus mode proposals still work", async () => {
+    const t = await login("admin");
+    const { runId } = await project(t);
+    (env as any).AI = fakeAi(() => ({ compliance: "Noted", remarks: "", reason: "x", confidence: "low" })).ai;
+    const was = (env as any).AI_WHOLE_REVIEW;
+    delete (env as any).AI_WHOLE_REVIEW;
+    try {
+      expect(await refused("ai_review_run", { p_token: t, p_run_id: runId })).toMatch(/coming soon/);
+      expect((await ok("pr_run_get", { p_token: t, p_run_id: runId })).run.ai_whole).toBe(false);
+      const sug = await ok("ai_suggest", { p_token: t, p_run_id: runId, p_seqs: [1] });
+      expect(sug.ok).toBe(true);
+      const n = await env.DB.prepare("SELECT count(*) AS n FROM cm_run_lines WHERE run_id = ? AND ai_draft = 1").bind(runId).first<any>();
+      expect(n.n).toBe(0);
+    } finally { (env as any).AI_WHOLE_REVIEW = was; }
+  });
+
   it("without a model binding the status says so and the run is refused", async () => {
     const t = await login("admin");
     const { runId } = await project(t);

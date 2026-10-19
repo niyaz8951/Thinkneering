@@ -10,7 +10,7 @@ export default defineConfig({
         wrangler: { configPath: "./wrangler.toml" },
         remoteBindings: false,
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations, ENV_NAME: "test" }
+          bindings: { TEST_MIGRATIONS: migrations, ENV_NAME: "test", AI_WHOLE_REVIEW: "1" }
         }
       };
     })

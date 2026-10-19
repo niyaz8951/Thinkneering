@@ -10,7 +10,7 @@ import { cmNorm, isBody, rowKey, placeRows } from "../lib/cm";
 import { prProject, prCanShare, prLogStmt, prLog, prLogHourly, type ProjectRow } from "../lib/project";
 import { all, now, uuid, str, trimmed, tidy, int, bool, isArray, isObject, chunks, marks, batched } from "../lib/sql";
 import { runLine, dropUnusedLine, linesById, type LineRow, type RunRow } from "./cm";
-import { aiAvailable } from "../ai/models";
+import { aiAvailable, wholeReview } from "../ai/models";
 import { noteOnly } from "../ai/rules";
 
 /* One row of a record (cm_run_lines). */
@@ -398,6 +398,7 @@ export const routes: Routes = {
              can_comment: canComment,           // may write Internal Comments (pr_run_save_comment)
              can_review: s.prAdmin,                                 // may write TL Review (pr_run_save_review)
              can_ai: s.prAdmin, ai_available: aiAvailable(env),             // may run the AI review (ai_review_run); whether this environment has a model
+             ai_whole: wholeReview(env),                             // the whole-record review is switched on (off: "coming soon", Focus mode only)
              precedent },
       lines: lines.map((x) => ({
         seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text, can: x.line_id != null, own: x.compliance !== "" || x.remarks !== "",

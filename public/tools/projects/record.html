@@ -645,6 +645,11 @@
   function aiProgress(text) { $("rc-count").textContent = text; }
   function aiReview() {
     if (aiBusy) return;
+    // switched off for now (owner, 19 Oct 2026): people read clause by clause in Focus mode, where the AI proposes
+    if (!run.ai_whole) {
+      Hub.tell("The AI review of a whole specification is being prepared: its database is being built, and it will be available in the coming days.\n\nMeanwhile, open Focus mode: the AI proposes an answer for each clause as you read it.", { title: "AI review - coming soon" });
+      return;
+    }
     if (!run.ai_available) { Hub.tell("AI review is not available on this copy of the site. On the live site it is.", { title: "AI review" }); return; }
     var open = lines.filter(function (l) { return l.can && !filled(l); }).length, drafts = lines.filter(function (l) { return l.ai_draft; }).length;
     var replace = false, n = open, ask;
