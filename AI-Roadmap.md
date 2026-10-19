@@ -60,6 +60,16 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026 - base fixes and the master prompt's essence (built, branch `fixes-2026-10-19`)
+Reports: `Base-Flow-Test-2026-10-19.md`, `Master-Prompt-Integration.md`, `Rollout-Plan-2026-10-19.md`. Rules: standards A.13.8.
+- Datasheet evidence: every row of a key is an entry with its qualifier (Filter 1 / Filter 2, Supply / Return); newest table per unit; tables of another factory are skipped with a warning on the review.
+- Matching: topic gate in both copies of the matcher (parity script in `npm test`); `MATCH_VERSION` "2026-10-19 topics" clears the match cache; 0005 also empties it.
+- Comparison by code: conjunction (every part must pass), ranges, percentage only on the same metric, disagreeing groups settle nothing; a clean datasheet Comply has no remark.
+- Every draft passes `lockRemarks` (blank confirming remarks, scope line, needed remarks, banned wording -> low) and gets a priority GREEN / AMBER / RED; precedent of the same factory on the record; RED when a draft differs from it.
+- Library / project copies whose remark states a figure the datasheet does not show go low confidence.
+- Brief rewritten to 5 sections (~330 words); `PROMPT_VERSION` "draft-2026-10-19a". Two Excel downloads (consultant / working).
+- Acceptance on the Qiddiya pair (stand-in model): no false Comply from the datasheet, wrong VFD / filter links gone, both filters shown. Real-model agreement still to be measured with Check the AI after deploy.
+
 ### 16 Oct 2026, night (last) - the AHU rule book, and Facts (built)
 Owner: "upgrade the AHU AI rule book with the logic and rules of the walkthrough, based on Product Options and the specs."
 - `ai/template-ahu.ts`: 27 AHU rules (Part 1: fan selection, seismic design by others, submittals, contractor's
