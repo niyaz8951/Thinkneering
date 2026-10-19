@@ -40,6 +40,10 @@
   .po-chip.special b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); white-space: nowrap; }
   .po-chip.range { background: transparent; border-style: dashed; }
   .po-chip.off { text-decoration: line-through; opacity: .7; }
+  .po-chip.wait, .po-cellv.wait { background: var(--warn-bg); border: 1px dashed var(--warn); }
+  .po-cellv.wait { border-radius: 8px; padding: 1px 6px; }
+  .po-wait-tag { font-size: 11px; font-weight: 650; color: var(--warn); white-space: nowrap; }
+  #po-wait .row { gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
   .po-note { flex: 1 1 100%; margin: 0; padding: 6px 10px; border-left: 3px solid var(--brand); background: var(--surface-2);
              border-radius: 0 8px 8px 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .po-note .by, .po-chip .by { color: var(--text-soft); font-size: 12px; }
@@ -142,6 +146,7 @@
         </div>
       </div>
       <div class="notice" id="po-edit-note" hidden>Edit is on. Add a special option or a note to a section or a row, and take out values or rows that are not options (airflow, pressure drop). "Leave out row" applies to every factory of this product; everything else is for this factory only.</div>
+      <div class="notice warn" id="po-wait" role="status" hidden></div>
       <div class="notice error" id="po-error" role="alert" hidden></div>
       <div class="empty" id="po-empty" hidden></div>
       <div id="po-tree-host"></div>

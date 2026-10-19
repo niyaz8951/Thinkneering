@@ -22,6 +22,9 @@
    notes are per section or row, not per model: they sit in the last
    column of every series table, where editors add them.
    AHU trees have no models and stay as before.
+   Approval (19 Oct 2026): a value new to the factory waits ("to approve", v.wait) until the super
+   user or an admin of this tile approves it (Api.poAdminApprove); users, the Excel download and the
+   AI see only approved values. A rejected value is removed; seen again, it waits again.
    ============================================================ */
 (function () {
   'use strict';
@@ -32,7 +35,7 @@
 
   var productSel = $('po-product'), factorySel = $('po-factory'), search = $('po-search');
   var hint = $('po-hint'), result = $('po-result'), host = $('po-tree-host');
-  var products = [], tree = null, canEdit = false, closed = {}, expanded = {}, loadNo = 0, mapper = false;
+  var products = [], tree = null, canEdit = false, closed = {}, expanded = {}, loadNo = 0, mapper = false, onlyWait = false;
 
   function option(v, t) { return el('option', { value: v, text: t }); }
   function product() { return products.filter(function (p) { return p.id === productSel.value; })[0] || null; }
@@ -76,6 +79,7 @@
     return Api.poTree(window.Hub.token(), id).then(function (res) {
       if (no !== loadNo) return;
       tree = res; canEdit = !!res.can_edit;
+      if (!res.waiting) onlyWait = false;
       hint.className = 'hint'; hint.textContent = res.factory.product + ', ' + res.factory.name + ' factory.';
       $('po-edit-wrap').hidden = !canEdit;
       if (!canEdit) $('po-edit').checked = false;
@@ -90,8 +94,10 @@
   }
 
   /* ---------- flat lists from the database -> sections ---------- */
-  function build() {
-    var secs = [], by = {};
+  // whole = true: every value (the Excel download); otherwise, with "Only values to approve" on, just the values
+  // read from datasheets that wait for an admin's approval
+  function build(whole) {
+    var secs = [], by = {}, waitOnly = onlyWait && !whole;
     function sec(name) {
       var k = low(name);
       if (!by[k]) { by[k] = { name: name, rows: [], extras: [] }; secs.push(by[k]); }
@@ -100,10 +106,12 @@
     var rowBy = {};
     tree.rows.forEach(function (r) {
       var opt = /\|options\|option$/.test(r.key);      // the Options List lines of the section
-      var row = { key: r.key, sub: r.sub || '', name: opt ? 'From the options list' : r.component, off: !!r.hidden, values: r.values || [], extras: [] };
+      var vals = (r.values || []).filter(function (v) { return !waitOnly || v.wait; });
+      if (waitOnly && !vals.length) return;
+      var row = { key: r.key, sub: r.sub || '', name: opt ? 'From the options list' : r.component, off: !!r.hidden, values: vals, extras: [] };
       rowBy[r.key] = row; sec(r.section || 'General').rows.push(row);
     });
-    tree.extras.forEach(function (x) {
+    if (!waitOnly) tree.extras.forEach(function (x) {
       if (x.key && rowBy[x.key]) rowBy[x.key].extras.push(x); else sec(x.section).extras.push(x);
     });
     return secs;
@@ -166,6 +174,42 @@
 
   function xbtn(text, fn, danger) { return el('button', { type: 'button', 'class': 'po-x' + (danger ? ' danger' : ''), text: text, onclick: fn }); }
 
+  /* A value read from a datasheet waits for an admin (the super user or an admin of this tile) before it is a fact for
+     the factory: until then users, the Excel download and the AI do not see it. */
+  function waitTag(v, r, holder) {
+    holder.classList.add('wait');
+    holder.appendChild(el('b', { 'class': 'po-wait-tag', text: 'to approve' }));
+    if (!tree.can_approve) return;
+    var item = [{ key: r.key, model: v.model || '', value_key: v.k }];
+    holder.appendChild(xbtn('Approve', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: true }), 'Approved: "' + v.v + '" is now an option of the factory.'); }));
+    holder.appendChild(xbtn('Reject', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: false }), 'Rejected: "' + v.v + '" removed.'); }, true));
+  }
+  function waitBar() {
+    var bar = $('po-wait'), n = tree.waiting || 0;
+    bar.hidden = !n; bar.textContent = '';
+    if (!n) return;
+    bar.appendChild(el('p', { text: n + (n === 1 ? ' value' : ' values') + ' read from datasheets ' + (n === 1 ? 'waits' : 'wait') + ' for approval (marked "to approve"). ' +
+      (tree.can_approve ? 'Until you approve them, users and the AI do not see them; check them against the datasheet first.' : 'An admin of this tile approves them; until then users and the AI do not see them.') }));
+    var only = el('input', { type: 'checkbox' }); only.checked = onlyWait;
+    only.addEventListener('change', function () { onlyWait = only.checked; render(); });
+    var acts = [el('label', { 'class': 'check' }, [only, document.createTextNode(' Only values to approve')])];
+    if (tree.can_approve) {
+      acts.push(el('button', { type: 'button', 'class': 'btn sm', text: 'Approve all ' + n, onclick: function (e) {
+        var b = e.currentTarget;
+        window.Hub.confirm('Approve all ' + n + ' values that wait for ' + tree.factory.product + ', ' + tree.factory.name + '? They become options of the factory that users and the AI see.', { title: 'Approve all', ok: 'Approve all' }).then(function (yes) {
+          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: true }), n + ' values approved.');
+        });
+      } }));
+      acts.push(el('button', { type: 'button', 'class': 'btn ghost sm danger', text: 'Reject all', onclick: function (e) {
+        var b = e.currentTarget;
+        window.Hub.confirm('Remove all ' + n + ' values that wait? A value seen again on a later datasheet waits again.', { title: 'Reject all', ok: 'Reject all', danger: true }).then(function (yes) {
+          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: false }), n + ' values rejected.');
+        });
+      } }));
+    }
+    bar.appendChild(el('div', { 'class': 'row' }, acts));
+  }
+
   /* one form at a time: add or change a special option / note */
   function openForm(anchor, d) {
     var old = host.querySelector('.po-form'); if (old) old.remove();
@@ -221,11 +265,12 @@
   function rowNode(s, r, edit) {
     var vals = el('div', { 'class': 'po-vals' }), node = el('div', { 'class': 'po-row' + (r.off ? ' off' : '') });
     var shown = r.values, xk = (r.model || '') + '|' + r.key, all = expanded[xk] || edit || shown.length <= FEW;
-    var rg = shown.length > FEW ? range(shown.filter(function (v) { return !v.hidden; })) : '';
+    var rg = shown.length > FEW ? range(shown.filter(function (v) { return !v.hidden && !v.wait; })) : '';
     if (rg) vals.appendChild(el('span', { 'class': 'po-chip range', title: 'Lowest and highest value seen so far', text: rg }));
     (all ? shown : (rg ? [] : shown.slice(0, FEW))).forEach(function (v) {
       var c = el('span', { 'class': 'po-chip' + (v.hidden ? ' off' : '') }, [el('span', { text: v.v }), el('small', { text: times(v.n), title: 'Seen ' + v.n + (v.n === 1 ? ' time' : ' times') + ' on the datasheets run so far. A datasheet run again is counted again.' })]);
-      if (edit) c.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
+      if (v.wait) waitTag(v, r, c);
+      else if (edit) c.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
         busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, valueKey: v.k, model: v.model || '', hidden: !v.hidden }), v.hidden ? 'Value is back in the tree.' : 'Value taken out.');
       }));
       vals.appendChild(c);
@@ -360,12 +405,13 @@
           var mk = ln.marks[i], td = el('td', { 'class': mk ? 'diff d' + ((mk - 1) % 5 + 1) : null, title: mk ? 'Differs from ' + cols[0].model : null });
           var xk = cols[i].model + '|' + r.key, all = expanded[xk] || edit || vals.length <= 4;
           if (!vals.length) td.appendChild(el('span', { 'class': 'muted', text: '-' }));
-          var rg = vals.length > 4 ? range(vals.filter(function (v) { return !v.hidden; })) : '';
+          var rg = vals.length > 4 ? range(vals.filter(function (v) { return !v.hidden && !v.wait; })) : '';
           if (rg) td.appendChild(el('div', { 'class': 'po-cellv', text: rg }));
           (all ? vals : (rg ? [] : vals.slice(0, 4))).forEach(function (v) {
             var line = el('div', { 'class': 'po-cellv' + (v.hidden ? ' off' : '') }, [el('span', { text: v.v }),
               vals.length > 1 ? el('small', { text: ' ' + times(v.n), title: 'A datasheet run again is counted again.' }) : null]);
-            if (edit) line.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
+            if (v.wait) waitTag(v, r, line);
+            else if (edit) line.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
               busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, valueKey: v.k, model: v.model || '', hidden: !v.hidden }), v.hidden ? 'Value is back in the tree.' : 'Value taken out.');
             }));
             td.appendChild(line);
@@ -410,6 +456,7 @@
     var nRows = 0, nVals = 0, nExtra = tree.extras.length, drawn = 0, distinct = {};
     host.textContent = '';
     $('po-edit-note').hidden = !edit;
+    waitBar();
 
     var parts = [], series = modelMode() ? seriesList() : [];
     if (!modelMode()) {
@@ -452,7 +499,7 @@
     var facts = $('po-facts'); facts.textContent = '';
     [modelMode() ? series.length + (series.length === 1 ? ' series' : ' series') + ', ' + tree.models.length + (tree.models.length === 1 ? ' model' : ' models') : secs.length + (secs.length === 1 ? ' section' : ' sections'),
      nRows + (nRows === 1 ? ' component' : ' components'), nVals + (nVals === 1 ? ' value' : ' values'),
-     nExtra ? nExtra + ' special options and notes' : '', tree.updated ? 'Last datasheet ' + when(tree.updated) : '']
+     nExtra ? nExtra + ' special options and notes' : '', tree.waiting ? tree.waiting + ' to approve' : '', tree.updated ? 'Last datasheet ' + when(tree.updated) : '']
       .filter(Boolean).forEach(function (t) { facts.appendChild(el('span', { 'class': 'badge', text: t })); });
 
     var empty = $('po-empty'), nothing = !tree.rows.length && !tree.extras.length;
@@ -528,10 +575,10 @@
   $('po-open').addEventListener('click', function () { setAll(true); });
   $('po-close').addEventListener('click', function () { setAll(false); });
 
-  /* Excel: what a user sees (nothing that was taken out), one row per component */
+  /* Excel: what a user sees (nothing that was taken out, nothing that waits for approval), one row per component */
   $('po-download').addEventListener('click', function () {
     if (!tree) return;
-    var byModel = modelMode(), secs = build();
+    var byModel = modelMode(), secs = build(true);
     var rows = [(byModel ? ['Series', 'Model'] : []).concat(['Section', 'Sub-section', 'Component', 'Options seen on datasheets', 'Special options', 'Notes'])];
     function txt(list, kind) { return list.filter(function (x) { return x.kind === kind; }).map(function (x) { return x.body; }).join('\n'); }
     function block(model, series) {
@@ -540,7 +587,7 @@
         if (!model && s.extras.length) rows.push(lead.concat([s.name, '', '(whole section)', '', txt(s.extras, 'option'), txt(s.extras, 'note')]));
         s.rows.forEach(function (r) {
           if (r.off) return;
-          var vals = model ? r.values.filter(function (v) { return !v.hidden && v.model === model; }) : (byModel ? [] : r.values.filter(function (v) { return !v.hidden; }));
+          var vals = model ? r.values.filter(function (v) { return !v.hidden && !v.wait && v.model === model; }) : (byModel ? [] : r.values.filter(function (v) { return !v.hidden && !v.wait; }));
           var extras = model ? [] : r.extras;
           if (!vals.length && !extras.length) return;
           rows.push(lead.concat([s.name, r.sub, r.name, cellText(vals), txt(extras, 'option'), txt(extras, 'note')]));

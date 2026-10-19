@@ -6,7 +6,7 @@
 import type { Env } from "../env";
 import type { Routes } from "../router";
 import { fail } from "../errors";
-import { sessionUser, uuid } from "../auth";
+import { sessionUser, uuid, audit, type Session } from "../auth";
 import { cmFactory, factoriesOf, dnProduct } from "../lib/factory";
 import { all, now, str, trimmed, tidy, bool, isArray, isObject, chunks, marks, batched } from "../lib/sql";
 
@@ -41,8 +41,16 @@ export function poValue(rowKey: string, value: unknown): string {
 
 const MAX_VALUES = 300;   // distinct values kept per row, factory and model
 
+/* Who approves a value read from a datasheet before it counts as a fact for the factory (19 Oct 2026, migration
+   0007): the super user and the admins of the tile Product Options sits on. A wrong datasheet then cannot change
+   what users see or what the AI reads. */
+export function poApprover(s: Session): boolean {
+  const t = s.tool("product-options");
+  return s.isSuper || (!!t && s.isTileAdmin(t.category_id));
+}
+
 interface MapRow { row_key: string; section: string; sub: string; component: string; label: string; show: number; in_tree: number; sort: number }
-interface ValueRow { row_key: string; model: string; value_key: string; value: string; times: number; hidden: number; last_at: string }
+interface ValueRow { row_key: string; model: string; value_key: string; value: string; times: number; hidden: number; approved: number; last_at: string }
 interface ExtraRow { id: string; section: string; row_key: string; kind: string; body: string; created_at: string; updated_at: string; created_by: string | null; updated_by: string | null; by: string | null }
 
 export const routes: Routes = {
@@ -52,7 +60,8 @@ export const routes: Routes = {
      to case among the product's factories; model is the unit model for FCUs and empty for AHUs.
      Items whose factory is not a factory of the product, whose row is not shown by the row mapping,
      that are left out of the tree, or that describe the project (po__skip) are ignored. At most 300
-     different values are kept per row, factory and model; a value seen again counts once more. */
+     different values are kept per row, factory and model; a value seen again counts once more. A value new to the
+     factory waits for an admin's approval (approved = 0, poApprover) before users and the AI see it. */
   async po_collect(env, p) {
     await sessionUser(env, p.p_token);
     const prod = await dnProduct(env, p.p_product_id);
@@ -105,7 +114,7 @@ export const routes: Routes = {
           .bind(g.n, at, g.factory_id, g.row_key, g.model, g.value_key));
       } else if ((count.get(ck) || 0) < MAX_VALUES) {
         count.set(ck, (count.get(ck) || 0) + 1);
-        stmts.push(env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, value_key, value, times, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        stmts.push(env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, value_key, value, times, first_at, last_at, approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)")
           .bind(g.factory_id, g.row_key, g.model, g.value_key, g.value, g.n, at, at));
       }
     }
@@ -121,20 +130,24 @@ export const routes: Routes = {
   async po_get_tree(env, p) {
     const s = await sessionUser(env, p.p_token);
     const f = await cmFactory(env, p.p_factory_id);
-    const edit = s.canEdit("product-options");
+    const edit = s.canEdit("product-options"), approver = poApprover(s), seeWaiting = edit || approver;
     const [mapRes, valRes, extraRes] = await env.DB.batch([
       env.DB.prepare("SELECT row_key, section, sub, component, label, show, in_tree, sort FROM dn_map WHERE product_id = ? AND show = 1 ORDER BY sort, row_key").bind(f.product_id),
-      env.DB.prepare("SELECT row_key, model, value_key, value, times, hidden, last_at FROM po_values WHERE factory_id = ?").bind(f.id),
+      env.DB.prepare("SELECT row_key, model, value_key, value, times, hidden, approved, last_at FROM po_values WHERE factory_id = ?").bind(f.id),
       env.DB.prepare(`SELECT x.id, x.section, x.row_key, x.kind, x.body, x.created_at, x.updated_at, x.created_by, x.updated_by, w.full_name AS by
                         FROM po_extras x LEFT JOIN app_users w ON w.id = coalesce(x.updated_by, x.created_by)
                        WHERE x.factory_id = ? ORDER BY x.created_at, x.id`).bind(f.id)
     ]);
     const map = mapRes.results as unknown as MapRow[], values = valRes.results as unknown as ValueRow[], extras = extraRes.results as unknown as ExtraRow[];
     let updated: string | null = null;
-    const byRow = new Map<string, ValueRow[]>();
+    const byRow = new Map<string, ValueRow[]>(), seen: ValueRow[] = [];
+    let waiting = 0;
     for (const v of values) {
+      if (!v.approved && !v.hidden) waiting++;
+      if (!v.approved && !seeWaiting) continue;           // not a fact yet: only editors and approvers see it
       if (updated === null || v.last_at > updated) updated = v.last_at;
       if (!edit && v.hidden) continue;
+      seen.push(v);
       (byRow.get(v.row_key) || byRow.set(v.row_key, []).get(v.row_key)!).push(v);
     }
     const extraKeys = new Set(extras.map((x) => x.row_key));
@@ -145,11 +158,11 @@ export const routes: Routes = {
         .sort((a, b) => a.model.localeCompare(b.model) || (b.times - a.times) || a.value_key.localeCompare(b.value_key));
       if (!list.length && !extraKeys.has(m.row_key)) continue;
       rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree,
-        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model })) });
+        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, wait: !v.approved })) });
     }
     // models: per model, the most units any one row counted (sum of times per row, max over rows)
     const perRow = new Map<string, number>();
-    for (const v of values) if (v.model !== "") { const k = v.model + "\u0001" + v.row_key; perRow.set(k, (perRow.get(k) || 0) + v.times); }
+    for (const v of seen) if (v.model !== "") { const k = v.model + "\u0001" + v.row_key; perRow.set(k, (perRow.get(k) || 0) + v.times); }
     const units = new Map<string, number>();
     for (const [k, n] of perRow) { const model = k.split("\u0001")[0]; units.set(model, Math.max(units.get(model) || 0, n)); }
     const models = [...units].map(([model, n]) => ({ model, series: poSeries(model), units: n }))
@@ -164,6 +177,8 @@ export const routes: Routes = {
     return {
       factory: { id: f.id, name: f.name, product_id: f.product_id, product: f.product },
       can_edit: edit,
+      can_approve: approver,
+      waiting: seeWaiting ? waiting : 0,                  // values read from datasheets that wait for an admin
       updated,
       rows,
       models,
@@ -217,5 +232,40 @@ export const routes: Routes = {
       : await env.DB.prepare("UPDATE po_values SET hidden = ? WHERE factory_id = ? AND row_key = ? AND model = ? AND value_key = ?").bind(hidden, f.id, rowKey, str(p.p_model), valueKey).run();
     if (!r.meta.changes) fail("That row no longer exists. Refresh the page.");
     return { ok: true };
+  },
+
+  /* Approve values read from datasheets (they become facts for the factory: users, the Excel download and the AI see
+     them) or reject them (deleted; seen again on a later datasheet, a value waits again). The super user and the
+     admins of the tile Product Options sits on.
+       p_items: [{ key, model, value_key }] the values; or p_all: true = every value of the factory that waits. */
+  async po_admin_approve(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    if (!poApprover(s)) fail("Only the super user or an admin of the tile Product Options sits on approves values.");
+    const f = await cmFactory(env, p.p_factory_id);
+    const approve = bool(p.p_approve), at = now();
+    let n = 0;
+    if (bool(p.p_all)) {
+      const r = approve
+        ? await env.DB.prepare("UPDATE po_values SET approved = 1, approved_by = ?, approved_at = ? WHERE factory_id = ? AND approved = 0").bind(s.id, at, f.id).run()
+        : await env.DB.prepare("DELETE FROM po_values WHERE factory_id = ? AND approved = 0").bind(f.id).run();
+      n = r.meta.changes || 0;
+    } else {
+      if (!isArray(p.p_items) || !p.p_items.length) fail("Choose the values first.");
+      if (p.p_items.length > 500) fail("Approve up to 500 values at a time.");
+      const stmts = p.p_items.map((raw) => {
+        const o = isObject(raw) ? raw : {};
+        return approve
+          ? env.DB.prepare("UPDATE po_values SET approved = 1, approved_by = ?, approved_at = ? WHERE factory_id = ? AND row_key = ? AND model = ? AND value_key = ? AND approved = 0")
+              .bind(s.id, at, f.id, str(o.key), str(o.model), str(o.value_key))
+          : env.DB.prepare("DELETE FROM po_values WHERE factory_id = ? AND row_key = ? AND model = ? AND value_key = ? AND approved = 0")
+              .bind(f.id, str(o.key), str(o.model), str(o.value_key));
+      });
+      const res = await env.DB.batch(stmts);
+      n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+    }
+    if (!n) fail("Nothing waits for approval there any more. Refresh the page.");
+    await audit(env, s.id, approve ? "po_approve" : "po_reject", f.id, "", { values: n, all: bool(p.p_all), items: bool(p.p_all) ? [] : p.p_items });
+    return { ok: true, changed: n };
   }
+
 };

@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026, evening - Product Options values approved by an admin
+The AI reads only approved Product Options values (`evidence.ts`: `approved = 1`), so a wrong datasheet cannot teach it a false option.
+
 ### 19 Oct 2026, evening - AI notes moved from Product Options to Maps
 Migration 0006 moves every AI note into the factory's knowledge map (verified branches); the AI reads them there as [K] knowledge. Product Options: datasheet values, special options and notes only.
 

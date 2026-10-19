@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { ok, refused, login, resetLogins, USERS } from "./helpers";
+import { ok, refused, rpc, login, resetLogins, USERS } from "./helpers";
 import { poSkip, poModel, poSeries, poValue } from "../../worker/src/api/po";
 
 /* A plain user given "Can edit" for Product Options (the grant is read on every request). */
@@ -159,6 +159,12 @@ describe("dn_* routes", () => {
   });
 });
 
+/* Values read from datasheets wait for an admin (migration 0007): the super user approves every waiting value. */
+async function approveAll(factoryId: string) {
+  const a = await login("admin");
+  await rpc("po_admin_approve", { p_token: a, p_factory_id: factoryId, p_all: true, p_approve: true });
+}
+
 describe("po_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
@@ -239,6 +245,7 @@ describe("po_* routes", () => {
       { factory: "Shenzhen", key: "unit data||panel", value: "C", model: "FWW700VA-D" },
       { factory: "Shenzhen", key: "general||power supply", value: "230V", model: "FWW600VA" }
     ] });
+    await approveAll("fcu-shenzhen");
     const e = await poEditor();
     await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "fcu-shenzhen", p_row_key: "unit data||panel", p_value_key: "b", p_model: "FWW400VA", p_hidden: true });
     await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "fcu-shenzhen", p_row_key: "unit data||insulation", p_value_key: "", p_hidden: true });
@@ -254,7 +261,7 @@ describe("po_* routes", () => {
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
     expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, values: [
-      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA" }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D" }
+      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", wait: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
     expect(u.models).toEqual([
@@ -276,8 +283,9 @@ describe("po_* routes", () => {
     await mapping(e);
     await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_show_unmapped: true, p_rules: [{ key: "unit data||panel", section: "Unit data", component: "Panel", show: true, label: "Panel thickness" }] });
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
+    await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "" }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", wait: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -307,10 +315,42 @@ describe("po_* routes", () => {
     expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" })).extras).toEqual([]);
   });
 
+  it("approval: a value new to the factory waits; only the super user or a General admin approves or rejects it; users and the AI see approved values only", async () => {
+    const t = await login("sbu");
+    await mapping(t);
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }, { factory: "Dubai", key: "unit data||insulation", value: "Foam", model: "" }] });
+    const plain = await login("sales");
+    const pu = await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" });
+    expect(pu.rows).toEqual([]);                                   // nothing approved yet: a user sees nothing
+    expect(pu.waiting).toBe(0);
+    const e = await poEditor();                                    // an editor sees what waits but cannot approve
+    const pe = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
+    expect(pe).toMatchObject({ can_approve: false, waiting: 2 });
+    expect(pe.rows.flatMap((r: any) => r.values.map((v: any) => [v.v, v.wait]))).toEqual([["62 mm", true], ["Foam", true]]);
+    const item = { key: "unit data||panel", model: "", value_key: "62 mm" };
+    expect(await refused("po_admin_approve", { p_token: e, p_factory_id: "ahu-dubai", p_items: [item], p_approve: true })).toMatch(/super user or an admin/);
+    expect(await refused("po_admin_approve", { p_token: plain, p_factory_id: "ahu-dubai", p_all: true, p_approve: true })).toMatch(/super user or an admin/);
+    expect(await refused("po_admin_approve", { p_token: "nope", p_factory_id: "ahu-dubai", p_all: true, p_approve: true })).toBe("SESSION_EXPIRED");
+    const ta = await login("teamAdmin");                           // admin of the General tile Product Options sits on
+    expect((await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-dubai" })).can_approve).toBe(true);
+    expect((await ok("po_admin_approve", { p_token: ta, p_factory_id: "ahu-dubai", p_items: [item], p_approve: true })).changed).toBe(1);
+    expect(await refused("po_admin_approve", { p_token: ta, p_factory_id: "ahu-dubai", p_items: [item], p_approve: true })).toMatch(/Nothing waits/);
+    expect((await ok("po_admin_approve", { p_token: ta, p_factory_id: "ahu-dubai", p_items: [{ key: "unit data||insulation", model: "", value_key: "foam" }], p_approve: false })).changed).toBe(1);
+    const after = await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" });
+    expect(after.rows.flatMap((r: any) => r.values.map((v: any) => v.v))).toEqual(["62 mm"]);
+    // seen again: the approved value stays approved and counts once more; the rejected one waits again
+    await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }, { factory: "Dubai", key: "unit data||insulation", value: "Foam", model: "" }] });
+    const rows = (await env.DB.prepare("SELECT value, times, approved, approved_by FROM po_values WHERE factory_id = 'ahu-dubai' ORDER BY value").all<any>()).results;
+    expect(rows).toEqual([{ value: "62 mm", times: 2, approved: 1, approved_by: USERS.teamAdmin.id }, { value: "Foam", times: 1, approved: 0, approved_by: null }]);
+    const aud = await env.DB.prepare("SELECT action FROM app_audit WHERE action IN ('po_approve', 'po_reject') ORDER BY rowid").all<any>();
+    expect(aud.results.map((x: any) => x.action)).toEqual(["po_approve", "po_reject"]);
+  });
+
   it("po_admin_set_hidden: editors only; a row for every factory of the product, a value for one factory and model", async () => {
     const e = await poEditor();
     await mapping(e);
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }, { factory: "Riyadh", key: "unit data||panel", value: "62 mm", model: "" }] });
+    await approveAll("ahu-dubai"); await approveAll("ahu-riyadh");
     const plain = await login("sales");
     expect(await refused("po_admin_set_hidden", { p_token: plain, p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "62 mm", p_hidden: true })).toMatch(/Edit access/);
     await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "62 mm", p_model: "", p_hidden: true });

@@ -100,7 +100,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
     env.DB.prepare("SELECT row_key, section, sub, component, show, label, keywords, strip, response FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),
     env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
-    env.DB.prepare("SELECT row_key, value, times FROM po_values WHERE factory_id = ? AND hidden = 0 ORDER BY times DESC").bind(run.factory_id),
+    env.DB.prepare("SELECT row_key, value, times FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
     env.DB.prepare("SELECT section, row_key, kind, body FROM po_extras WHERE factory_id = ? ORDER BY created_at").bind(run.factory_id),
     // other projects' answers of this factory, by people (newest first; the cap keeps the work small)
     env.DB.prepare(`SELECT rl.spec_text, rl.compliance, rl.remarks, rl.answered_by, rl.review, p.name AS project
