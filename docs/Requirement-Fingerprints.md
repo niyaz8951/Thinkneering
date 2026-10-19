@@ -93,6 +93,41 @@ People's time: about 2 weeks of an engineer over phases 1 to 3 to verify the voc
 3. Capability vs project selection: a datasheet value says what was selected for one project, not what the factory offers. Proposed: datasheet values seed capabilities as "seen", an admin decides "standard" or "option".
 4. Order: AHU first, FCU and Chiller after phase 3.
 
+## 6a. The vocabulary grows from every spec (owner, 19 Oct 2026)
+
+Every spec run teaches the vocabulary. The AI reads what code could not place and proposes where it belongs; an admin decides with one click.
+
+**After each record is converted (background job, within the daily AI budget):**
+1. Collect the clauses with no type or low confidence, and the landmarks code found in them (a standard, a class, a value with a unit, component words).
+2. Group them across specs: clauses with the same landmarks and close wording form one group, so the AI looks at a group once, not at every clause.
+3. For each group the AI proposes exactly one of:
+   - **a synonym** of an existing type ("air tightness" -> `casing.air_leakage_class`) - the most common case;
+   - **a new type** under an existing component (`heat_wheel.purge_sector`), with kind, unit family, direction and scale;
+   - **a new component** (rare);
+   - **descriptive** - nothing measurable, left to the library and the AI's answers.
+   Each proposal carries its evidence: the clauses (with project and Sr), how many specs and how many consultants used the wording.
+4. Proposals land in the teach queue, strongest first (seen in most specs, from most consultants).
+
+**Approval (an admin, the same people as for Product Options and Maps):**
+- Approve, edit or reject; several at once for synonyms of one type.
+- A rejected proposal is remembered and not proposed again for the same wording.
+- Approved terms are used at once: the clauses of the group (and of earlier specs) get their type, and their verdicts are worked out again.
+
+**What the AI may never do alone:**
+- Merge or rename types, or change a scale or a direction.
+- Create or change a capability (what the factory offers).
+- Let a proposed term decide a Comply. Until approved, a proposed term may show a chip marked "proposed" and link a datasheet row for the reader, nothing more.
+
+**Learning from people as well as from specs:**
+- A person who changes a clause's type on the record page, or overrides a verdict, adds a proposal (with that clause as evidence).
+- Three agreeing corrections on the same wording rank the proposal first.
+
+**What to expect:** the vocabulary grows fast over the first 10 to 20 specs and then flattens, because consultants reuse the same few hundred requirements in different words. The record page and the Requirements page show the curve: share of clauses typed per spec, proposals waiting, proposals approved per week. A flat curve with a short queue means the vocabulary has learned the product.
+
+**Tables:** `rq_proposals` (kind, target type or component, term or definition JSON, evidence JSON, specs, consultants, status, decided_by, decided_at) and `rq_rejected` (normalised wording, type) - part of migration 0008.
+
+**Phase:** the queue and code-made proposals (repeated landmarks) come with phase 1; AI-made proposals with phase 3, once the model is reading the clauses anyway.
+
 ## 7. Limits
 - Clauses with no landmarks ("designed for easy maintenance") stay with the library and the AI.
 - A missed landmark means a missed match, not a wrong answer: it fails safe.
