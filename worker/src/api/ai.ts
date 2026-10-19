@@ -33,7 +33,7 @@ import { all, now, uuid, int, bool, batched, str, trimmed, sha256 } from "../lib
 import type { RunRow } from "./cm";
 import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, wholeReview, WHOLE_REVIEW_OFF, type AiUsage } from "../ai/models";
 import { ClauseSearch } from "../ai/search";
-import { loadContext, compareDatasheet, libraryConflict, type Context, type RunRowFull } from "../ai/evidence";
+import { loadContext, compareDatasheet, libraryConflict, picksFor, type Context, type RunRowFull } from "../ai/evidence";
 import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai/decide";
 import { aiMapFor, createAiMap, upgradeAiMap, instructionsText } from "../ai/map";
 import { learnToMaps } from "../ai/learn";
@@ -140,6 +140,33 @@ export const routes: Routes = {
       console.error("ai_check", e);
       return { ok: true, working: false, model: MODELS.draft, message: aiErrorText(e).text };
     }
+  },
+
+  /* The selection list (owner, 19 Oct 2026): for a record whose project has no datasheet of its product, every
+     datasheet row the clauses ask about, what they ask, and the approved Product Options value to select in the
+     selection software (the closest that meets), with the spec lines. Code only, no model; anyone who can open the
+     record. The working Excel prints it as its second sheet; the record page shows the picks beside the clauses. */
+  async pr_run_selection(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    const r = await runFor(env, s, p.p_run_id, false);
+    const rows = await rowsOf(env, r.id);
+    const ctx = await loadContext(env, info(r), rows);
+    type Line = { seq: number; sr: string; spec: string; required: string[]; status: string; pick: string; reason: string };
+    type Group = { key: string; section: string; component: string; candidates: { value: string; times: number }[]; lines: Line[] };
+    const groups = new Map<string, Group>(), bySeq: Record<number, { component: string; status: string; pick: string; reason: string }[]> = {};
+    for (const x of rows) {
+      for (const pk of picksFor(ctx, x)) {
+        const g = groups.get(pk.key) || { key: pk.key, section: pk.section, component: pk.component, candidates: pk.candidates, lines: [] };
+        g.lines.push({ seq: x.seq, sr: x.sr, spec: x.spec_text.slice(0, 300), required: pk.required, status: pk.status, pick: pk.pick, reason: pk.reason });
+        groups.set(pk.key, g);
+        (bySeq[x.seq] = bySeq[x.seq] || []).push({ component: pk.component, status: pk.status, pick: pk.pick, reason: pk.reason });
+      }
+    }
+    // in the row mapping's order (the order of a datasheet)
+    const order = new Map<string, number>();
+    (await all<{ row_key: string; sort: number }>(env.DB.prepare("SELECT row_key, sort FROM dn_map WHERE product_id = ?").bind(r.product_id))).forEach((m) => order.set(m.row_key, m.sort));
+    const list = [...groups.values()].sort((a, b) => (order.get(a.key) ?? 1e9) - (order.get(b.key) ?? 1e9) || a.key.localeCompare(b.key));
+    return { ok: true, has_sheet: ctx.hasSheet, factory: r.factory, rows: list, by_seq: bySeq };
   },
 
   async ai_review_status(env, p) {

@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 19 Oct 2026 (late night): project page leads with the datasheet (optional) then the specification; without a datasheet the clauses get the closest approved Product Options values (AMBER proposals, dashed chips) and the working Excel a Selection list sheet; reset script and the end-to-end walkthrough (`docs/End-to-End-Walkthrough.md`) for the owner's from-scratch test.
 - 19 Oct 2026 (night): unique project codes (migration 0008) and the library filter / download by code. Two maps, two jobs: the rule book holds only instructions and if / then rules; a new vocabulary map holds the product (types, terms, equivalences, capabilities). Source order: datasheet, Product Options, library, vocabulary map; the vocabulary also identifies each clause first. 10-line experiment and roadmap: `docs/Vocabulary-Experiment-2026-10-19.md`.
 - 19 Oct 2026 (evening, later): values read from datasheets wait for an admin's approval before they are options of the factory (migration 0007); existing values stay approved.
 - 19 Oct 2026 (evening): Product Options keeps only datasheet values and special options / notes; AI notes moved to Maps (migration 0006, knowledge map per factory). Owner runs `npx wrangler d1 migrations apply DB --remote` after the push.

@@ -259,6 +259,41 @@ describe("AI rules: routes", () => {
     expect(await refused("ai_map_get", { p_token: "nope", p_product_id: "ahu" })).toBe("SESSION_EXPIRED");
   });
 
+  it("no datasheet: the closest approved Product Options value is proposed (never green) and the selection list says what to select (19 Oct 2026)", async () => {
+    const t = await login("admin");
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||panel', 'Unit Data', 'Panel', 1, 'double wall; double skin; panel thick', 1)"),
+      env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, value_key, value, times, approved) VALUES ('ahu-dubai', 'unit data||panel', '', '62 mm', '62 mm', 31, 1)"),
+      env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, value_key, value, times, approved) VALUES ('ahu-dubai', 'unit data||panel', '', '50 mm', '50 mm', 3, 1)"),
+      env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, value_key, value, times, approved) VALUES ('ahu-dubai', 'unit data||panel', '', '45 mm', '45 mm', 9, 0)")   // waits for approval: never used
+    ]);
+    const p = await ok("pr_save", { p_token: t, p_name: "No sheet", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
+    const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "text", p_file_name: "spec", p_lines: SPEC_LINES, p_project_id: p.id });
+    const rec = await ok("pr_run_get", { p_token: t, p_run_id: run.run_id });
+    const casing = rec.lines.find((l: any) => /^Casing shall be double skin/.test(l.spec));
+    const fake = fakeAi(() => ({ compliance: "Noted", remarks: "", reason: "x", confidence: "low" }));
+    (env as any).AI = fake.ai;
+    const sug = await ok("ai_suggest", { p_token: t, p_run_id: run.run_id, p_seqs: [casing.seq] });
+    const s0 = sug.suggestions.find((x: any) => x.seq === casing.seq);
+    expect(s0).toMatchObject({ source: "options", compliance: "Comply", remarks: "", confidence: "medium" });
+    expect(s0.reason).toMatch(/No datasheet in this project\. From the approved Product Options of Dubai: Panel: 50 mm \(seen 3×\) meets 50 mm/);
+    expect(fake.calls.length).toBe(0);                             // code, no model
+    // the selection list: what to select, the values seen (approved only), the spec line
+    const sel = await ok("pr_run_selection", { p_token: t, p_run_id: run.run_id });
+    expect(sel).toMatchObject({ has_sheet: false, factory: "Dubai" });
+    const panel = sel.rows.find((r: any) => r.key === "unit data||panel");
+    expect(panel.candidates.map((c: any) => c.value)).toEqual(["62 mm", "50 mm"]);
+    expect(panel.lines.find((l: any) => l.seq === casing.seq)).toMatchObject({ status: "meets", pick: "50 mm", required: ["50 mm"] });
+    expect(sel.by_seq[casing.seq][0]).toMatchObject({ component: "Panel", status: "meets", pick: "50 mm" });
+    // with a datasheet in the project, the datasheet decides and the list says so
+    await ok("pr_note_save", { p_token: t, p_project_id: p.id, p_product_id: "ahu", p_file_names: "sel.pdf", p_columns: ["AHU-01"],
+      p_rows: [{ section: "Unit Data", component: "Panel", cells: ["62 mm"], kind: "row", key: "unit data||panel" }] });
+    expect((await ok("pr_run_selection", { p_token: t, p_run_id: run.run_id })).has_sheet).toBe(true);
+    // who may ask: anyone who can open the record
+    expect(await refused("pr_run_selection", { p_token: await login("sbu"), p_run_id: run.run_id })).toBeTruthy();
+    expect(await refused("pr_run_selection", { p_token: "nope", p_run_id: run.run_id })).toBe("SESSION_EXPIRED");
+  });
+
   it("the review: datasheet first by code, library reopened when the datasheet differs, map rules, the model last; suggestions and feedback; '#' rules hidden", async () => {
     const t = await login("admin");
     await env.DB.batch([

@@ -45,6 +45,8 @@
              padding: 3px 10px; border-radius: 999px; color: var(--text); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent); }
   .rc-chip b { font-weight: 650; color: var(--brand); } .rc-chip span { overflow-wrap: anywhere; }
   .rc-chip:hover { border-color: var(--brand); }
+  .rc-chip.opt { background: transparent; border-style: dashed; }                       /* no datasheet: what to select, from Product Options */
+  .rc-chip.opt.miss b { color: var(--warn); }
   .rc-tools { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; }
   .rc-tool { font: inherit; font-size: 12px; font-weight: 600; color: var(--brand); background: none; border: 0; padding: 2px 0; cursor: pointer; }
   .rc-tool:hover, .rc-tool:focus-visible { text-decoration: underline; }
@@ -122,7 +124,7 @@
 (function () {
   "use strict";
   var el = Hub.el, $ = function (id) { return document.getElementById(id); };
-  var runId = Hub.param("run"), run = null, lines = [], editing = false, match = null, sheetOf = {};
+  var runId = Hub.param("run"), run = null, lines = [], editing = false, match = null, sheetOf = {}, selection = null, optOf = {};
 
   function when(iso) { var d = new Date(iso); return isNaN(d) ? "" : Hub.date(iso); }
   function bare(name) { return String(name || "").replace(/\.[A-Za-z0-9]{1,5}$/, "") || "Pasted text"; }
@@ -280,7 +282,7 @@
       return el("button", { type: "button", "class": "rc-chip", title: "From the datasheet. Press to see what the factory offers for this row.", onclick: function () {
         PROptions.open({ productId: run.product_id, product: run.product, factory: match.factory, key: d.key, section: d.section, component: d.component, values: d.cells });
       } }, [el("b", { text: d.component }), el("span", { text: valueText(d.cells) })]);
-    })) : null;
+    })) : optChips(l);
     var state = el("span", { "class": "state" + (l.ai_draft ? " ai" : ""), text: stateText(l) }), reason = why(l);
     var rowClass = !l.own && filled(l) ? " lib" : l.ai_draft ? " ai" : "";
 
@@ -553,11 +555,30 @@
   /* Sheet 2 of the Excel: every datasheet row with the clause that asks about it and, when the
      project has the datasheet, what each unit has. Without a datasheet every mapped row is listed. */
   function sheet2() {
+    if (match && !match.hasNotes && selection && selection.rows && selection.rows.length) return selectionSheet();
     if (!match || !match.table.length) return null;
     var s = "";
     var rows = match.hasNotes ? PRMatch.sheetRows(match, false)
       : match.table.map(function (r) { var first = r.section !== s; s = r.section; return { section: first ? r.section : "", component: r.component, text: r.spec, kind: r.kind, cells: [] }; });
     return rows.length ? { name: "Datasheet rows", columns: match.columns, rows: rows } : null;
+  }
+  /* Without a datasheet: the Selection list. One line per datasheet row the specification asks about: what it asks
+     (with the Sr), the value to select in the selection software (the closest approved Product Options value that meets
+     it), and the values the factory has shown so far. */
+  function selectionSheet() {
+    var s = "", rows = [];
+    selection.rows.forEach(function (g) {
+      var picks = [], asks = [];
+      g.lines.forEach(function (x) {
+        var p = x.status === "not seen" ? "Not seen yet: ask the factory" : x.pick ? x.pick + (x.status === "meets" ? "" : " (only value seen)") : "Choose: " + g.candidates.slice(0, 3).map(function (c) { return c.value; }).join(" / ");
+        if (picks.indexOf(p) < 0) picks.push(p);
+        asks.push((x.sr ? x.sr + ". " : "") + (x.required.length ? "asks " + x.required.join(", ") + " - " : "") + x.spec.slice(0, 160));
+      });
+      var first = g.section !== s; s = g.section;
+      rows.push({ section: first ? g.section : "", component: g.component, text: asks.join("\n"),
+                  cells: [picks.join(" / "), g.candidates.map(function (c) { return c.value + " (" + c.times + "x)"; }).join(", ")] });
+    });
+    return { name: "Selection list", columns: ["Select in the software", "Options seen (" + selection.factory + ")"], rows: rows };
   }
   /* Two files (master prompt v4.1): the consultant's, with the four columns and nothing internal, where an AI draft no
      person has checked is left blank and the name ends in _DRAFT while any clause is open; and the working copy. */
@@ -609,9 +630,37 @@
   });
 
   // the datasheet rows this specification talks about, and their values when the project has the datasheet
+  /* No datasheet in the project: what to select in the selection software for the rows a clause is about, from the
+     factory's approved Product Options (pr_run_selection): the closest value that meets the clause. */
+  function optChips(l) {
+    var picks = optOf[l.seq] || [];
+    if (!picks.length) return null;
+    return el("div", { "class": "rc-sheet" }, picks.map(function (p) {
+      var text = p.status === "not seen" ? "none seen meets it: ask the factory" : p.pick ? "select " + p.pick : p.reason;
+      return el("span", { "class": "rc-chip opt" + (p.status === "not seen" ? " miss" : ""), title: "No datasheet in this project. From the approved Product Options of " + run.factory + ": " + p.reason + "." },
+        [el("b", { text: p.component }), el("span", { text: text })]);
+    }));
+  }
+  function loadSelection() {
+    Api.prRunSelection(Hub.token(), runId).then(function (res) {
+      selection = res; optOf = res.by_seq || {};
+      var n = Object.keys(optOf).length, note = $("rc-sheet-note");
+      if (!res.has_sheet && n) {
+        note.hidden = false;
+        note.textContent = "No " + run.product + " datasheet in this project. " + n + (n === 1 ? " clause shows" : " clauses show") + " what to select in the selection software (dashed chips: the closest approved " +
+          run.factory + " Product Options value that meets the clause). The working Excel lists them on its Selection list sheet. Read the datasheet into the project once the units are selected.";
+        if (!CMFocus.isOpen()) settled().then(function () {
+          var a = document.activeElement;
+          if (a && $("rc-body").contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) { chipsDue = true; return; }
+          draw();
+        });
+      }
+    }, function () { /* the specification still reads and fills without it */ });
+  }
   function loadMatch() {
     PRMatch.load({ projectId: run.project_id, productId: run.product_id, specRows: lines.map(function (l) { return { type: l.type, sr: l.sr, spec: l.spec }; }) }).then(function (m) {
       match = m; sheetOf = {};
+      if (!m.hasNotes) loadSelection();
       m.table.forEach(function (r) { if (r.kind === "row" && r.found && m.hasNotes) r.lines.forEach(function (i) { (sheetOf[i] = sheetOf[i] || []).push(r); }); });
       var n = Object.keys(sheetOf).length, note = $("rc-sheet-note");
       note.hidden = false;

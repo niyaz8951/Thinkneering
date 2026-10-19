@@ -117,11 +117,23 @@
       <section aria-labelledby="h-tools">
         <h2 id="h-tools" style="margin-bottom:10px">Add to this project</h2>
         <div class="grid" id="pj-tiles"></div>
-        <p class="hint">Blue: the project already holds this. Grey: nothing yet. Whatever you add here is saved in this project.</p>
+        <p class="hint">Read the datasheet first (optional), then add the specification: its clauses are compared with the units' values. Without a datasheet, the clauses get the closest values the factory offers and the working Excel lists what to select. Blue: the project already holds this. Grey: nothing yet.</p>
+      </section>
+
+      <section class="card stack" aria-labelledby="h-notes">
+        <h2 id="h-notes">1. Datasheet notes <span class="small muted">(optional, first)</span></h2>
+        <p class="small muted">One table per datasheet run. Click a name to view it. These stay in the project; they are not part of the compliance library.</p>
+        <div class="empty" id="pj-notes-empty" hidden></div>
+        <div class="table-wrap" id="pj-notes-wrap" hidden>
+          <table class="table pj-table">
+            <thead><tr><th>Datasheet</th><th>Product</th><th>Size</th><th>By</th><th></th></tr></thead>
+            <tbody id="pj-notes"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="card stack" aria-labelledby="h-runs">
-        <h2 id="h-runs">Compliance records</h2>
+        <h2 id="h-runs">2. Compliance records</h2>
         <p class="small muted">One record per converted specification, grouped by product. Click a name to read it and fill Compliance and Remarks online, or upload the Excel you filled. Your answers are kept in the project; new ones go to the library team for review.</p>
         <div class="notice" id="pj-up-msg" role="status" aria-live="polite" hidden></div>
         <div class="empty" id="pj-runs-empty" hidden></div>
@@ -138,18 +150,6 @@
         <h2 id="h-compare">Specification beside datasheet</h2>
         <p class="small muted">What the specification asks for, next to what each unit has, row by row.</p>
         <div class="row" id="pj-compare"></div>
-      </section>
-
-      <section class="card stack" aria-labelledby="h-notes">
-        <h2 id="h-notes">Datasheet notes</h2>
-        <p class="small muted">One table per datasheet run. Click a name to view it. These stay in the project; they are not part of the compliance library.</p>
-        <div class="empty" id="pj-notes-empty" hidden></div>
-        <div class="table-wrap" id="pj-notes-wrap" hidden>
-          <table class="table pj-table">
-            <thead><tr><th>Datasheet</th><th>Product</th><th>Size</th><th>By</th><th></th></tr></thead>
-            <tbody id="pj-notes"></tbody>
-          </table>
-        </div>
       </section>
 
       <section class="card stack" aria-labelledby="h-log">
@@ -199,10 +199,12 @@
     var title, sub, acts = [], eyebrow = "Next step";
     function act(text, href, ghost) { acts.push(el("a", { "class": "btn" + (ghost ? " ghost" : ""), href: href, text: text })); }
     var addSpec = "add-spec.html?project=" + encodeURIComponent(id), addSheet = "../datasheet-notes/index.html?project=" + encodeURIComponent(id);
+    // datasheet first (optional), then the specification: its clauses are then filled from the units' values
     if (!runs.length && !data.notes.length) {
-      title = "Add the specification"; sub = "Give the PDF or paste the text. The clauses come ready to fill, with the answers the company already has.";
-      if (hasTool("compliance-maker")) act("Add a specification", addSpec);
-      if (hasTool("datasheet-notes")) act("Read a datasheet", addSheet, true);
+      eyebrow = "Step 1 of 2 (optional)";
+      title = "Read the datasheet first"; sub = "Read the selection datasheet before the specification: the clauses are then compared with the selected units' values. No datasheet yet? Add the specification: the clauses get the closest values the factory offers (Product Options) and the Excel lists what to select.";
+      if (hasTool("datasheet-notes")) act("Read a datasheet", addSheet);
+      if (hasTool("compliance-maker")) act("Add a specification without a datasheet", addSpec, true);
     } else if (open) {
       var left = open.clauses - open.filled;
       title = (open.filled ? "Continue " : "Fill ") + (bare(open.file_name) || "the specification");
@@ -212,7 +214,8 @@
       title = "Read the datasheet"; sub = "Every clause is filled. Read the datasheet to put what the units have beside what the specification asks.";
       act("Read a datasheet", addSheet); act("Download project (Excel)", "#download", true);
     } else if (!runs.length) {
-      title = "Add the specification"; sub = "The datasheet is in. Add the specification to fill its compliance and compare the two.";
+      eyebrow = "Step 2 of 2";
+      title = "Add the specification"; sub = "The datasheet is in. Add the specification: its clauses are compared with the units' values.";
       if (hasTool("compliance-maker")) act("Add a specification", addSpec);
     } else {
       eyebrow = "Up to date"; title = drafts ? "Every clause shows an answer" : "Everything is answered";
@@ -304,8 +307,8 @@
     $("pj-share").hidden = !acc.can_share; $("pj-delete").hidden = !acc.can_delete;
 
     var tiles = $("pj-tiles"); tiles.textContent = "";
-    [tile("compliance-maker", "Add a specification", "PDF or pasted text in, clauses ready to fill.", Hub.ICON.checklist, data.runs.length, "specification", "specifications", "add-spec.html?project=" + encodeURIComponent(id)),
-     tile("datasheet-notes", "Read a datasheet", "Datasheet PDF in, one column per unit.", Hub.ICON.table, data.notes.length, "datasheet table", "datasheet tables")]
+    [tile("datasheet-notes", "1. Read a datasheet (optional)", "Datasheet PDF in, one column per unit. Read it first: the specification is then filled from it.", Hub.ICON.table, data.notes.length, "datasheet table", "datasheet tables"),
+     tile("compliance-maker", "2. Add a specification", "PDF or pasted text in, clauses ready to fill.", Hub.ICON.checklist, data.runs.length, "specification", "specifications", "add-spec.html?project=" + encodeURIComponent(id))]
       .forEach(function (t) { if (t) tiles.appendChild(t); });
     nextStep();
 

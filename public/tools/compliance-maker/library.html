@@ -849,7 +849,7 @@
     }, function () { host.textContent = ""; });
   }
 
-  var SOURCE = { datasheet: "Project datasheet", "library-similar": "Library (similar clause)", record: "Same clause earlier in the record", project: "Other projects", rule: "AI rules (map)", model: "AI model" };
+  var SOURCE = { datasheet: "Project datasheet", options: "Product Options (no datasheet)", "library-similar": "Library (similar clause)", record: "Same clause earlier in the record", project: "Other projects", rule: "AI rules (map)", model: "AI model" };
   function loadQuality() {
     var host = $("quality");
     Api.aiQuality(Hub.token(), productId()).then(function (q) {

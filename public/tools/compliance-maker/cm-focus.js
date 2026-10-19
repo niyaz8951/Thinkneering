@@ -225,7 +225,7 @@
     }
     /* The proposal for a clause with no answer of its own: asked when the clause is shown (the page asks for the
        next ones at the same time, so moving on is instant). Keeping it is an ordinary save. */
-    var SRC = { datasheet: 'From the datasheet', 'library-similar': 'From the library', record: 'Same as your earlier answer', project: 'From another project', rule: 'From an AI rule', model: 'AI draft' };
+    var SRC = { datasheet: 'From the datasheet', options: 'From Product Options (no datasheet: select it in the software)', 'library-similar': 'From the library', record: 'Same as your earlier answer', project: 'From another project', rule: 'From an AI rule', model: 'AI draft' };
     function suggestion(it) {
       if (!o.suggest || it.draft || it._noSug || (filled(it) && !it.lib) || it.owner) return null;
       var box = el('div', { 'class': 'cf-sug', role: 'note', 'aria-live': 'polite' }, [el('span', { 'class': 'cf-sug-wait', text: 'Looking for a proposal\u2026' })]);

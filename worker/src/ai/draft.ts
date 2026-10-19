@@ -37,7 +37,7 @@ export interface DraftInput {
   similar: Similar[]; comments: string;
   rules?: RuleHit[]; facts?: RuleHit[]; datasheet?: DatasheetField[]; units?: string[];
   // from evidence.ts
-  datasheetDecision?: { compliance: string; remarks: string; reason: string; keys: string[]; confidence?: "high" | "medium" | "low" } | null;
+  datasheetDecision?: { compliance: string; remarks: string; reason: string; keys: string[]; confidence?: "high" | "medium" | "low"; from?: "datasheet" | "options" } | null;
   conflict?: string;                     // the library's value differs from this project's datasheet
   options?: string[];                    // Product Options lines for the rows of this clause
   notes?: string[];                      // AI notes of the Options tree
@@ -57,7 +57,7 @@ export interface DraftInput {
   model?: string;                        // AI map > Decision steps > 8. AI model > "AI model:" (default small, 8B)
 }
 export interface CorrectionIn { spec: string; suggested: string; suggested_remarks: string; final: string; final_remarks: string; score: number }
-export type DraftSource = "datasheet" | "library-similar" | "record" | "rule" | "project" | "model";
+export type DraftSource = "datasheet" | "options" | "library-similar" | "record" | "rule" | "project" | "model";
 export interface Draft {
   compliance: string; remarks: string; reason: string; confidence: "high" | "medium" | "low";
   source: DraftSource; sources: { kind: string; id: string; text: string; score: number }[]; model: string; promptVersion: string;
@@ -253,6 +253,9 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   // 1. the datasheet settled it by code (a clause rule sends it to the model first, when the model may be used)
   const dd = d.datasheetDecision;
   if (dd && (!own.rules.length || !modelOk)) {
+    if (dd.from === "options")        // no datasheet: what to select, from the approved Product Options (medium, never green)
+      return { compliance: dd.compliance, remarks: dd.remarks, confidence: dd.confidence || "medium", source: "options", model: "", promptVersion: RULE_VERSION,
+        reason: dd.reason, sources: dd.keys.map((k) => ({ kind: "options", id: k, text: dd.reason.slice(0, 200), score: 1 })) };
     return { compliance: dd.compliance, remarks: dd.remarks, confidence: dd.confidence || (dd.compliance === "Comply with Remarks" ? "medium" : "high"), source: "datasheet", model: "", promptVersion: RULE_VERSION,
       reason: (d.conflict ? d.conflict + " " : "") + dd.reason,
       sources: (d.datasheet || []).filter((f) => dd.keys.includes(f.key)).map((f) => ({ kind: "datasheet", id: f.key, text: `${f.label}: ${f.value}`.slice(0, 200), score: 1 })) };

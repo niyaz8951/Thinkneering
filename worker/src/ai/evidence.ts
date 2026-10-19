@@ -53,7 +53,12 @@ export interface Context {
   correctionIndex?: GramIndex<Correction>;
   absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
   sheetWarning: string;                      // why the project's datasheet was not used (another factory), or ""
+  hasSheet: boolean;                         // the project has a datasheet of this product and factory
+  optRows: Map<number, OptRow[]>;            // the mapping rows each clause is about (the same match as the chips)
+  poValues: Map<string, PoValue[]>;          // approved Product Options values of the factory, per mapping row, most seen first
 }
+export interface OptRow { key: string; section: string; component: string; entries: string[][] }
+export interface PoValue { value: string; times: number }
 
 /* The factory a saved table names: its General > Factory row, first unit that has one. */
 function factoryRow(rows: NoteTable["rows"]): string {
@@ -138,10 +143,12 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   for (const t of tables) { let sec = ""; for (const r of t.rows) { if (r.section) sec = r.section; if (hasValue((r.cells || []).map((c) => String(c ?? "")))) present.add(sectionName(sec)); } }
   const absent = new Map<number, string[]>();
   // Product Options of the factory, per mapping row and per section
-  const valuesByRow = new Map<string, string[]>();
-  for (const v of valRes.results as unknown as { row_key: string; value: string }[]) {
+  const valuesByRow = new Map<string, string[]>(), poValues = new Map<string, PoValue[]>();
+  for (const v of valRes.results as unknown as { row_key: string; value: string; times: number }[]) {
     const l = valuesByRow.get(v.row_key) || []; if (l.length < 8) l.push(v.value); valuesByRow.set(v.row_key, l);
+    const p = poValues.get(v.row_key) || []; if (p.length < 40) p.push({ value: v.value, times: v.times }); poValues.set(v.row_key, p);
   }
+  const optRows = new Map<number, OptRow[]>();
   const extras = extraRes.results as unknown as { section: string; row_key: string; kind: string; body: string }[];
   const aiNotes = extras.filter((x) => x.kind === "ai").map((x) => ({ section: x.section, key: x.row_key, body: x.body }));
   // the clause-to-row match, the same as the chips (kept per record: see matchFor)
@@ -161,6 +168,9 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     for (const seq of m.seqs) {
       if (hasValue(cells)) { const l = sheet.get(seq) || []; l.push(...hits.filter((h) => hasValue(h.cells))); sheet.set(seq, l); }
       if (missing) { const a = absent.get(seq) || []; if (!a.includes(m.section)) a.push(m.section); absent.set(seq, a); }
+      const or = optRows.get(seq) || [];
+      if (!or.some((x) => x.key === m.key)) or.push({ key: m.key, section: m.section, component: m.component, entries: m.entries });
+      optRows.set(seq, or);
       const o = options.get(seq) || { values: [], specials: [], notes: [], ai: [] };
       const vals = valuesByRow.get(m.key) || [];
       if (vals.length) o.values.push(`${m.component}: ${vals.join(" | ")}`);
@@ -187,7 +197,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
-           search: new ClauseSearch(env, usage), project, names, kinds, absent,
+           search: new ClauseSearch(env, usage), project, names, kinds, absent, hasSheet: tables.length > 0, optRows, poValues,
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
 
@@ -377,6 +387,69 @@ export function compareDatasheet(clause: string, hits: SheetHit[], columns: stri
              (confidence === "low" ? " The offer is below what is asked: check before it goes out." : "") };
 }
 
+/* ---------- 3b. no datasheet: the closest approved Product Options value (owner, 19 Oct 2026) ----------
+   A project without a datasheet still has the factory's approved Product Options values for the rows a clause is
+   about. Each value is compared with the clause as if it were the datasheet (compareDatasheet, one value at a time);
+   of the values that meet the clause, the closest to what is asked is the one to select in the selection software
+   (an exact match first, then the nearest figure, then the most seen). Nothing here says what the units ARE: it
+   says what to select, so it is never a green answer. */
+export interface OptionPick {
+  key: string; section: string; component: string; required: string[];
+  status: "meets" | "not seen" | "choose";             // a value meets / values seen, none meets / nothing to compare
+  pick: string; times: number; candidates: PoValue[]; reason: string;
+}
+const OPS: Record<string, string> = { ">=": "≥ ", "<=": "≤ ", "=": "", range: "" };
+export function optionPicks(clause: string, rows: OptRow[], values: Map<string, PoValue[]>, subject = ""): OptionPick[] {
+  const reqs = requirements(clause), classes = classRequirements(clause);
+  return rows.map((row) => {
+    const cands = values.get(row.key) || [];
+    const required = [
+      ...reqs.filter((r) => near(clause, r.at, row.entries, subject)).map((r) => (r.op === "range" ? fmt(r.lo as number) + " to " : OPS[r.op] || "") + r.m.raw),
+      ...classes.map((c) => c.cls + " (" + c.prop.name + ")")];
+    const base = { key: row.key, section: row.section, component: row.component, required, candidates: cands.slice(0, 12) };
+    type Scored = { v: PoValue; exact: boolean; dist: number };
+    const meets: Scored[] = [];
+    let fails = 0;
+    for (const v of cands) {
+      const hit: SheetHit = { key: row.key, section: row.section, component: row.component, label: `${row.section} • ${row.component}`, cells: [v.value], value: v.value, entries: row.entries };
+      const c = compareDatasheet(clause, [hit], ["Product Options"], subject);
+      if (!c) continue;
+      if (c.compliance === "Not Comply") { fails++; continue; }
+      let dist = Infinity;
+      for (const r of reqs) { const g = comparable(v.value, r.m); if (g) { dist = Math.abs(g.value - r.m.n); break; } }
+      meets.push({ v, exact: c.compliance === "Comply", dist });
+    }
+    meets.sort((a, b) => (a.exact === b.exact ? 0 : a.exact ? -1 : 1) || (a.dist - b.dist) || (b.v.times - a.v.times));
+    const list = cands.slice(0, 3).map((x) => `${x.value} (${x.times}×)`).join(", ") + (cands.length > 3 ? ` and ${cands.length - 3} more` : "");
+    const asked = required.join(", ") || "the clause";
+    if (meets.length) {
+      const p = meets[0].v;
+      return { ...base, status: "meets" as const, pick: p.value, times: p.times, reason: `${p.value} (seen ${p.times}×) meets ${asked}` };
+    }
+    if (fails) return { ...base, status: "not seen" as const, pick: "", times: 0, reason: `none of the values seen (${list}) meets ${asked}: ask the factory` };
+    // nothing to compare: the only value the factory has shown is the one to select; several: a person chooses
+    if (cands.length === 1) return { ...base, status: "choose" as const, pick: cands[0].value, times: cands[0].times, reason: `${cands[0].value} (the only value seen, ${cands[0].times}×)` };
+    return { ...base, status: "choose" as const, pick: "", times: 0, reason: cands.length ? `choose: ${list}` : "no value seen for this factory yet" };
+  });
+}
+/* The selection list of a record without a datasheet: per clause, the rows it is about with their picks. */
+export function picksFor(ctx: Context, x: RunRowFull): OptionPick[] {
+  const rows = ctx.optRows.get(x.seq);
+  if (!rows || !rows.length) return [];
+  const parent = parentOf(ctx.rows.map((r) => ({ seq: r.seq, type: r.type, sr: r.sr, spec: r.spec_text })), x.seq);
+  return optionPicks(x.spec_text, rows, ctx.poValues, subjectOf(parent));
+}
+/* The clause answered from Product Options: Comply only when every row it asks a figure of has a value that meets
+   it; medium confidence (the units are not selected yet), so never green. */
+export function compareOptions(clause: string, picks: OptionPick[], factory: string): Comparison | null {
+  const asked = picks.filter((p) => p.required.length);
+  if (!asked.length || asked.some((p) => p.status !== "meets")) return null;
+  const rows: SheetHit[] = asked.map((p) => ({ key: p.key, section: p.section, component: p.component, label: `${p.section} • ${p.component}`, cells: [p.pick], value: p.pick, entries: [] }));
+  return { compliance: "Comply", remarks: "", rows, values: [], confidence: "medium",
+           reason: `No datasheet in this project. From the approved Product Options of ${factory}: ` + asked.map((p) => `${p.component}: ${p.reason}`).join("; ") +
+             ". Select " + (asked.length === 1 ? "it" : "them") + " in the selection software." };
+}
+
 /* The library's answer for this clause states a value this project's datasheet contradicts. */
 export function libraryConflict(libRemarks: string, cmp: Comparison | null): string {
   if (!cmp) return "";
@@ -431,6 +504,7 @@ export function notesFor(ctx: Context, x: RunRowFull): string[] {
 /* Everything the decision for one clause needs. */
 export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
+  cmpFrom: "datasheet" | "options" | ""; picks: OptionPick[];
   options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; facts: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
   sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
@@ -441,12 +515,16 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   const kind = ctx.kinds.get(sectionKey(pl.section)) || null;
   // a site-works or standards section is not answered from a figure on the unit
   const sheet = kind && kind.kind !== "product" ? [] : ctx.sheet.get(x.seq) || [];
-  const cmp = compareDatasheet(x.spec_text, sheet, ctx.columns, subjectOf(parent));
-  const conflict = x.l_status === "answered" ? libraryConflict(x.l_remarks || "", cmp) : "";
+  const sheetCmp = compareDatasheet(x.spec_text, sheet, ctx.columns, subjectOf(parent));
+  // no datasheet in the project: the closest approved Product Options values stand in (what to select)
+  const picks = !ctx.hasSheet && (!kind || kind.kind === "product") ? optionPicks(x.spec_text, ctx.optRows.get(x.seq) || [], ctx.poValues, subjectOf(parent)) : [];
+  const optCmp = sheetCmp ? null : compareOptions(x.spec_text, picks, ctx.run.factory);
+  const cmp = sheetCmp || optCmp;
+  const conflict = x.l_status === "answered" && sheetCmp ? libraryConflict(x.l_remarks || "", sheetCmp) : "";
   const picked = pickRules(ctx.rules, x.spec_text + " " + parent, pl.section, pl.part);
   const clauseRules = splitComments(x.l_comments).rules;
   return {
-    part: pl.part, section: pl.section, parent, sheet, cmp, conflict,
+    part: pl.part, section: pl.section, parent, sheet, cmp, conflict, cmpFrom: sheetCmp ? "datasheet" : optCmp ? "options" : "", picks,
     options: ctx.options.get(x.seq) || { values: [], specials: [], notes: [], ai: [] }, notes: notesFor(ctx, x),
     knowledge: knowledgeMatching(ctx.knowledge, x.spec_text, ctx.place.get(x.seq)?.section || ""),
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),

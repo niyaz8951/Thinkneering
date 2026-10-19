@@ -153,7 +153,10 @@
     return datasheetFactory(p).then(function (f) {
       if (p !== product()) return;
       hint.className = "hint"; hint.textContent = "Answers are kept separately for each factory.";
-      if (!f) return;
+      if (!f) {                 // no datasheet of this product in the project yet: say what that means, once
+        if (p) hint.textContent = "No datasheet of this product in the project yet. You can go on: the clauses get the closest values the factory offers (Product Options) and the working Excel lists what to select. If the units are selected, read the datasheet first. Answers are kept separately for each factory.";
+        return;
+      }
       if (preselect && !$("as-factory").value) { $("as-factory").value = f.id; remember(); refresh(); }
       var chosen = $("as-factory").value;
       if (chosen && chosen !== f.id) {
