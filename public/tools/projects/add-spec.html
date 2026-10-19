@@ -55,7 +55,7 @@
         <label class="field"><span>Product</span><select class="input" id="as-product" disabled><option value="">Loading…</option></select></label>
         <label class="field"><span>Factory</span><select class="input" id="as-factory" disabled><option value="">Choose a product first</option></select></label>
       </div>
-      <p class="hint">Answers are kept separately for each factory.</p>
+      <p class="hint" id="as-fac-hint">Answers are kept separately for each factory.</p>
     </section>
 
     <section class="card stack" aria-labelledby="h-spec">
@@ -106,7 +106,8 @@
 (function () {
   "use strict";
   var el = Hub.el, $ = function (id) { return document.getElementById(id); };
-  var projectId = Hub.param("project"), project = null, products = [], source = "pdf", file = null, busy = false, KEEP = "dame_as_choice";
+  var projectId = Hub.param("project"), project = null, products = [], notes = [], source = "pdf", file = null, busy = false, KEEP = "dame_as_choice";
+  var sheetFac = {};       // product id -> { id, name } of the factory the project's datasheet names (Material Name)
   if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "../../assets/vendor/pdfjs/pdf.worker.min.js";
   $("as-ic").innerHTML = Hub.ICON.doc;
 
@@ -130,8 +131,39 @@
   }
   function fail(text) { var m = $("as-msg"); m.textContent = text || ""; m.hidden = !text; }
 
-  $("as-product").addEventListener("change", function () { fillFactories(); remember(); refresh(); });
-  $("as-factory").addEventListener("change", function () { remember(); refresh(); });
+  /* The factory the project's newest datasheet of this product names: saved with the table since 19 Oct 2026;
+     an older table is opened once and its General > Factory row read. */
+  function datasheetFactory(p) {
+    if (!p) return Promise.resolve(null);
+    if (sheetFac[p.id] !== undefined) return Promise.resolve(sheetFac[p.id]);
+    var mine = notes.filter(function (n) { return n.product_id === p.id; });      // newest first
+    if (!mine.length) { sheetFac[p.id] = null; return Promise.resolve(null); }
+    var byId = function (id) { return p.factories.filter(function (f) { return f.id === id; })[0] || null; };
+    var byName = function (name) { return p.factories.filter(function (f) { return f.name.toLowerCase() === String(name || "").toLowerCase(); })[0] || null; };
+    if (mine[0].factory_id) { sheetFac[p.id] = byId(mine[0].factory_id); return Promise.resolve(sheetFac[p.id]); }
+    return Api.prNoteGet(Hub.token(), mine[0].id).then(function (t) {
+      var sec = "", name = "";
+      (t.rows || []).forEach(function (r) { if (r.section) sec = r.section; if (!name && /^general$/i.test(sec) && /^factory$/i.test(r.component || "")) name = (r.cells || []).filter(function (v) { return v && v !== "-"; })[0] || ""; });
+      sheetFac[p.id] = byName(name); return sheetFac[p.id];
+    }, function () { sheetFac[p.id] = null; return null; });
+  }
+  /* Pre-select the datasheet's factory, and say so; warn when another factory is chosen. */
+  function checkFactory(preselect) {
+    var p = product(), hint = $("as-fac-hint");
+    return datasheetFactory(p).then(function (f) {
+      if (p !== product()) return;
+      hint.className = "hint"; hint.textContent = "Answers are kept separately for each factory.";
+      if (!f) return;
+      if (preselect && !$("as-factory").value) { $("as-factory").value = f.id; remember(); refresh(); }
+      var chosen = $("as-factory").value;
+      if (chosen && chosen !== f.id) {
+        hint.className = "notice warn";
+        hint.textContent = "The project's datasheet is from the " + f.name + " factory (its Material Name). With another factory the library answers and Product Options are that factory's, and the AI review will not use the datasheet.";
+      } else hint.textContent = "The project's datasheet is from the " + f.name + " factory, so " + f.name + " is chosen. Answers are kept separately for each factory.";
+    });
+  }
+  $("as-product").addEventListener("change", function () { fillFactories(); remember(); refresh(); checkFactory(true); });
+  $("as-factory").addEventListener("change", function () { remember(); refresh(); checkFactory(false); });
   $("as-paste").addEventListener("input", refresh);
 
   [].forEach.call(document.querySelectorAll(".tab"), function (tab) {
@@ -198,7 +230,7 @@
     if (!projectId) throw new Error("No project was chosen. Open a project first, then add a specification.");
     return Promise.all([Api.prGet(Hub.token(), projectId), Api.cmOptions(Hub.token())]);
   }).then(function (res) {
-    project = res[0].project; products = res[1].products || [];
+    project = res[0].project; products = res[1].products || []; notes = res[0].notes || [];
     Hub.setBack(project.name, "project.html?id=" + encodeURIComponent(projectId));
     document.title = "Add a specification - " + project.name;
     $("as-intro").textContent = "For " + project.name + ". Choose the product and factory, give the specification, and start filling. Clauses answered before come filled in.";
@@ -210,6 +242,8 @@
     if (products.length === 1) s.value = products[0].id; else if (last.p) { s.value = last.p; if (s.value !== last.p) s.value = ""; }
     fillFactories(last.f);
     $("as-form").hidden = false; refresh();
+    // the datasheet's factory wins over the last choice when the project has a datasheet of this product
+    datasheetFactory(product()).then(function (f) { if (f && $("as-factory").value !== f.id) { $("as-factory").value = f.id; remember(); refresh(); } checkFactory(false); });
   }, function (err) {
     $("as-error").hidden = false; $("as-error").textContent = ((err && err.message) || err) + "";
   });

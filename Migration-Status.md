@@ -2,7 +2,7 @@
 
 Kept by Claude. Read at the start of every THINK-HUB chat; update after every delivery.
 
-Last updated: 16 Oct 2026, late - site renamed Thinkneering Tools with the v3 layers logo (DAME removed); v3 Compliance AI carried over (unit conversion, property directions, class scales, section kinds, missing unit sections).
+Last updated: 19 Oct 2026 - base fixes from the Qiddiya test (11 items) and the essence of the team's master prompt v4.1; migration 0005 (standards A.13.8).
 
 ## Live set-up (15 Oct 2026)
 - Worker `thinkneering-hub`, deployed from the laptop with `npm run deploy` (= `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`). Workers Builds not connected yet; it can be, with the same two commands.
@@ -56,6 +56,12 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Next pieces of work, in order
 
+00. Owner (19 Oct push, branch `fixes-2026-10-19`): `npm install`, then `npm run deploy` (applies migration **0005**
+   then deploys). Then Compliance review > AI rules > **Update from template** once per rule book (the new 5-part brief).
+   Re-read one datasheet per open project to save its factory and the EN 1886 / EN 13053 rows (the old table is replaced).
+   Heat-wheel rows read before 19 Oct have the old keys ("WINTER|Supply Air ..."); their Product Options values stay under
+   the old names until the next read of those datasheets.
+   Next phase, on hold (owner, 19 Oct): Corrections Log import, filter conversion table, standard build / register facts.
 0. Owner (16 Oct night push): `npm run deploy` (no migration, no secret), then Compliance review > AI rules > **Update from
    template** once per product rule book (the AHU one also gets the AHU rules and Facts), verify the facts marked "to
    verify" in Maps that hold for your units, then **Check the AI** with 20 clauses to get the first agreement figure.
@@ -77,6 +83,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 19 Oct 2026: datasheet rows with one name are all kept and told apart by sub-heading / section; a datasheet read again replaces the earlier table of the same units; the datasheet's factory is saved and checked; EN 1886 / EN 13053 classes are read; heat-wheel Supply / Return are sub-headings; starter keywords and Remove text go to every new mapping row ("+ PE" removed); a topic gate stops rows linking to clauses of another part; a rule book is linked once, a knowledge map once per product; only the super user and Maps tile admins verify branches; reference lists split one standard per row. From the master prompt (owner): the six answers stay; no Consultant field; the consultant's Excel keeps the four columns, the working Excel carries priority and reasons; Corrections Log and filter table on hold. Code does the remark lock, conjunction, ranges, metric match and review priority; the model's brief is 330 words.
 - 16 Oct 2026 (night, last): rule books have a Facts branch; an instruction rule is not a fact. The AHU rule book template holds the walkthrough's logic as rules and the v3 library's certifications and practice as facts (commercial ones to verify).
 - 16 Oct 2026 (night, later): drafting runs on the small model (`llama-3.1-8b-instruct-fast`), not the 70B: code compares and checks, the model only chooses from cited sources. A rule book can ask for `AI model: large`. Learning is measured with **Check the AI** (people's library answers replayed with the answer hidden). A LoRA fine-tune is a later decision.
 - 16 Oct 2026 (night): the AI answers about the product only from a source it cites (datasheet, Product Options, AI notes, knowledge maps, rules, library, corrections, earlier answers); otherwise the clause is left for a person. Strict is the default; the rule-book setting `Answer without a source: yes` relaxes it. People's corrections to AI drafts are shown to the model as sources for similar clauses. Template rules nobody edited are updated by **Update from template**; edited rules are never touched. No migration.

@@ -59,21 +59,21 @@ describe("dn_* routes", () => {
     expect(await refused("dn_get_rules", { p_token: t, p_product_id: "nope" })).toMatch(/Choose a product first/);
   });
 
-  it("dn_add_rows: any user adds unknown keys as New, never touches existing rows; starter keywords seeded once", async () => {
+  it("dn_add_rows: any user adds unknown keys as New, never touches existing rows; every new AHU row gets its starter keywords and Remove text", async () => {
     const t = await login("sbu");
     const r = await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [...AHU_ROWS.slice(0, 3), AHU_ROWS[1], { key: "", section: "x" }] });
     expect(r).toMatchObject({ ok: true, added: 3 });
     const rules = (await ok("dn_get_rules", { p_token: t, p_product_id: "ahu" })).rules;
     expect(rules.map((x: any) => x.key)).toEqual(["general||project", "general||power supply", "unit data||panel"]);
-    expect(rules[1]).toEqual({ key: "general||power supply", section: "General", sub: "", component: "Power supply", show: true, label: "", strip: "", response: "",
-      keywords: "power supply; electrical characteristic; volt phase", new: true, in_tree: true });
+    expect(rules[1]).toEqual({ key: "general||power supply", section: "General", sub: "", component: "Power supply", show: true, label: "", strip: "+ PE", response: "",
+      keywords: "power supply; electrical characteristic; electrical supply; supply voltage; main power; electrical power", new: true, in_tree: true });
     expect(rules[2].keywords).toMatch(/double skin/);
-    // the starter keywords are a one-time gift: once an AHU row has keywords, later rows get none
+    // a row new to the mapping has had no decision yet: it gets its starter keywords even when other rows have keywords (19 Oct 2026)
     const r2 = await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: AHU_ROWS });
     expect(r2.added).toBe(3);
     const again = (await ok("dn_get_rules", { p_token: t, p_product_id: "ahu" })).rules;
     expect(again.length).toBe(6);
-    expect(again.find((x: any) => x.key === "unit data||insulation").keywords).toBe("");
+    expect(again.find((x: any) => x.key === "unit data||insulation").keywords).toMatch(/^insulation; insulated panel/);
     expect(again.map((x: any) => x.key)).toEqual(AHU_ROWS.map((x) => x.key));          // sort order = order of arrival
     // another product never gets AHU starter keywords
     await ok("dn_add_rows", { p_token: t, p_product_id: "fcu", p_rows: [AHU_ROWS[1]] });
@@ -147,7 +147,7 @@ describe("dn_* routes", () => {
       { key: "unit data||door", section: "Unit data", component: "Door", show: true }, { key: "x||y", section: "X", component: "Y", show: true }
     ] });
     const g = await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" });
-    expect(g.rules[0].keywords).toBe("access door; inspection door; hinge");
+    expect(g.rules[0].keywords).toBe("access side; door side; handing");
     expect(g.rules[1].keywords).toBe("");
     await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_show_unmapped: true, p_rules: [{ key: "unit data||roof", section: "Unit data", component: "Roof", show: true }] });
     expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((x: any) => x.key === "unit data||roof").keywords).toBe("");

@@ -91,7 +91,20 @@ export interface Section { title: string; text: string }
 /* The default brief (also what a new map gets). Owner's prompt of 16 Oct 2026, written for this tool: one clause at
    a time, the six answers of the site, the sources the site has. What may not change (the reply format, the six
    answers, the number check) stays in code (draft.ts, guard.ts). */
+/* The model's brief: short, because it is read with every clause. What code decides (comparing figures, the remark
+   lock, banned wording, the review priority, sources and their order) is not repeated here (19 Oct 2026: the essence
+   of the team's master prompt v4.1, about 330 words instead of 810). */
 export const DEFAULT_INSTRUCTIONS: Section[] = [
+  { title: "Role", text: "You are the compliance engine of the Application Team of Daikin Applied Products, {factory} factory, product line {product}. Your answers go to MEP consultants under Daikin's name. The worst failures, in order: a wrong Comply; a shortfall hidden behind a Comply; a value no source gives; a remark that opens a discussion. Leaving a clause for a person is better than any of them." },
+  { title: "Sources", text: "Use only the sources in the message. The project datasheet governs everything it states; Product Options, notes, knowledge and rules fill only what it does not state. Library answers and other projects' answers give the wording and the treatment of standards, never the offered values. Tested is not certified, available is not included, a typical or range value is not the selected one. Code has already compared every figure it could: do not compare numbers yourself, and never estimate, interpolate or recall a value." },
+  { title: "Which answer", text: "Comply only when every part of the clause is met for every unit: a clause is a set of obligations (material, size, standard, limit, document) and meeting one part does not close it. Comply with Remarks when it is met in another way, by an equivalent standard a source names, or differently for some units. Not Comply only when a source shows the shortfall. Not Applicable only when a source shows the clause is outside the offered units; say why. Noted for a statement with nothing to comply with. If the sources do not settle the clause, or it is ambiguous or conflicts with them, leave compliance empty and say in the reason what is missing. Confidence is high only when a source covers the requirement directly." },
+  { title: "Scope of supply", text: "Daikin's scope is supply of equipment. Site work (installation, rigging, connections, site tests, commissioning labour; mostly Part 3) is In Contractor's Scope, remark: \"By Contractor / others. Daikin scope is supply of equipment.\" A clause mixing supply and site work: answer the supply part and add that the site work is by the contractor." },
+  { title: "Remarks", text: "A clean Comply has no remark. Any other remark is one definitive line that closes the point: the offered fact, the equivalence (\"[offered standard] is equivalent to [specified standard] for [scope].\"), the per-unit difference or the reason. Never name internal sources (datasheet, catalogue, selection, library), never ask anyone to verify or confirm, promise no later document, no hedging (should, typically, approximately), nothing the clause did not ask." }
+];
+
+/* The brief before 19 Oct 2026. A rule book whose Instructions sections still hold exactly these words gets the new
+   brief from "Update from template"; a section someone edited is never touched. */
+export const OLD_INSTRUCTIONS: Section[] = [
   { title: "Role", text: "You are the compliance engine of the Application Team of Daikin Applied Products, {factory} factory, product line {product}. You answer a consultant's specification clause by clause; the answers go to MEP consultants under Daikin's name. Accuracy outranks speed and completeness. A wrong \"Comply\" is the worst possible failure. An answer left low confidence, or a [value] left open, is acceptable; an invented value is not." },
   { title: "Where values come from", text: "Use only these, strongest first:\n1. Project datasheet rows: the units selected for this project. They govern: never answer from a range value or a catalogue figure when the project's datasheet gives the value.\n2. Product Options and AI notes of this factory (what it offers, its standard build, special options, notes), and the knowledge maps (process and product understanding).\n3. AI rules of this map and of the clause (Internal Comments after #).\n4. Library answers of similar clauses, and the answers given earlier in this specification.\n5. Answers of other projects of this factory (not yet approved).\nNothing else. Your general knowledge of Daikin, HVAC products or standards is never a source for a value. Never estimate, interpolate or recall a value. When no source gives a value, write [value] where it belongs and set confidence \"low\": the reviewer sees it as to verify." },
   { title: "Library answers are a style reference", text: "Reuse the structure and the wording of a library answer (how a remark is phrased, how a deviation or a scope line is written), but take every value from this project's sources. Never copy values, model numbers or verdicts from another project or from a library answer that does not cover the same requirement." },
@@ -235,6 +248,9 @@ export async function aiMapFor(env: Env, productId: string, factoryId: string | 
     `SELECT l.factory_id, l.role, m.id, m.name, m.updated_at FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id
       WHERE l.product_id = ? AND (l.factory_id IS NULL OR l.factory_id = ?)`).bind(productId, factoryId || ""));
   if (!links.length) return { rules: [], settings: { ...DEFAULT_SETTINGS }, problems: [], instructions: null, knowledge: [], maps: [] };
+  // a map linked in both scopes (possible before 0005) is read once, at its widest scope
+  links.sort((a, b) => (a.factory_id ? 1 : 0) - (b.factory_id ? 1 : 0));
+  for (let i = links.length - 1; i > 0; i--) if (links.findIndex((l) => l.id === links[i].id) < i) links.splice(i, 1);
   const key = productId + "|" + (factoryId || "");
   const stamp = links.map((l) => l.role + l.id + l.updated_at).sort().join(",");
   const hit = cache.get(key);
@@ -385,6 +401,27 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
       addSeed(env, stmts, mapId, factsTop[1], f, 100 + done.length, userId, at);
       done.push(`${f.title} (fact added${f.off ? ", to verify" : ""})`);
     }
+  }
+
+  // the brief (19 Oct 2026): Instructions sections that still hold the old template words get the new ones; a section
+  // the old brief had and the new one has not is switched off ("to verify"); new sections are added; edited ones stay
+  const instTop = [...topId.entries()].find(([t]) => /^(instructions|prompt|rule ?book|brief)\b/.test(t));
+  if (instTop && !factory) {
+    const kids = nodes.filter((x) => x.parent_id === instTop[1]);
+    const tidyText = (t: string) => t.replace(/\r/g, "").trim();
+    for (const old of OLD_INSTRUCTIONS) {
+      const n = kids.find((x) => x.title.trim() === old.title && tidyText(x.notes) === tidyText(old.text));
+      if (!n) continue;
+      const cur = DEFAULT_INSTRUCTIONS.find((x) => x.title === old.title);
+      if (cur) { stmts.push(env.DB.prepare("UPDATE mp_nodes SET notes = ?, updated_by = ?, updated_at = ? WHERE id = ?").bind(cur.text, userId, at, n.id)); done.push(`${old.title} (brief updated)`); }
+      else if (n.verified) { stmts.push(env.DB.prepare("UPDATE mp_nodes SET verified = 0, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?")
+        .bind("Not in the brief since 19 Oct 2026 (the code does this now). You can delete this branch.\n\n" + n.notes, userId, at, n.id)); done.push(`${old.title} (switched off: the code does it now)`); }
+    }
+    DEFAULT_INSTRUCTIONS.forEach((cur, i) => {
+      if (kids.some((x) => x.title.trim().toLowerCase() === cur.title.toLowerCase())) return;
+      addSeed(env, stmts, mapId, instTop[1], { title: cur.title, notes: cur.text }, 200 + i, userId, at);
+      done.push(`${cur.title} (brief section added)`);
+    });
   }
 
   // template rules: only in a map for every factory of the product (a factory's map starts with empty Parts)

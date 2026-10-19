@@ -25,6 +25,9 @@
   var SKIP = /^(Technical Report\s*•|The certified standard performances|\d+\s*\/\s*\d+$)/;
   var TOP  = /^(EN\s*13053|Section List|Options List|Sound Report|NRVU\b.*|Electrical Power Inputs Data)$/i;
   var NUMBERED = /^(\d+)\)\s*(.+)$/;
+  // the class tables printed before the numbered sections: "Mechanical Characteristic (EN1886)" and "EN 13053"
+  var CLASSES = /^(Mechanical Characteristic\b.*|EN\s*13053)$/i;
+  var CLASS_VALUE = /^[A-Z]{1,2}\d{1,2}(\([A-Z]\))?(\s*\/\s*[A-Z]{1,2}\d{1,2}(\([A-Z]\))?)?$/;     // D1(M), L1(M)/L1(M), TB2(M), P1, V3, H4
   var FACTORY = { '9': 'Riyadh', '5': 'Dubai' };   // last character of the Material Name, e.g. ADN10FGW9
   var CELL_GAP = 25;      // points between two pieces of text that makes them separate cells
   var DOT = /\s*•\s*/;
@@ -105,10 +108,34 @@
     return best;
   }
 
+  /* A class table: labels in columns (a label can run over two lines), then one line of classes under them.
+     Each class goes to the label whose column centre is nearest. "(EN13053)" is left out of the label. */
+  function classLine(s, ln) {
+    var items = ln.items.filter(function (it) { return it.s; });
+    if (!items.length) return;
+    function centre(it) { return it.x + it.w / 2; }
+    if (items.every(function (it) { return CLASS_VALUE.test(it.s); })) {
+      items.forEach(function (it) {
+        var best = null, d = Infinity;
+        s.cols.forEach(function (c) { var k = Math.abs(c.c - centre(it)); if (k < d) { d = k; best = c; } });
+        if (best && d <= 40) {
+          var label = clean(best.parts.join(' ').replace(/\(?\s*EN\s*\d{3,5}\s*\)?/gi, ' '));
+          if (label) s.rows.push({ sub: '', param: label, value: it.s, page: ln.page });
+        }
+      });
+      s.cols = [];
+      return;
+    }
+    items.forEach(function (it) {
+      var c = centre(it), col = s.cols.filter(function (x) { return Math.abs(x.c - c) <= 20; })[0];
+      if (col) col.parts.push(it.s); else s.cols.push({ c: c, parts: [it.s] });
+    });
+  }
+
   function parse(pages) {
     var body = bodyHeight(pages);
     var hdr = {}, unit = { rows: [], options: [] }, sections = [], warnings = [], elec = [];
-    var mode = 'head', sec = null, sub = '', optTarget = null;
+    var mode = 'head', sec = null, sub = '', optTarget = null, grp = null;   // grp: { name, x } a label heading indented rows ("Supply")
     var valueX = null, labelX = null, lastY = null, lastRow = null, secHeadH = null;
 
     function target() { return mode === 'unit' ? unit : sec; }
@@ -130,7 +157,7 @@
         }
 
         if (heading) {
-          if (/^Unit Data$/i.test(text)) { mode = 'unit'; lastRow = null; return; }
+          if (/^Unit Data$/i.test(text)) { mode = 'unit'; lastRow = null; grp = null; return; }
           if (/^Options List$/i.test(text)) { mode = 'options'; optTarget = null; return; }
           if (mode === 'options') {
             if (/^Unit Options$/i.test(text)) { optTarget = unit; return; }
@@ -142,15 +169,21 @@
             }
             mode = 'skip'; return;
           }
+          if (CLASSES.test(text)) {
+            mode = 'classes'; lastRow = null; grp = null;
+            sec = { no: '', name: clean(text), rows: [], options: [], page: ln.page, cols: [] };
+            sections.push(sec);
+            return;
+          }
           if (m) {
-            mode = 'section'; sub = ''; lastRow = null; lastY = null; secHeadH = ln.h;
+            mode = 'section'; sub = ''; grp = null; lastRow = null; lastY = null; secHeadH = ln.h;
             sec = { no: m[1], name: clean(m[2]), rows: [], options: [], page: ln.page };
             sections.push(sec);
             return;
           }
           if (mode === 'section') {
             if (TOP.test(text) || (secHeadH && ln.h >= secHeadH)) { mode = 'skip'; return; }
-            sub = text; lastY = null; lastRow = null;  // sub-heading: Damper One Supply, Geometry, Cooling, Motor Data
+            sub = text; grp = null; lastY = null; lastRow = null;  // sub-heading: Damper One Supply, Geometry, Cooling, Motor Data
             return;
           }
           if (mode === 'head') {
@@ -170,12 +203,20 @@
           return;
         }
 
+        if (mode === 'classes') { classLine(sec, ln); return; }
+
         if (mode === 'unit' || mode === 'section') {
           var t = target();
           if (ln.cells.length >= 2) {
             // a wide empty gap after a sub-block ends it (Recirculated Air / Drain Pan after the dampers)
-            if (mode === 'section' && sub && lastY !== null && lastY - ln.y > body * 2.8) sub = '';
-            lastRow = { sub: mode === 'section' ? sub : '', param: ln.cells[0].s,
+            if (mode === 'section' && sub && lastY !== null && lastY - ln.y > body * 2.8) { sub = ''; grp = null; }
+            // a label printed with no value, with the rows under it set further in, heads those rows:
+            // "Supply" and "Return" under WINTER / SUMMER of a heat wheel -> "WINTER · Supply"
+            var x0 = ln.cells[0].x;
+            if (lastRow && lastRow.bare && x0 > lastRow.x + 3 && t.rows[t.rows.length - 1] === lastRow) { t.rows.pop(); grp = { name: lastRow.param, x: lastRow.x }; }
+            else if (grp && x0 <= grp.x + 3) grp = null;
+            var own = mode === 'section' ? sub : '';
+            lastRow = { sub: grp ? (own ? own + ' \u00b7 ' : '') + grp.name : own, param: ln.cells[0].s,
                         value: ln.cells.slice(1).map(function (c) { return c.s; }).join(' '), page: ln.page };
             t.rows.push(lastRow);
             labelX = ln.cells[0].x; valueX = ln.cells[1].x; lastY = ln.y;
@@ -187,13 +228,17 @@
             return;
           }
           if (/:$/.test(cell.s)) return;                          // group label, e.g. "Specific fan power efficiency rating:"
-          if (labelX !== null && Math.abs(cell.x - labelX) <= 4) { // label printed with no value
-            lastRow = { sub: mode === 'section' ? sub : '', param: cell.s, value: '', page: ln.page };
+          var atGroup = grp && Math.abs(cell.x - grp.x) <= 4;
+          if ((labelX !== null && Math.abs(cell.x - labelX) <= 4) || atGroup) { // label printed with no value
+            if (atGroup) grp = null;                              // the next "Return" after the "Supply" rows
+            var mine = mode === 'section' ? sub : '';
+            lastRow = { sub: grp ? (mine ? mine + ' \u00b7 ' : '') + grp.name : mine, param: cell.s, value: '', page: ln.page, bare: true, x: cell.x };
             t.rows.push(lastRow); lastY = ln.y;
             return;
           }
           // free text under a block, e.g. "Calculated in Wet Condition": kept with the block it is printed in
-          t.rows.push({ sub: mode === 'section' ? sub : '', param: 'Note', value: cell.s, page: ln.page });
+          var at = mode === 'section' ? sub : '';
+          t.rows.push({ sub: grp ? (at ? at + ' \u00b7 ' : '') + grp.name : at, param: 'Note', value: cell.s, page: ln.page });
           lastRow = null;
           return;
         }
@@ -273,6 +318,9 @@
     var words = lp[0].split(' ');
     return lp.map(function (l, i) {
       var name = l;
+      // "Standard • Actual Pressure Drop": a one-word first label takes the noun of the second -> "Standard Pressure Drop"
+      var second = lp.length === 2 ? lp[1].split(' ') : [];
+      if (i === 0 && l.indexOf(' ') < 0 && second.length >= 3 && !STANDALONE.test(l)) name = l + ' ' + second.slice(1).join(' ');
       if (i > 0 && l.indexOf(' ') < 0 && words.length > 1 && !STANDALONE.test(l)) {
         var base = words.slice(0, -1);
         while (base.length > 1 && /^(Diam|Dia)\.?$/i.test(base[base.length - 1])) base.pop();

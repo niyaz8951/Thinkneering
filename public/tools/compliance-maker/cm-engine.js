@@ -267,6 +267,10 @@
       } else if (tableAt[i] && !keepBreaks && (para || !/^[a-z]/.test(line) || !rows.length)) {
         // a row of a table is its own row, whatever is above it (a line that carries on in small letters is the end of a clause)
         rows.push({ type: 'text', sr: '', spec: line });
+      } else if (!keepBreaks && rows.length && refStarts(rows[rows.length - 1], line)) {
+        // a list of reference standards: "AMCA 500-D  Laboratory Methods ..." under "AMCA 301 ... Test Data" is the next
+        // standard, not the end of the one above (its code and title stand too close to read as a table row)
+        rows.push({ type: 'text', sr: '', spec: refRow(line) });
       } else if (!keepBreaks && rows.length && (rows[rows.length - 1].type === 'part' || rows[rows.length - 1].type === 'section') &&
                  !para && headingWrap(rows[rows.length - 1], line)) {
         // a heading in capitals that runs over two lines
@@ -356,6 +360,17 @@
     if (!/^[A-Z(\u201c"']/.test(line) || line.length < 4) return false;
     if (/[.:;)]$/.test(above)) return true;
     return !!apart && !/(,|-|\b(and|or|of|the|to|with|for|in|by|a|an|at|as|from|be|shall|is|are|on|than|that|which|per|not))$/i.test(above);
+  }
+  /* A reference standard at the start of a line: body, code, number ("AMCA 500-D", "ASHRAE 52.1", "ASTM C 1071",
+     "NEMA ICS 2", "ASHRAE/IESNA 90.1"). A line like that starts its own row when the row above is one too. */
+  var STD_REF = /^((?:ANSI\/)?(?:AABC|ABMA|AHRI|AMCA|ANSI|ARI|ASCE(?:\/SEI)?|ASHRAE(?:\/IESNA)?|ASME|ASTM|BS(?: EN)?|CSA|DIN(?: EN)?|EN|FM|IBC|IEC|IEEE|ISO|MIL-STD|NEBB|NEMA|NFPA|NSF|SASO|SMACNA|UL|EUROVENT)[ -](?:[A-Z]{1,4} ?)?-?\d[\dA-Z.]*(?:-[\dA-Z]+)?)(?=\s|$)/;
+  function refStarts(prev, line) {
+    return !!prev && prev.type === 'text' && STD_REF.test(String(prev.spec || '')) && STD_REF.test(line) && !/^[a-z]/.test(line);
+  }
+  // "AMCA 500-D Laboratory Methods ..." -> "AMCA 500-D | Laboratory Methods ...", as the table rows of the same list read
+  function refRow(line) {
+    var m = STD_REF.exec(line), rest = m ? line.slice(m[1].length).trim() : '';
+    return m && /^[A-Z(]/.test(rest) && line.indexOf(' | ') < 0 ? m[1] + ' | ' + rest : line;
   }
   function headingWrap(head, line) {
     var t = head.spec;

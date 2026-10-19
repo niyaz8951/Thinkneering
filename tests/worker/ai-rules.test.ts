@@ -284,18 +284,19 @@ describe("AI rules: routes", () => {
     const fake = fakeAi(() => ({ compliance: "Comply", remarks: "Direct-driven EC plug fans.", reason: "Plug fans are standard.", confidence: "medium" }));
     (env as any).AI = fake.ai;
     const r = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
-    expect(r.by_source).toMatchObject({ datasheet: 2, rule: 2, model: 1 });
+    // (19 Oct 2026: a clause is settled by code only when every figure in it was compared; the insulation clause asks
+    // 50 mm and 40 kg/m3, the datasheet gives the density only, so it goes on to the model with the row as a source)
+    expect(r.by_source).toMatchObject({ datasheet: 1, rule: 2, model: 2 });
     expect(r).toMatchObject({ failed: 0, remaining: 0 });
-    expect(fake.calls.filter((c) => c.model.includes("llama")).length).toBe(1);     // only the fan clause needed the model
+    expect(fake.calls.filter((c) => c.model.includes("llama")).length).toBe(2);     // the fan clause and the insulation clause
     const rec = await ok("pr_run_get", { p_token: t, p_run_id: run.run_id });
     const by = (re: RegExp) => rec.lines.find((l: any) => re.test(l.spec));
     // casing: "50 mm" asked as is, the unit has 62 mm -> Comply with Remarks, the library's 50 mm answer reopened
     expect(by(/^Casing shall be double skin/)).toMatchObject({ ai_draft: true, compliance: "Comply with Remarks", remarks: "62 mm" });
     expect(by(/^Casing shall be double skin/).ai.reason).toMatch(/The library answer says 50 mm; this project's datasheet has 62 mm\. From the datasheet: 62 mm ≠ 50 mm asked/);
-    // insulation: "not less than 40 kg/m3", the unit has 45 -> Comply, by code
-    expect(by(/polyurethane/)).toMatchObject({ compliance: "Comply", remarks: "PU foam 45 kg/m3" });
-    expect(by(/polyurethane/).ai).toMatchObject({ source: "datasheet", confidence: "high" });
-    expect(by(/polyurethane/).ai.reason).toMatch(/45 kg\/m3 ≥ 40 kg\/m3 required/);
+    // insulation: "50 mm ... not less than 40 kg/m3": the 50 mm is not on the datasheet, so code does not settle it
+    expect(by(/polyurethane/).ai).toMatchObject({ source: "model" });
+    expect(fake.calls.some((c) => /PU foam 45 kg\/m3/.test(c.user))).toBe(true);   // the row went to the model as a source
     // map rules: the scope statement and the unloading clause, no model
     expect(by(/^This section includes/)).toMatchObject({ compliance: "Noted", remarks: "" });          // a remark never repeats the answer
     expect(by(/^Unloading/)).toMatchObject({ compliance: "In Contractor's Scope" });
@@ -336,13 +337,13 @@ describe("AI rules: routes", () => {
     await ok("ai_review_clear", { p_token: t, p_run_id: run.run_id });
     fake.calls.length = 0;
     const off = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
-    expect(off.by_source).toMatchObject({ datasheet: 2, rule: 2 });
+    expect(off.by_source).toMatchObject({ datasheet: 1, rule: 2 });          // the insulation clause is not settled by code (19 Oct 2026)
     expect(off.by_source.model).toBeUndefined();
     expect(fake.calls.length).toBe(0);
     // a clause nothing free can answer waits, and the review says why
     await ok("pr_run_save_line", { p_token: t, p_run_id: run.run_id, p_seq: fan.seq, p_compliance: "", p_remarks: "" });
     const waits = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
-    expect(waits).toMatchObject({ waiting: 1, done: 0 });
+    expect(waits).toMatchObject({ waiting: 2, done: 0 });                   // the fan clause and the insulation clause (not settled by code)
     expect(waits.stopped).toMatch(/switched off in the AI map/);
     expect(fake.calls.length).toBe(0);
   });
@@ -433,6 +434,13 @@ describe("AI rule book and knowledge maps", () => {
     expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "knowledge" })).toMatch(/is an AI rule book/);
     await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });
     await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "knowledge" });
+    // a rule book is linked once, anywhere; a knowledge map once per product (19 Oct 2026)
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/already linked for AHU, all factories/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "fcu", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/A rule book is linked once/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: kn.id, p_role: "knowledge" })).toMatch(/once per product/);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });                 // linking it again where it is: fine
+    const picker = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(picker.maps.find((m: any) => m.id === rb.id).linked).toEqual([{ role: "rulebook", product_id: "ahu", factory_id: null, where: "AHU, all factories" }]);
     // knowledge: a verified branch the AI may quote; one "to verify" is not a fact yet
     const kroot = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND parent_id IS NULL").bind(kn.id).first<any>();
     await env.DB.batch([

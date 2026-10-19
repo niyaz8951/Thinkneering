@@ -288,6 +288,10 @@
   // B=Sr, C=Specifications, D=Compliance, E=Remarks, F=Comments.
   function buildSheet(rows, re, splitRuns, meta) {
     meta = meta || {};
+    // meta.external: the file for the consultant (master prompt v4.1, 19 Oct 2026): the four columns only, no
+    // Comments column, no review colours; nothing internal goes out
+    var ext = !!meta.external;
+    function fc(ref) { return ext ? '' : '<c r="' + ref + '" s="8"/>'; }
     var lines = [];
     var merges = [];
     var rowNum = 1;
@@ -300,7 +304,7 @@
         inlineStrCell('A1', 13, meta.title || 'COMPLIANCE STATEMENT') +
         '<c r="B1" s="13"/><c r="C1" s="13"/><c r="D1" s="13"/>' +
         inlineStrCell('E1', 14, meta.revision || 'R0') +
-        '<c r="F1" s="8"/>' +
+        fc('F1') +
       '</row>'
     );
     // Row 2-3: Project Name / value (2-row merge) + Date (row2) + Compliance/Remarks labels (row3)
@@ -311,14 +315,14 @@
         inlineStrCell('C2', 16, meta.projectName || 'Project name here') +
         inlineStrCell('D2', 15, 'Date') +
         inlineStrCell('E2', 17, todayStr()) +
-        '<c r="F2" s="8"/>' +
+        fc('F2') +
       '</row>'
     );
     lines.push(
       '<row r="3" ht="18">' +
         inlineStrCell('D3', 18, 'Compliance') +
         inlineStrCell('E3', 18, 'Remarks') +
-        '<c r="F3" s="8"/>' +
+        fc('F3') +
       '</row>'
     );
     // Row 4: product / section band, full width (A through E — matches the
@@ -328,7 +332,7 @@
       '<row r="4" ht="24" customHeight="1">' +
         inlineStrCell('A4', 19, (meta.bandText || '') + (meta.partial ? (meta.bandText ? '     ' : '') + meta.partial : '')) +
         '<c r="B4" s="19"/><c r="C4" s="19"/><c r="D4" s="19"/><c r="E4" s="19"/>' +
-        '<c r="F4" s="8"/>' +
+        fc('F4') +
       '</row>'
     );
     // Row 5: blank spacer (no content, no special style)
@@ -349,7 +353,7 @@
         inlineStrCell('C' + rowNum, 0, 'Specifications') +
         inlineStrCell('D' + rowNum, 0, 'Compliance') +
         inlineStrCell('E' + rowNum, 0, 'Remarks') +
-        inlineStrCell('F' + rowNum, 0, 'Comments') +
+        (ext ? '' : inlineStrCell('F' + rowNum, 0, 'Comments')) +
       '</row>'
     );
     rowNum++;
@@ -372,7 +376,7 @@
             specCell +
             '<c r="D' + rowNum + '" s="1"/>' +
             '<c r="E' + rowNum + '" s="1"/>' +
-            '<c r="F' + rowNum + '" s="8"/>' +
+            fc('F' + rowNum) +
           '</row>'
         );
         rowNum++;
@@ -389,7 +393,7 @@
             inlineStrCell(specRef, 2, r.spec) +
             '<c r="D' + rowNum + '" s="3"/>' +
             '<c r="E' + rowNum + '" s="3"/>' +
-            '<c r="F' + rowNum + '" s="8"/>' +
+            fc('F' + rowNum) +
           '</row>'
         );
         rowNum++;
@@ -409,7 +413,8 @@
       // (AI GUESS, unverified — a stronger signal than orange), 8 = plain;
       // blanks stay empty bordered cells.
       var fillStyle = 8;
-      if (r.conflict && (r.compliance || r.remarks)) {
+      if (ext) { /* plain cells: the consultant's copy carries no review colours */ }
+      else if (r.conflict && (r.compliance || r.remarks)) {
         fillStyle = 11; // conflict outranks everything — it demands review
       } else if (r.auto && (r.compliance || r.remarks)) {
         fillStyle = r.auto.type === 'ai-guess' || (r.auto.type === 'ai' && r.auto.confidence === 'low') ? 20 : (r.auto.type === 'ai' ? 10 : 9);
@@ -428,7 +433,7 @@
           specCell +
           compCell +
           remCell +
-          commentCell('F' + rowNum, r) +
+          (ext ? '' : commentCell('F' + rowNum, r)) +
         '</row>'
       );
       rowNum++;
@@ -441,7 +446,7 @@
         '<row r="' + rowNum + '">' +
           '<c r="A' + rowNum + '" s="1"/><c r="B' + rowNum + '" s="1"/>' +
           inlineStrCell('C' + rowNum, 1, meta.partial) +
-          '<c r="D' + rowNum + '" s="1"/><c r="E' + rowNum + '" s="1"/><c r="F' + rowNum + '" s="8"/>' +
+          '<c r="D' + rowNum + '" s="1"/><c r="E' + rowNum + '" s="1"/>' + fc('F' + rowNum) +
         '</row>'
       );
       rowNum++;

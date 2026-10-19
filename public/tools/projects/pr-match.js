@@ -27,28 +27,36 @@
   // "2) Filter Supply" and "Filter Supply (2)" are the section "filter supply"
   function sec(s) { return low(s).replace(/^\d+\)\s*/, '').replace(/\s*\(\d+\)$/, ''); }
 
-  /* Every unit of every saved table becomes a column. Returns a function giving a row's values. */
+  /* Every unit of every saved table becomes a column; a unit tag read again in a newer table is taken from the
+     newest one only (a datasheet read twice does not give its units twice). Returns { columns, entries(row) }:
+     entries(row) = every table row the mapping row stands for, in order, each { qual, cells } - a key printed
+     twice (Filter Class of Filter 1 and of Filter 2, the second "Empty Section Supply") gives two entries, told
+     apart by their order in the table and named by their sub-heading or section. Old saved tables work as they are. */
   function unitLookup(notes, columns) {
-    var byKey = {}, byName = {}, n = 0;
-    notes.forEach(function (note) {
-      var s = '', used = {};
-      note.columns.forEach(function (tag) { var t = tag, k = 2; while (columns.indexOf(t) >= 0) t = tag + ' (' + (k++) + ')'; columns.push(t); });
+    var keep = notes.map(function () { return []; }), seen = {};
+    for (var t = notes.length - 1; t >= 0; t--) notes[t].columns.forEach(function (tag, i) { keep[t][i] = !seen[tag]; seen[tag] = 1; });
+    var at = notes.map(function (note, t) { return note.columns.map(function (tag, i) { if (!keep[t][i]) return -1; columns.push(tag); return columns.length - 1; }); });
+    var byId = {}, order = {};
+    notes.forEach(function (note, t) {
+      var s = '', title = '', sub = '', occ = {};
       note.rows.forEach(function (r) {
-        if (r.section) s = r.section;
-        if (r.kind === 'sub') return;
+        if (r.section) { s = r.section; title = r.section; sub = ''; }
+        if (r.kind === 'sub') { sub = r.component || ''; return; }
+        var m = /\((\d+)\)\s*$/.exec(title), qual = [m ? sec(title) + ' ' + m[1] : '', sub].filter(Boolean).join(' \u00b7 ');
         [r.key ? 'k:' + r.key : null, 'n:' + sec(s) + '|' + low(r.component)].forEach(function (k) {
-          if (!k || used[k]) return; used[k] = 1;                     // the first section of that name wins
-          var map = k.charAt(0) === 'k' ? byKey : byName;
-          (map[k] = map[k] || []).push({ at: n, cells: r.cells || [] });
+          if (!k) return;
+          occ[k] = (occ[k] || 0) + 1;
+          var id = k + '#' + occ[k], e = byId[id];
+          if (!e) { e = byId[id] = { qual: qual, cells: columns.map(function () { return ''; }) }; (order[k] = order[k] || []).push(e); }
+          (r.cells || []).forEach(function (v, i) { var c = at[t][i]; if (c >= 0 && c != null) e.cells[c] = v == null ? '' : String(v); });
         });
       });
-      n += note.columns.length;
     });
+    // columns may have grown after an entry was made: pad every entry to the full width
+    Object.keys(byId).forEach(function (id) { var e = byId[id]; while (e.cells.length < columns.length) e.cells.push(''); });
     return function (row) {
-      var hit = (row.key && byKey['k:' + row.key]) || byName['n:' + sec(row.section) + '|' + low(row.component)] || [];
-      var out = columns.map(function () { return ''; });
-      hit.forEach(function (h) { h.cells.forEach(function (v, i) { out[h.at + i] = v == null ? '' : String(v); }); });
-      return out;
+      var list = (row.key && order['k:' + row.key]) || order['n:' + sec(row.section) + '|' + low(row.component)] || [];
+      return list.map(function (e) { return { qual: list.length > 1 ? e.qual : '', cells: e.cells.slice() }; });
     };
   }
 
@@ -76,12 +84,16 @@
       return Promise.all([Api.dnRules(t, o.productId).then(function (r) { return (r && r.rules) || []; }, function () { return []; }), spec,
         Promise.all(notes.map(function (n) { return Api.prNoteGet(t, n.id); }))]).then(function (got) {
         var rules = got[0], specRows = got[1], tables = got[2], columns = [], factory = '';
-        tables.forEach(function (n) { if (!factory) factory = factoryOf(n.rows); });
-        var values = unitLookup(tables, columns), s = '';
-        var table = window.CMRows.match(specRows, rules).map(function (r) {
+        tables.forEach(function (n) { var f = factoryOf(n.rows); if (f) factory = f; });      // the newest table names it
+        var entries = unitLookup(tables, columns), s = '', table = [];
+        window.CMRows.match(specRows, rules).forEach(function (r) {
           if (r.section) s = r.section;
-          return { section: s, kind: r.kind, key: r.key || '', component: r.component, spec: r.text || '', found: !!r.found, lines: r.lines || [],
-                   cells: r.kind === 'sub' ? [] : values({ key: r.key, section: s, component: r.component }) };
+          var base = { section: s, kind: r.kind, key: r.key || '', component: r.component, spec: r.text || '', found: !!r.found, lines: r.lines || [] };
+          if (r.kind === 'sub') { table.push(Object.assign({ cells: [] }, base)); return; }
+          var list = entries({ key: r.key, section: s, component: r.component });
+          if (!list.length) list = [{ qual: '', cells: columns.map(function () { return ''; }) }];
+          // one row per table row it stands for: "Filter Class · Filter 1", "Filter Class · Filter 2"
+          list.forEach(function (e) { table.push(Object.assign({}, base, { component: base.component + (e.qual ? ' \u00b7 ' + e.qual : ''), cells: e.cells })); });
         });
         return { product: product, factory: factory, columns: columns, table: table, runs: runs, notes: notes, hasNotes: tables.length > 0,
                  keyed: rules.filter(function (r) { return r.show !== false && String(r.keywords || '').trim(); }).length };
@@ -106,5 +118,5 @@
     return out;
   }
 
-  window.PRMatch = { load: load, hasValue: hasValue, sheetRows: sheetRows, sectionName: sec };
+  window.PRMatch = { load: load, hasValue: hasValue, sheetRows: sheetRows, sectionName: sec, unitLookup: unitLookup };
 })();

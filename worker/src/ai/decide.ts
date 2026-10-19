@@ -1,6 +1,7 @@
 /* One clause from evidence to a draft, the daily budget, and a small pool so model calls run side by side. */
 import type { Env } from "../env";
 import { draftAnswer, NoFreeAnswer, type Draft } from "./draft";
+import { lockRemarks, priorityOf } from "./guard";
 import { evidenceFor, type Context, type RunRowFull, type ClauseEvidence } from "./evidence";
 import type { AiUsage } from "./models";
 
@@ -52,7 +53,14 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
 export async function decideClause(env: Env, ctx: Context, x: RunRowFull, allowModel: boolean, usage: AiUsage): Promise<{ draft: Draft | null; why: string; ev: ClauseEvidence }> {
   const ev = await evidenceFor(ctx, x);
   try {
-    return { draft: await draftAnswer(env, inputFor(ctx, x, ev, allowModel), usage), why: "", ev };
+    const input = inputFor(ctx, x, ev, allowModel);
+    const d = await draftAnswer(env, input, usage);
+    // the remark lock and the review priority: code, once, whatever made the draft
+    const l = lockRemarks(d.compliance, d.remarks, d.confidence);
+    const out: Draft = { ...d, compliance: l.compliance, remarks: l.remarks, confidence: l.confidence,
+      reason: (d.reason + (l.notes.length ? " Check: " + l.notes.join("; ") + "." : "")).slice(0, 800) };
+    out.priority = priorityOf(out, !!input.conflict);
+    return { draft: out, why: "", ev };
   } catch (e) {
     if (e instanceof NoFreeAnswer) return { draft: null, why: e.message, ev };
     throw e;

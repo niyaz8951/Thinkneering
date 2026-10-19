@@ -24,11 +24,11 @@ import { CHOICES } from "../lib/cm";
 import { complete, firstJson, draftModel, type AiUsage } from "./models";
 import type { Similar } from "./search";
 import { splitComments, directRule, type RuleHit, type DatasheetField } from "./rules";
-import { groundRemarks, trimAnswerEcho, hedges } from "./guard";
+import { groundRemarks, trimAnswerEcho, hedges, measurements } from "./guard";
 import { instructionsText, type Section } from "./map";
 import { SECTION_GUIDANCE, type SectionKind } from "./sections";
 
-export const PROMPT_VERSION = "draft-2026-10-16f";
+export const PROMPT_VERSION = "draft-2026-10-19a";
 export const RULE_VERSION = "rule-2026-10-16";
 
 export interface PastAnswerIn { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
@@ -61,6 +61,7 @@ export type DraftSource = "datasheet" | "library-similar" | "record" | "rule" | 
 export interface Draft {
   compliance: string; remarks: string; reason: string; confidence: "high" | "medium" | "low";
   source: DraftSource; sources: { kind: string; id: string; text: string; score: number }[]; model: string; promptVersion: string;
+  priority?: "green" | "amber" | "red";     // where the reviewer looks (guard.ts priorityOf), set by decide.ts
 }
 
 /* Thrown when only the model could answer and it may not be used: the clause is left as it is. */
@@ -262,8 +263,10 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const bestChoice = best ? standardChoice(best.compliance) : "";
   // (nor is a library line copied that carries its own "#" rules, e.g. "# project-specific, do not reuse")
   if (best && best.score >= copyAt && best.status === "answered" && !own.rules.length && !splitComments(best.comments).rules.length && bestChoice && !d.conflict) {
-    return { compliance: bestChoice, remarks: best.remarks, confidence: "high", source: "library-similar", model: "", promptVersion: "",
-      reason: `Same requirement as a library clause answered "${bestChoice}" (similarity ${best.score.toFixed(2)}).`,
+    const foreign = valuesNotOnSheet(best.remarks, d.datasheet || []);
+    return { compliance: bestChoice, remarks: best.remarks, confidence: foreign.length ? "low" : "high", source: "library-similar", model: "", promptVersion: "",
+      reason: `Same requirement as a library clause answered "${bestChoice}" (similarity ${best.score.toFixed(2)}).` +
+        (foreign.length ? ` Its remark states ${foreign.join(", ")}, which this project's datasheet does not show: a value from another project, check it.` : ""),
       sources: [{ kind: "clause", id: best.id, text: best.spec_text.slice(0, 200), score: best.score }] };
   }
 
@@ -290,8 +293,10 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const pjAt = copyAt <= 1 ? copyAt : COPY_AT;   // (the library step switched off does not switch this one off)
   const pj = !own.rules.length ? (d.project || []).find((x) => x.score >= pjAt && standardChoice(x.compliance)) : undefined;
   if (pj) {
-    return { compliance: standardChoice(pj.compliance), remarks: pj.remarks, confidence: "medium", source: "project", model: "", promptVersion: RULE_VERSION,
-      reason: `Same requirement as a project answer${pj.by ? " by " + pj.by : ""} (${pj.where})${pj.pending ? ", not yet approved for the library" : ""}.`,
+    const foreign = valuesNotOnSheet(pj.remarks, d.datasheet || []);
+    return { compliance: standardChoice(pj.compliance), remarks: pj.remarks, confidence: foreign.length ? "low" : "medium", source: "project", model: "", promptVersion: RULE_VERSION,
+      reason: `Same requirement as a project answer${pj.by ? " by " + pj.by : ""} (${pj.where})${pj.pending ? ", not yet approved for the library" : ""}.` +
+        (foreign.length ? ` Its remark states ${foreign.join(", ")}, which this project's datasheet does not show: a value from another project, check it.` : ""),
       sources: [{ kind: "project", id: pj.where, text: pj.spec.slice(0, 200), score: pj.score }] };
   }
 
@@ -366,6 +371,13 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
     reason: (lead + base + used + (notes.length ? " Check: " + notes.join("; ") + "." : "")).slice(0, 700),
     sources: cited.map((e) => ({ kind: KIND_NAMES[e.kind] || e.kind, id: e.ref, text: e.text.slice(0, 200), score: e.score }))
   };
+}
+
+/* Figures a copied answer states that this clause's datasheet rows do not have: approved sheets give the wording,
+   never the offered values (master prompt v4.1). With no datasheet row for the clause, every figure counts. */
+export function valuesNotOnSheet(remarks: string, sheet: { value: string }[]): string[] {
+  const have = measurements(sheet.map((f) => f.value).join(" ; "));
+  return measurements(remarks).filter((m) => !have.some((h) => h.unit === m.unit && Math.abs(h.n - m.n) < 1e-9)).map((m) => m.raw);
 }
 
 const KIND_NAMES: Record<string, string> = { D: "datasheet", L: "clause", O: "options", N: "note", K: "knowledge", R: "rule", C: "clause-rule", F: "fact", M: "correction", E: "record", P: "project" };

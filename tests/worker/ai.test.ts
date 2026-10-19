@@ -114,7 +114,10 @@ describe("AI review", () => {
     const by = (seq: number) => rec.lines.find((l: any) => l.seq === seq);
     expect(by(5)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "50 mm panels, thermal break frame.", review: "" });
     expect(by(5).ai.source).toBe("library-similar");
-    expect(by(5).ai.confidence).toBe("high");
+    // (19 Oct 2026) the copied remark states 50 mm, which no datasheet of this project shows: a value from another
+    // project, so it is copied but low confidence and RED (approved sheets give the wording, never the values)
+    expect(by(5).ai).toMatchObject({ confidence: "low", priority: "red" });
+    expect(by(5).ai.reason).toMatch(/Its remark states 50 mm, which this project's datasheet does not show/);
     // the model wrote a density no source gives (the clause asks for 40 kg/m3; nothing says what the panel IS):
     // code took the number out and marked the draft low
     expect(by(6)).toMatchObject({ own: true, ai_draft: true, compliance: "Comply with Remarks", remarks: "Panels are injected with [value] PU foam." });
@@ -127,7 +130,7 @@ describe("AI review", () => {
     const lib = await env.DB.prepare("SELECT count(*) AS n FROM cm_lines WHERE answer_source NOT IN ('admin', '')").first<any>();
     expect(lib.n).toBe(0);
     const drafts = await env.DB.prepare("SELECT status, source, confidence FROM ai_drafts ORDER BY seq").all<any>();
-    expect(drafts.results.map((d) => [d.status, d.source, d.confidence])).toEqual([["draft", "library-similar", "high"], ["draft", "model", "low"]]);
+    expect(drafts.results.map((d) => [d.status, d.source, d.confidence])).toEqual([["draft", "library-similar", "low"], ["draft", "model", "low"]]);
     const aud = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'ai_review_run'").first<any>();
     expect(aud.n).toBe(2);
     // AI drafts never reach the review queue or the editor's project answers
