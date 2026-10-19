@@ -56,6 +56,7 @@
     ['electrical', /\b(electrical|power supply|wiring|voltage)\b/],
     ['performance', /\b(capacit(y|ies)|characteristics|performance)\b/]
   ];
+  var GENERAL = ['casing', 'performance'];
   function topicOf(text) { var t = norm(text); for (var i = 0; i < TOPICS.length; i++) if (TOPICS[i][1].test(t)) return TOPICS[i][0]; return ''; }
   function topicsIn(text) { var t = norm(text); return TOPICS.filter(function (x) { return x[1].test(t); }).map(function (x) { return x[0]; }); }
   function lead(text) { var c = text.indexOf(':'); return c > 0 && c <= 80 ? text.slice(0, c) : ''; }
@@ -107,8 +108,11 @@
       // the clause's topic: its own label, then the headings above it, nearest first, then the section title
       var cands = [lead(text) || words(text).slice(0, 6).join(' '), level === 3 && lvl2 ? (lvl2.heading ? lvl2.text : lead(lvl2.text)) : '',
                    level >= 2 && lvl1 ? (lvl1.heading ? lvl1.text : lead(lvl1.text)) : '', sec ? sec.text : ''];
-      var topic = '';
-      for (var k = 0; k < cands.length && !topic; k++) topic = topicOf(cands[k]);
+      // a heading above that names a specific part (filters, a VFD, heat wheels ...) holds for every item under it;
+      // otherwise the clause's own label or first words; then a general heading (casing); then the section title
+      var heads = [topicOf(cands[1]), topicOf(cands[2])], topic = '';
+      for (var k = 0; k < heads.length && !topic; k++) if (heads[k] && GENERAL.indexOf(heads[k]) < 0) topic = heads[k];
+      topic = topic || topicOf(cands[0]) || heads[0] || heads[1] || topicOf(cands[3]);
       out.push({ row: i, part: part, ref: ref.trim(), text: text, ctx: words(ctx),
                  toks: words(text).filter(function (w) { return !/^\d+$/.test(w); }), topic: topic });
     });

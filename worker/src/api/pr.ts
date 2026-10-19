@@ -368,7 +368,7 @@ export const routes: Routes = {
     // specifications), and what people answered there. An AI draft that answers an identical clause differently is RED.
     const prec = await env.DB.prepare(
       `SELECT b.run_id, r2.file_name, r2.created_at, p2.id AS project_id, p2.name AS project, p2.created_by,
-              count(*) AS same, sum(CASE WHEN b.ai_draft = 0 AND (b.compliance <> '' OR b.remarks <> '') THEN 1 ELSE 0 END) AS answered
+              count(DISTINCT a.seq) AS same, count(DISTINCT CASE WHEN b.ai_draft = 0 AND (b.compliance <> '' OR b.remarks <> '') THEN a.seq END) AS answered
          FROM cm_run_lines a JOIN cm_run_lines b ON b.line_id = a.line_id AND b.run_id <> a.run_id
          JOIN cm_runs r2 ON r2.id = b.run_id LEFT JOIN pr_projects p2 ON p2.id = r2.project_id
         WHERE a.run_id = ? AND a.line_id IS NOT NULL AND r2.factory_id = ?

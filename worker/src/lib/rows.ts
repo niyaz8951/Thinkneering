@@ -29,6 +29,7 @@ const TOPICS: [string, RegExp][] = [
   ["electrical", /\b(electrical|power supply|wiring|voltage)\b/],
   ["performance", /\b(capacit(y|ies)|characteristics|performance)\b/]
 ];
+const GENERAL = ["casing", "performance"];
 export function topicOf(text: unknown): string { const t = norm(text); for (const [k, re] of TOPICS) if (re.test(t)) return k; return ""; }
 function topicsIn(text: unknown): string[] { const t = norm(text); return TOPICS.filter(([, re]) => re.test(t)).map(([k]) => k); }
 function lead(text: string): string { const c = text.indexOf(":"); return c > 0 && c <= 80 ? text.slice(0, c) : ""; }
@@ -83,8 +84,11 @@ export function clauses(rows: SpecRowIn[]): Clause[] {
     // the clause's topic: its own label, then the headings above it, nearest first, then the section title
     const own = lead(text) || words(text).slice(0, 6).join(" ");      // its label, or its first words when it has none
     const above = [level === 3 && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", level >= 2 && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
-    let topic = "";
-    for (const t of [own, ...above]) { topic = topicOf(t); if (topic) break; }
+    // a heading above that names a specific part (filters, a VFD, heat wheels ...) holds for every item under it
+    // ("Mounting Frames" under "Panel Filters", "Motor output voltage" under "Variable Frequency Controllers");
+    // otherwise the clause's own label or first words; then a general heading (casing); then the section title
+    const heads = [above[0], above[1]].map(topicOf);
+    const topic = heads.find((t) => t && !GENERAL.includes(t)) || topicOf(own) || heads.find(Boolean) || topicOf(above[2]);
     out.push({ row: i, part, ref: ref.trim(), text, ctx: words(ctx), toks: words(text).filter((w) => !/^\d+$/.test(w)), topic });
   });
   return out;
