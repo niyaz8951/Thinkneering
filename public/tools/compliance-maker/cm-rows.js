@@ -21,6 +21,11 @@
    - The words of an entry must stand near each other in the clause.
    - Up to MAX clauses per row, best first; clauses that match much
      less well than the best one are dropped. Nothing found = empty.
+   - Topic gate: a clause about one part of the unit (its own label or
+     the nearest heading above it names filters, fans, coils, a VFD ...)
+     only links rows of that part of the datasheet. A clause or a row
+     with no topic is not gated. The same lists are in worker/src/lib/rows.ts
+     (the AI's copy); tests/worker/rows-parity.test.ts keeps them equal.
 
    window.CMRows = { update(rows, product), clear(), sheet(), match, clauses }
    ============================================================ */
@@ -35,6 +40,34 @@
   function norm(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
   function words(s) { var n = norm(s); return n ? n.split(' ') : []; }
   function shortHeading(text) { return words(text).length <= 8 && !/\b(shall|must|will|should)\b/i.test(text); }
+
+  // parts of a unit, most specific first: a text's topic is the first one it names
+  var TOPICS = [
+    ['vfd', /\b(variable (frequency|speed)|frequency controllers?|vfds?|vfcs?|inverters?)\b/],
+    ['filter', /\b(filters?|filtration|hepa|merv)\b/],
+    ['humid', /\b(humidif\w*|washers?|evaporative)\b/],
+    ['recovery', /\b(energy recovery|heat recovery|(heat|energy|enthalpy) wheels?|recuperators?|heat exchangers?|run around)\b/],
+    ['heater', /\b(heaters?|electric(al)? heat\w*|heating coils?)\b/],
+    ['coil', /\bcoils?\b/],
+    ['damper', /\b(dampers?|mixing (box|boxes|section|sections))\b/],
+    ['sound', /\b(sound|acoustic\w*|noise)\b/],
+    ['fan', /\b(fans?|motors?|drives?|impellers?)\b/],
+    ['casing', /\b(casings?|cabinets?|panels?|insulation|drain pans?|doors?|roofs?|bases?|frames?|structural)\b/],
+    ['electrical', /\b(electrical|power supply|wiring|voltage)\b/],
+    ['performance', /\b(capacit(y|ies)|characteristics|performance)\b/]
+  ];
+  function topicOf(text) { var t = norm(text); for (var i = 0; i < TOPICS.length; i++) if (TOPICS[i][1].test(t)) return TOPICS[i][0]; return ''; }
+  function topicsIn(text) { var t = norm(text); return TOPICS.filter(function (x) { return x[1].test(t); }).map(function (x) { return x[0]; }); }
+  function lead(text) { var c = text.indexOf(':'); return c > 0 && c <= 80 ? text.slice(0, c) : ''; }
+  // the parts of the unit a datasheet row is about: its section's, plus any its sub-heading and name add
+  function rowTopics(r) {
+    var sec = norm(r.section), t = topicOf(sec);
+    var base = sec === 'unit data' ? ['casing', 'performance'] : /^mechanical characteristic/.test(sec) ? ['casing']
+      : /^en 13053/.test(sec) ? ['performance', 'fan'] : (t ? [t] : []);
+    var out = [];
+    base.concat(topicsIn((r.sub || '') + ' ' + r.component)).forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+    return out;
+  }
 
   /* Spec rows -> clauses that can be matched, each with its part, reference and headings.
      Row types come from compliance-maker.js: part, section, letter, number, text. */
@@ -71,8 +104,13 @@
       }
       // a title such as "G. Air Filters" or "2. Inside Casing" is only context for the items under it
       if (hasChildren && ((level === 1 && lvl1.heading) || (level === 2 && lvl2.heading))) return;
+      // the clause's topic: its own label, then the headings above it, nearest first, then the section title
+      var cands = [lead(text) || words(text).slice(0, 6).join(' '), level === 3 && lvl2 ? (lvl2.heading ? lvl2.text : lead(lvl2.text)) : '',
+                   level >= 2 && lvl1 ? (lvl1.heading ? lvl1.text : lead(lvl1.text)) : '', sec ? sec.text : ''];
+      var topic = '';
+      for (var k = 0; k < cands.length && !topic; k++) topic = topicOf(cands[k]);
       out.push({ row: i, part: part, ref: ref.trim(), text: text, ctx: words(ctx),
-                 toks: words(text).filter(function (w) { return !/^\d+$/.test(w); }) });
+                 toks: words(text).filter(function (w) { return !/^\d+$/.test(w); }), topic: topic });
     });
     return out;
   }
@@ -136,11 +174,13 @@
       rules.forEach(function (r) {
         if (r.show === false || r.section !== sec) return;
         var entries = String(r.keywords || '').split(';').map(words).filter(function (e) { return e.length; });
+        var topics = rowTopics(r);
         var hits = [];
         if (entries.length) {
           [2, 1].some(function (p) {
             cl.forEach(function (c, i) {
               if (hasPart2 ? c.part !== p : p !== 2) return;      // a spec with no parts is searched whole, once
+              if (topics.length && c.topic && topics.indexOf(c.topic) < 0) return;      // the topic gate
               var s = score(entries, c);
               if (s) hits.push({ c: c, s: s, i: i });
             });
@@ -237,7 +277,7 @@
   if (only) only.addEventListener('change', function () { if (table) render(); });
 
   window.CMRows = {
-    update: update, clear: clear, match: match, clauses: clauses,
+    update: update, clear: clear, match: match, clauses: clauses, topicOf: topicOf, rowTopics: rowTopics,
     /* For the Excel: every row, found or not. null when there is no table. */
     sheet: function () { return table && table.length ? { name: 'Datasheet rows', rows: table } : null; }
   };

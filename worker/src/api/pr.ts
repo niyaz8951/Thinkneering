@@ -46,6 +46,7 @@ async function rowOf(env: Env, runId: string, seq: unknown): Promise<RLL | null>
 
 function fileLabel(r: RunRow): string { return r.file_name || "pasted text"; }
 function noteKey(projectId: string, noteId: string): string { return `notes/${projectId}/${noteId}.json`; }
+function parseCols(text: string): string[] { try { const v = JSON.parse(text || "[]"); return Array.isArray(v) ? v.map((c) => String(c ?? "")) : []; } catch { return []; } }
 
 /* The latest AI draft per row of a record (one seq, or all). */
 async function latestDrafts(env: Env, runId: string, seq?: number): Promise<Map<number, DraftRow>> {
@@ -157,7 +158,7 @@ async function noteRows(env: Env, key: string): Promise<unknown[]> {
 async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Record<string, unknown>> {
   type RunCard = { id: string; created_at: string; user_id: string | null; product_id: string; product: string; factory: string; source: string; file_name: string; line_count: number; matched_count: number };
   type Counts = { run_id: string; clauses: number; filled: number; answered: number; drafts: number; pending: number; approved: number; rejected: number };
-  type Note = { id: string; created_at: string; user_id: string | null; product_id: string; product: string; file_names: string; units: number; row_count: number };
+  type Note = { id: string; created_at: string; user_id: string | null; product_id: string; product: string; file_names: string; units: number; row_count: number; factory_id: string; factory: string | null };
   type Log = { created_at: string; user_id: string | null; action: string; detail: string };
   const [mem, runs, counts, notes, log] = await env.DB.batch([
     env.DB.prepare("SELECT au.full_name FROM pr_members m JOIN app_users au ON au.id = m.user_id WHERE m.project_id = ? ORDER BY au.full_name").bind(p.id),
@@ -175,8 +176,9 @@ async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Recor
                            sum(CASE WHEN rl.review = 'rejected' THEN 1 ELSE 0 END) AS rejected
                       FROM cm_run_lines rl JOIN cm_runs r ON r.id = rl.run_id LEFT JOIN cm_lines l ON l.id = rl.line_id
                      WHERE r.project_id = ? GROUP BY rl.run_id`).bind(p.id),
-    env.DB.prepare(`SELECT n.id, n.created_at, n.user_id, n.product_id, pd.name AS product, n.file_names, n.units, n.row_count
-                      FROM pr_notes n JOIN cm_products pd ON pd.id = n.product_id WHERE n.project_id = ? ORDER BY n.created_at DESC`).bind(p.id),
+    env.DB.prepare(`SELECT n.id, n.created_at, n.user_id, n.product_id, pd.name AS product, n.file_names, n.units, n.row_count, n.factory_id, f.name AS factory
+                      FROM pr_notes n JOIN cm_products pd ON pd.id = n.product_id LEFT JOIN cm_factories f ON f.id = n.factory_id
+                     WHERE n.project_id = ? ORDER BY n.created_at DESC`).bind(p.id),
     env.DB.prepare("SELECT created_at, user_id, action, detail FROM pr_log WHERE project_id = ? ORDER BY id DESC LIMIT 200").bind(p.id)
   ]);
   const runList = runs.results as unknown as RunCard[], noteList = notes.results as unknown as Note[], logList = log.results as unknown as Log[];
@@ -193,7 +195,8 @@ async function projectDetail(env: Env, s: Session, p: ProjectRow): Promise<Recor
                source: r.source, file_name: r.file_name, lines: r.line_count, from_library: r.matched_count,
                clauses: c?.clauses ?? 0, filled: c?.filled ?? 0, answered: c?.answered ?? 0, drafts: c?.drafts ?? 0, pending: c?.pending ?? 0, approved: c?.approved ?? 0, rejected: c?.rejected ?? 0 };
     }),
-    notes: noteList.map((n) => ({ id: n.id, created_at: n.created_at, user: nameOf(n.user_id), product_id: n.product_id, product: n.product, file_names: n.file_names, units: n.units, rows: n.row_count })),
+    notes: noteList.map((n) => ({ id: n.id, created_at: n.created_at, user: nameOf(n.user_id), product_id: n.product_id, product: n.product, file_names: n.file_names, units: n.units, rows: n.row_count,
+                                  factory_id: n.factory_id || "", factory: n.factory || "" })),
     log: logList.map((g) => ({ at: g.created_at, user: nameOf(g.user_id), action: g.action, detail: g.detail }))
   };
 }
@@ -296,7 +299,10 @@ export const routes: Routes = {
   },
 
   /* Save one Datasheet Notes table in a project (called by the tool after every read). The unit tags stay
-     in D1; the rows go to R2 at notes/<project>/<note>.json. */
+     in D1; the rows go to R2 at notes/<project>/<note>.json.
+     p_factory: the factory the datasheet names (its Material Name), kept so a specification can be checked against it.
+     A table that covers every unit of an earlier table of the same product in this project replaces it: reading the
+     same datasheet again does not give its units twice. */
   async pr_note_save(env, p) {
     const s = await sessionUser(env, p.p_token);
     const pj = await prProject(env, s, p.p_project_id);
@@ -308,13 +314,21 @@ export const routes: Routes = {
     const units = columns.length;
     const count = rows.filter((r) => !isObject(r) || (r.kind ?? "row") === "row").length;
     const id = uuid(), key = noteKey(pj.id, id), files = str(p.p_file_names, 400);
+    const fname = str(p.p_factory, 60).trim();
+    const fac = fname ? await env.DB.prepare("SELECT id FROM cm_factories WHERE product_id = ? AND lower(name) = lower(?)").bind(prod.id, fname).first<{ id: string }>() : null;
+    const tags = new Set(columns.map((c) => String(c ?? "")));
+    const earlier = await all<{ id: string; columns: string; file_key: string }>(env.DB.prepare("SELECT id, columns, file_key FROM pr_notes WHERE project_id = ? AND product_id = ?").bind(pj.id, prod.id));
+    const replaced = earlier.filter((n) => { const c = parseCols(n.columns); return c.length > 0 && c.every((t) => tags.has(t)); });
     await env.FILES.put(key, body, { httpMetadata: { contentType: "application/json" } });
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO pr_notes (id, project_id, user_id, product_id, file_names, units, row_count, columns, file_key, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(id, pj.id, s.id, prod.id, files, units, count, JSON.stringify(columns), key, body.length, now()),
-      prLogStmt(env, pj.id, s.id, "Datasheet notes saved", `${units} ${units === 1 ? "unit" : "units"}, ${files.slice(0, 200)}`)
+      env.DB.prepare("INSERT INTO pr_notes (id, project_id, user_id, product_id, file_names, units, row_count, columns, file_key, bytes, created_at, factory_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(id, pj.id, s.id, prod.id, files, units, count, JSON.stringify(columns), key, body.length, now(), fac ? fac.id : ""),
+      ...replaced.map((n) => env.DB.prepare("DELETE FROM pr_notes WHERE id = ?").bind(n.id)),
+      prLogStmt(env, pj.id, s.id, replaced.length ? "Datasheet notes replaced" : "Datasheet notes saved", `${units} ${units === 1 ? "unit" : "units"}, ${files.slice(0, 200)}`)
     ]);
-    return { ok: true, id };
+    const old = replaced.map((n) => n.file_key).filter(Boolean);
+    if (old.length) await env.FILES.delete(old);
+    return { ok: true, id, replaced: replaced.length, factory: fac ? fac.id : "" };
   },
 
   /* One saved Datasheet Notes table, to show or download it again. */

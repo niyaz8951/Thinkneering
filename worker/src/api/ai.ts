@@ -201,7 +201,7 @@ export const routes: Routes = {
     const remaining = stopped ? todo.length - made : todo.length - batch.length;
     return { ok: true, done: made, drafted: tally.model || 0, copied: (tally["library-similar"] || 0) + (tally.record || 0) + (tally.project || 0),
              ruled: tally.rule || 0, from_datasheet: tally.datasheet || 0, by_source: tally, failed, waiting,
-             remaining: Math.max(0, remaining), errors, failed_seqs: failedSeqs, since, stopped, ...counts(await rowsOf(env, r.id), reopen) };
+             remaining: Math.max(0, remaining), errors, failed_seqs: failedSeqs, since, stopped, warning: ctx.sheetWarning, ...counts(await rowsOf(env, r.id), reopen) };
   },
 
   async ai_review_clear(env, p) {

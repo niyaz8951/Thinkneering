@@ -32,7 +32,8 @@ export interface RunRowFull {
   seq: number; type: string; sr: string; spec_text: string; line_id: string | null; compliance: string; remarks: string; ai_draft: number;
   answered_by: string | null; l_status: string | null; l_compliance: string | null; l_remarks: string | null; l_comments: string | null;
 }
-export interface SheetHit { key: string; section: string; component: string; label: string; cells: string[]; value: string; entries: string[][] }
+/* group: the mapping key when that key stands for several table rows (Filter 1 / Filter 2), else "" */
+export interface SheetHit { key: string; section: string; component: string; label: string; cells: string[]; value: string; entries: string[][]; group?: string }
 export interface OptionInfo { values: string[]; specials: string[]; notes: string[]; ai: string[] }
 export interface PastAnswer { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }
 /* A correction: what people answered instead of the AI on a clause (ai_feedback, edited or replaced). On a similar
@@ -51,7 +52,23 @@ export interface Context {
   corrections: Correction[];                 // what people changed in the AI's answers for this factory (newest 400)
   correctionIndex?: GramIndex<Correction>;
   absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
+  sheetWarning: string;                      // why the project's datasheet was not used (another factory), or ""
 }
+
+/* The factory a saved table names: its General > Factory row, first unit that has one. */
+function factoryRow(rows: NoteTable["rows"]): string {
+  let s = "";
+  for (const r of rows) {
+    if (r.section) s = String(r.section);
+    if (sectionName(s) === "general" && String(r.component || "").toLowerCase() === "factory") {
+      const v = (r.cells || []).map((c) => String(c ?? "")).find((c) => c && c !== "-");
+      if (v) return v;
+    }
+  }
+  return "";
+}
+/* "ahu-riyadh" -> "Riyadh"; a factory name stays as it is */
+function factoryName(v: string): string { const m = /^[a-z]+-(.+)$/.exec(v); return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : v; }
 
 /* The operator a figure carries, from the words just before it (or just after: "50 mm or more").
    Checked in this order, because the negative forms end with the positive words: "not more than 250 Pa" ends with
@@ -82,7 +99,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   type MapRow = MapRule & { row_key: string };
   const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
     env.DB.prepare("SELECT row_key, section, sub, component, show, label, keywords, strip, response FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),
-    env.DB.prepare("SELECT columns, file_key FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
+    env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
     env.DB.prepare("SELECT row_key, value, times FROM po_values WHERE factory_id = ? AND hidden = 0 ORDER BY times DESC").bind(run.factory_id),
     env.DB.prepare("SELECT section, row_key, kind, body FROM po_extras WHERE factory_id = ? ORDER BY created_at").bind(run.factory_id),
     // other projects' answers of this factory, by people (newest first; the cap keeps the work small)
@@ -98,15 +115,22 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   ]);
   const rules = (mapRes.results as unknown as MapRow[]).map((r) => ({ ...r, key: r.row_key }));
   // the project's saved datasheet tables of this product (R2)
-  const tables: NoteTable[] = [];
-  for (const n of notesRes.results as unknown as { columns: string; file_key: string }[]) {
+  let tables: NoteTable[] = [];
+  const otherFactory = new Set<string>();
+  for (const n of notesRes.results as unknown as { columns: string; file_key: string; factory_id: string }[]) {
     try {
       const obj = n.file_key && env.FILES ? await env.FILES.get(n.file_key) : null;
       if (!obj) continue;
       const data = (await obj.json()) as { rows?: NoteTable["rows"] };
-      tables.push({ columns: (JSON.parse(n.columns || "[]") as unknown[]).map((c) => String(c ?? "")), rows: Array.isArray(data?.rows) ? data.rows : [] });
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      // a datasheet of another factory says nothing about this record's units (tables saved before 19 Oct carry
+      // no factory id: their General > Factory row is read instead)
+      const named = n.factory_id ? "" : factoryRow(rows);
+      if ((n.factory_id && n.factory_id !== run.factory_id) || (named && named.toLowerCase() !== run.factory.toLowerCase())) { otherFactory.add(named || n.factory_id); continue; }
+      tables.push({ columns: (JSON.parse(n.columns || "[]") as unknown[]).map((c) => String(c ?? "")), rows });
     } catch (e) { console.warn("datasheet table could not be read", e); }
   }
+  const sheetWarning = otherFactory.size ? `The project's datasheet is for another factory (${[...otherFactory].map(factoryName).join(", ")}), not ${run.factory}: it was not used. Read the ${run.factory} datasheet, or convert the specification for the datasheet's factory.` : "";
   const look = unitLookup(tables);
   // the unit sections the project's datasheet has (any value in them): a clause about another one is about a
   // part the selected unit may not include (Thinkneering v3, "what this unit is made of")
@@ -125,12 +149,17 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const matched = await matchFor(env, run.id, specRows, rules, opts.cache !== false);
   for (const m of matched) {
     if (!m.found) continue;
-    const cells = look.values({ key: m.key, section: m.section, component: m.rule.component });
-    const hit: SheetHit = { key: m.key, section: m.section, component: m.component, label: `${m.section} • ${m.component}`, cells, value: unitValues(cells, look.columns), entries: m.entries };
+    // every table row the mapping row stands for (Filter 1 and Filter 2 ...): one hit each, all compared
+    const list = look.entries({ key: m.key, section: m.section, component: m.rule.component });
+    const hits: SheetHit[] = list.map((e) => {
+      const component = m.component + (e.qual ? " \u00b7 " + e.qual : "");
+      return { key: m.key, section: m.section, component, label: `${m.section} • ${component}`, cells: e.cells, value: unitValues(e.cells, look.columns), entries: m.entries, group: list.length > 1 ? m.key : "" };
+    });
+    const cells = hits.length ? hits.flatMap((h) => h.cells) : [];
     const ex = extras.filter((x) => (x.row_key === m.key) || (x.row_key === "" && x.section.toLowerCase() === m.section.toLowerCase()));
     const missing = tables.length > 0 && present.size > 0 && !present.has(sectionName(m.section));
     for (const seq of m.seqs) {
-      if (hasValue(cells)) { const l = sheet.get(seq) || []; l.push(hit); sheet.set(seq, l); }
+      if (hasValue(cells)) { const l = sheet.get(seq) || []; l.push(...hits.filter((h) => hasValue(h.cells))); sheet.set(seq, l); }
       if (missing) { const a = absent.get(seq) || []; if (!a.includes(m.section)) a.push(m.section); absent.set(seq, a); }
       const o = options.get(seq) || { values: [], specials: [], notes: [], ai: [] };
       const vals = valuesByRow.get(m.key) || [];
@@ -157,7 +186,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   }
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
-  return { run, rows, place: pl, columns: look.columns, sheet, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
+  return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
            search: new ClauseSearch(env, usage), project, names, kinds, absent,
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
@@ -165,10 +194,12 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
 /* ---------- the match, worked out once per record ---------- */
 
 interface Matched { key: string; section: string; component: string; found: boolean; seqs: number[]; entries: string[][]; rule: MapRule }
+const MATCH_VERSION = "2026-10-19 topics";
 const matchMemo = new Map<string, { stamp: string; byKey: Record<string, number[]> }>();
 
 async function matchFor(env: Env, runId: string, specRows: { seq: number; type: string; sr: string; spec: string }[], rules: MapRule[], cache = true): Promise<Matched[]> {
-  const stamp = (await sha256(JSON.stringify([specRows.map((r) => [r.seq, r.type, r.sr, r.spec]), rules.map((r) => [r.key, r.section, r.component, r.label, r.show, r.keywords])]))).slice(0, 24);
+  // MATCH_VERSION: a change to the matching rule (lib/rows.ts) makes every kept match stale
+  const stamp = (await sha256(JSON.stringify([MATCH_VERSION, specRows.map((r) => [r.seq, r.type, r.sr, r.spec]), rules.map((r) => [r.key, r.section, r.sub, r.component, r.label, r.show, r.keywords])]))).slice(0, 24);
   let byKey: Record<string, number[]> | null = null;
   const mem = cache ? matchMemo.get(runId) : undefined;
   if (mem && mem.stamp === stamp) byKey = mem.byKey;

@@ -35,6 +35,27 @@ async function draftOn(run: string, seq: number, compliance: string, remarks: st
 describe("pr_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
+  it("pr_note_save keeps the datasheet's factory and replaces an earlier table of the same units (19 Oct 2026)", async () => {
+    const sbu = await login("sbu"), sales = await login("sales");
+    const pid = await project(sbu);
+    const rows = (v: string) => [{ section: "General", component: "Factory", cells: ["Riyadh", "Riyadh"], key: "general||factory" }, { section: "Unit Data", component: "Panel", cells: [v, v], key: "unit data||panel" }];
+    const first = await ok("pr_note_save", { p_token: sbu, p_project_id: pid, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1", "U2"], p_rows: rows("50 mm"), p_factory: "Riyadh" });
+    expect(first).toMatchObject({ replaced: 0, factory: "ahu-riyadh" });
+    // another product, and a table of other units, stay
+    await ok("pr_note_save", { p_token: sbu, p_project_id: pid, p_product_id: "fcu", p_file_names: "f.pdf", p_columns: ["U1"], p_rows: [{ component: "x", cells: ["1"] }] });
+    await ok("pr_note_save", { p_token: sbu, p_project_id: pid, p_product_id: "ahu", p_file_names: "b.pdf", p_columns: ["U9"], p_rows: rows("62 mm").map((r) => ({ ...r, cells: [r.cells[0]] })) });
+    // the same datasheet read again (plus a unit): replaces the first, its file goes from R2
+    const again = await ok("pr_note_save", { p_token: sbu, p_project_id: pid, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1", "U2", "U3"], p_rows: rows("62 mm"), p_factory: "riyadh" });
+    expect(again.replaced).toBe(1);
+    expect(await env.FILES.get(`notes/${pid}/${first.id}.json`)).toBeNull();
+    const g = await ok("pr_get", { p_token: sbu, p_id: pid });
+    expect(g.notes.map((n: any) => n.file_names + " " + n.product + " " + n.factory).sort()).toEqual(["a.pdf AHU Riyadh", "b.pdf AHU ", "f.pdf FCU "]);
+    expect(g.log[0]).toMatchObject({ action: "Datasheet notes replaced" });
+    // a factory the product does not have is not kept; another user's project is refused
+    expect((await ok("pr_note_save", { p_token: sbu, p_project_id: pid, p_product_id: "ahu", p_file_names: "c.pdf", p_columns: ["U7"], p_rows: rows("1"), p_factory: "Mars" })).factory).toBe("");
+    expect(await refused("pr_note_save", { p_token: sales, p_project_id: pid, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1"], p_rows: rows("1"), p_factory: "Riyadh" })).toMatch(/not available/);
+  });
+
   it("pr_options lists the two dropdowns; refused without a session", async () => {
     const t = await login("sbu");
     const o = await ok("pr_options", { p_token: t });

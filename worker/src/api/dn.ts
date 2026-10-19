@@ -20,17 +20,20 @@ export async function showUnmapped(env: Env, productId: string): Promise<boolean
   return s ? !!s.show_unmapped : true;
 }
 
-/* Starter keywords for AHU rows (dn_starter_keywords), handed out ONCE: only while no AHU row carries
-   keywords, as the one-time update in the old schema did. Returns key -> keywords for the keys given,
-   or an empty map when the product is not the AHU or an AHU row already has keywords. */
-async function starterKeywords(env: Env, productId: string, keys: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/* Starter keywords and "Remove text" for AHU rows (dn_starter_keywords). A row new to the mapping has had no
+   decision yet, so it always gets them (since 19 Oct 2026; before, only while no AHU row carried keywords). When
+   the editors save the mapping, rows new to it get them only while no row of the list carries keywords (once:
+   anyKeywords = false), as the one-time update of the old schema did. Returns key -> { keywords, strip }. */
+async function starterKeywords(env: Env, productId: string, keys: string[], once = false): Promise<Map<string, { keywords: string; strip: string }>> {
+  const out = new Map<string, { keywords: string; strip: string }>();
   if (productId !== "ahu" || keys.length === 0) return out;
-  const has = await env.DB.prepare("SELECT 1 AS x FROM dn_map WHERE product_id = 'ahu' AND keywords <> '' LIMIT 1").first();
-  if (has) return out;
+  if (once) {
+    const has = await env.DB.prepare("SELECT 1 AS x FROM dn_map WHERE product_id = 'ahu' AND keywords <> '' LIMIT 1").first();
+    if (has) return out;
+  }
   for (const part of chunks(keys)) {
-    const rows = await all<{ row_key: string; keywords: string }>(env.DB.prepare(`SELECT row_key, keywords FROM dn_starter_keywords WHERE row_key IN (${marks(part.length)})`).bind(...part));
-    rows.forEach((r) => out.set(r.row_key, r.keywords));
+    const rows = await all<{ row_key: string; keywords: string; strip: string }>(env.DB.prepare(`SELECT row_key, keywords, strip FROM dn_starter_keywords WHERE row_key IN (${marks(part.length)})`).bind(...part));
+    rows.forEach((r) => out.set(r.row_key, { keywords: r.keywords, strip: r.strip || "" }));
   }
   return out;
 }
@@ -97,8 +100,8 @@ export const routes: Routes = {
     const fresh = rows.filter((r) => !have.has(r.key));
     const starter = await starterKeywords(env, prod.id, fresh.map((r) => r.key));
     const stmts = fresh.map((r) =>
-      env.DB.prepare("INSERT OR IGNORE INTO dn_map (product_id, row_key, section, sub, component, show, keywords, sort, reviewed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)")
-        .bind(prod.id, r.key, r.section, r.sub, r.component, show, starter.get(r.key) || "", base + r.ord));
+      env.DB.prepare("INSERT OR IGNORE INTO dn_map (product_id, row_key, section, sub, component, show, keywords, strip, sort, reviewed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
+        .bind(prod.id, r.key, r.section, r.sub, r.component, show, starter.get(r.key)?.keywords || "", starter.get(r.key)?.strip || "", base + r.ord));
     await batched(env.DB, stmts);
     return { ok: true, added: fresh.length };
   },
@@ -136,12 +139,12 @@ export const routes: Routes = {
 
     const have = await existingKeys(env, prod.id, rules.map((r) => r.key));
     const anyKeywords = rules.some((r) => trimmed(r.raw.keywords) !== "");
-    const starter = anyKeywords ? new Map<string, string>() : await starterKeywords(env, prod.id, rules.filter((r) => !have.has(r.key)).map((r) => r.key));
+    const starter = anyKeywords ? new Map<string, { keywords: string; strip: string }>() : await starterKeywords(env, prod.id, rules.filter((r) => !have.has(r.key)).map((r) => r.key), true);
     for (const r of rules) {
       const o = r.raw;
       const show = o.show == null ? 1 : (bool(o.show) ? 1 : 0);
       const label = trimmed(o.label), strip = trimmed(o.strip), response = trimmed(o.response);
-      const keywords = trimmed(o.keywords) || (have.has(r.key) ? "" : (starter.get(r.key) || ""));
+      const keywords = trimmed(o.keywords) || (have.has(r.key) ? "" : (starter.get(r.key)?.keywords || ""));
       stmts.push(env.DB.prepare(
         `INSERT INTO dn_map (product_id, row_key, section, sub, component, show, label, strip, response, keywords, sort, updated_by, updated_at, reviewed)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)

@@ -71,7 +71,7 @@
     prShareGet: function (t, id) { return rpc("pr_share_get", { p_token: t, p_id: id }); },
     prShareSet: function (t, id, userIds) { return rpc("pr_share_set", { p_token: t, p_id: id, p_user_ids: userIds || [] }); },
     prExport: function (t, id) { return rpc("pr_export", { p_token: t, p_id: id }); },
-    prNoteSave: function (t, d) { return rpc("pr_note_save", { p_token: t, p_project_id: d.projectId, p_product_id: d.productId, p_file_names: d.fileNames || "", p_columns: d.columns, p_rows: d.rows }); },
+    prNoteSave: function (t, d) { return rpc("pr_note_save", { p_token: t, p_project_id: d.projectId, p_product_id: d.productId, p_file_names: d.fileNames || "", p_columns: d.columns, p_rows: d.rows, p_factory: d.factory || "" }); },
     prNoteGet: function (t, id) { return rpc("pr_note_get", { p_token: t, p_note_id: id }); },
     prRunGet: function (t, id) { return rpc("pr_run_get", { p_token: t, p_run_id: id }); },
     prRunSaveLine: function (t, d) { return rpc("pr_run_save_line", { p_token: t, p_run_id: d.run, p_seq: d.seq, p_compliance: d.compliance || "", p_remarks: d.remarks || "", p_check: d.check == null ? null : d.check }); },

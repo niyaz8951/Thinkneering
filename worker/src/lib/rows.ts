@@ -5,11 +5,41 @@
 
    Matching rule (unchanged): keywords are entries separated by ";"; an entry matches a clause when every word of
    the entry starts a word of the clause or of the heading above it, the words stand near each other; Part 2 is
-   searched first, Part 1 only for rows Part 2 has nothing for, Part 3 never; up to 3 clauses per row. */
+   searched first, Part 1 only for rows Part 2 has nothing for, Part 3 never; up to 3 clauses per row.
+   Topic gate (19 Oct 2026): a clause about one part of the unit (its nearest heading or label says filters, fans,
+   coils, a VFD ...) only links rows of that part of the datasheet; a clause or a row with no topic is not gated. */
 
 export interface SpecRowIn { type: string; sr: string; spec: string }
 export interface MapRule { key: string; section: string; sub: string; component: string; show: boolean | number; label: string; keywords: string; strip?: string; response?: string }
-interface Clause { row: number; part: number; ref: string; text: string; ctx: string[]; toks: string[] }
+interface Clause { row: number; part: number; ref: string; text: string; ctx: string[]; toks: string[]; topic: string }
+
+/* Parts of a unit, most specific first: a text's topic is the first one it names ("Electrical Heating Coils" is a
+   heater, "Disposable Panel Filters" a filter). The same list is in cm-rows.js. */
+const TOPICS: [string, RegExp][] = [
+  ["vfd", /\b(variable (frequency|speed)|frequency controllers?|vfds?|vfcs?|inverters?)\b/],
+  ["filter", /\b(filters?|filtration|hepa|merv)\b/],
+  ["humid", /\b(humidif\w*|washers?|evaporative)\b/],
+  ["recovery", /\b(energy recovery|heat recovery|(heat|energy|enthalpy) wheels?|recuperators?|heat exchangers?|run around)\b/],
+  ["heater", /\b(heaters?|electric(al)? heat\w*|heating coils?)\b/],
+  ["coil", /\bcoils?\b/],
+  ["damper", /\b(dampers?|mixing (box|boxes|section|sections))\b/],
+  ["sound", /\b(sound|acoustic\w*|noise)\b/],
+  ["fan", /\b(fans?|motors?|drives?|impellers?)\b/],
+  ["casing", /\b(casings?|cabinets?|panels?|insulation|drain pans?|doors?|roofs?|bases?|frames?|structural)\b/],
+  ["electrical", /\b(electrical|power supply|wiring|voltage)\b/],
+  ["performance", /\b(capacit(y|ies)|characteristics|performance)\b/]
+];
+export function topicOf(text: unknown): string { const t = norm(text); for (const [k, re] of TOPICS) if (re.test(t)) return k; return ""; }
+function topicsIn(text: unknown): string[] { const t = norm(text); return TOPICS.filter(([, re]) => re.test(t)).map(([k]) => k); }
+function lead(text: string): string { const c = text.indexOf(":"); return c > 0 && c <= 80 ? text.slice(0, c) : ""; }
+/* The parts of the unit a datasheet row is about: its section's, plus any its sub-heading and name add. */
+export function rowTopics(r: { section: string; sub?: string; component: string }): string[] {
+  const sec = norm(r.section);
+  const base = sec === "unit data" ? ["casing", "performance"] : /^mechanical characteristic/.test(sec) ? ["casing"]
+    : /^en 13053/.test(sec) ? ["performance", "fan"] : (topicOf(sec) ? [topicOf(sec)] : []);
+  const out = [...base, ...topicsIn((r.sub || "") + " " + r.component)];
+  return [...new Set(out)];
+}
 
 const MAX = 3, FAR = 6;
 function norm(s: unknown): string { return String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
@@ -50,7 +80,12 @@ export function clauses(rows: SpecRowIn[]): Clause[] {
       if (level === 3) { if (l2) { ref += (l1 ? "." : " ") + l2.sr; if (l2.heading) ctx += " " + l2.text; } ref += "." + sr; }
     }
     if (hasChildren && ((level === 1 && l1!.heading) || (level === 2 && l2!.heading))) return;
-    out.push({ row: i, part, ref: ref.trim(), text, ctx: words(ctx), toks: words(text).filter((w) => !/^\d+$/.test(w)) });
+    // the clause's topic: its own label, then the headings above it, nearest first, then the section title
+    const own = lead(text) || words(text).slice(0, 6).join(" ");      // its label, or its first words when it has none
+    const above = [level === 3 && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", level >= 2 && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
+    let topic = "";
+    for (const t of [own, ...above]) { topic = topicOf(t); if (topic) break; }
+    out.push({ row: i, part, ref: ref.trim(), text, ctx: words(ctx), toks: words(text).filter((w) => !/^\d+$/.test(w)), topic });
   });
   return out;
 }
@@ -135,6 +170,7 @@ export function match(specRows: SpecRowIn[], rules: MapRule[]): MatchRow[] {
     for (const r of rules) {
       if (r.show === false || r.show === 0 || r.section !== sec) continue;
       const entries = String(r.keywords || "").split(";").map(words).filter((e) => e.length);
+      const topics = rowTopics(r);
       let hits: { c: Clause; s: number; i: number }[] = [];
       if (entries.length) {
         const cand = [...candidates(entries)].sort((a, b) => a - b);
@@ -142,6 +178,7 @@ export function match(specRows: SpecRowIn[], rules: MapRule[]): MatchRow[] {
           for (const i of cand) {
             const c = cl[i];
             if (hasPart2 ? c.part !== p : p !== 2) continue;
+            if (topics.length && c.topic && !topics.includes(c.topic)) continue;      // the topic gate
             const s = score(entries, c);
             if (s) hits.push({ c, s, i });
           }
@@ -165,32 +202,40 @@ export interface NoteTable { columns: string[]; rows: { section?: string; compon
 function low(s: unknown): string { return String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim(); }
 export function sectionName(s: unknown): string { return low(s).replace(/^\d+\)\s*/, "").replace(/\s*\(\d+\)$/, ""); }
 
-/* Every unit of every table is a column; returns the column names and a lookup row -> one value per column. */
-export function unitLookup(notes: NoteTable[]): { columns: string[]; values: (row: { key: string; section: string; component: string }) => string[] } {
+/* Every unit of every table is a column; a unit tag read again in a newer table is taken from the newest one only.
+   entries(row) gives every table row the mapping row stands for, in table order, each { qual, cells }: a key printed
+   twice (Filter Class of Filter 1 and Filter 2, a second "Empty Section Supply") gives two entries, told apart by their
+   order in the table and named by their sub-heading or section ("Filter 2", "Empty Section Supply 2"). values(row) is
+   the first entry's cells. The same as PRMatch.unitLookup (pr-match.js). */
+export interface Entry { qual: string; cells: string[] }
+export function unitLookup(notes: NoteTable[]): { columns: string[]; entries: (row: { key: string; section: string; component: string }) => Entry[]; values: (row: { key: string; section: string; component: string }) => string[] } {
   const columns: string[] = [];
-  const byKey: Record<string, { at: number; cells: unknown[] }[]> = {}, byName: Record<string, { at: number; cells: unknown[] }[]> = {};
-  let n = 0;
-  for (const note of notes) {
-    let s = "";
-    const used: Record<string, number> = {};
-    for (const tag of note.columns) { let t = tag, k = 2; while (columns.includes(t)) t = tag + " (" + (k++) + ")"; columns.push(t); }
+  const keep: boolean[][] = notes.map(() => []), seen = new Set<string>();
+  for (let t = notes.length - 1; t >= 0; t--) notes[t].columns.forEach((tag, i) => { keep[t][i] = !seen.has(tag); seen.add(tag); });
+  const at = notes.map((note, t) => note.columns.map((tag, i) => { if (!keep[t][i]) return -1; columns.push(tag); return columns.length - 1; }));
+  const byId = new Map<string, Entry>(), order = new Map<string, Entry[]>();
+  notes.forEach((note, t) => {
+    let s = "", title = "", sub = "";
+    const occ: Record<string, number> = {};
     for (const r of note.rows) {
-      if (r.section) s = r.section;
-      if (r.kind === "sub") continue;
+      if (r.section) { s = r.section; title = r.section; sub = ""; }
+      if (r.kind === "sub") { sub = String(r.component || ""); continue; }
+      const m = /\((\d+)\)\s*$/.exec(title), qual = [m ? sectionName(title) + " " + m[1] : "", sub].filter(Boolean).join(" \u00b7 ");
       for (const k of [r.key ? "k:" + r.key : null, "n:" + sectionName(s) + "|" + low(r.component)]) {
-        if (!k || used[k]) continue; used[k] = 1;
-        const m = k.charAt(0) === "k" ? byKey : byName;
-        (m[k] = m[k] || []).push({ at: n, cells: r.cells || [] });
+        if (!k) continue;
+        occ[k] = (occ[k] || 0) + 1;
+        const id = k + "#" + occ[k];
+        let e = byId.get(id);
+        if (!e) { e = { qual, cells: columns.map(() => "") }; byId.set(id, e); const l = order.get(k) || []; l.push(e); order.set(k, l); }
+        (r.cells || []).forEach((v, i) => { const c = at[t][i]; if (c != null && c >= 0) e!.cells[c] = v == null ? "" : String(v); });
       }
     }
-    n += note.columns.length;
-  }
-  return { columns, values: (row) => {
-    const hit = (row.key && byKey["k:" + row.key]) || byName["n:" + sectionName(row.section) + "|" + low(row.component)] || [];
-    const out = columns.map(() => "");
-    for (const h of hit) h.cells.forEach((v, i) => { out[h.at + i] = v == null ? "" : String(v); });
-    return out;
-  } };
+  });
+  const entries = (row: { key: string; section: string; component: string }): Entry[] => {
+    const list = (row.key && order.get("k:" + row.key)) || order.get("n:" + sectionName(row.section) + "|" + low(row.component)) || [];
+    return list.map((e) => ({ qual: list.length > 1 ? e.qual : "", cells: e.cells.slice() }));
+  };
+  return { columns, entries, values: (row) => { const l = entries(row); return l.length ? l[0].cells : columns.map(() => ""); } };
 }
 
 export function hasValue(cells: string[]): boolean { return cells.some((v) => v && v !== "-"); }

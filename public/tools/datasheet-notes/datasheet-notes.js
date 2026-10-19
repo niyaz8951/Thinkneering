@@ -197,9 +197,15 @@
       tell('This table is too large to save in the project (' + grid.columns.length + ' units). Download the Excel and keep it, or read the datasheets in smaller groups.', 'warn');
       return;
     }
+    // the factory the datasheets name (Material Name ...9 Riyadh, ...5 Dubai); several factories in one run = none
+    var facs = [];
+    parsed.forEach(function (u) { if (u.hdr.factory && facs.indexOf(u.hdr.factory) < 0) facs.push(u.hdr.factory); });
     tell('Saving in ' + project.name + '…');
-    window.Api.prNoteSave(window.Hub.token(), { projectId: project.id, productId: c.productId, fileNames: names.join(', '), columns: grid.columns, rows: rows }).then(function () {
-      tell('Saved in ' + project.name + '. Go back to the project to see it beside the specification.', 'ok');
+    window.Api.prNoteSave(window.Hub.token(), { projectId: project.id, productId: c.productId, fileNames: names.join(', '), columns: grid.columns, rows: rows,
+                                                 factory: facs.length === 1 ? facs[0] : '' }).then(function (res) {
+      tell('Saved in ' + project.name + (res && res.replaced ? ', in place of the earlier table of the same units' : '') +
+           '. Go back to the project to see it beside the specification.' +
+           (facs.length > 1 ? ' These datasheets name more than one factory (' + facs.join(', ') + '): read each factory\'s datasheets on their own.' : ''), facs.length > 1 ? 'warn' : 'ok');
     }, function (err) {
       tell('The table was not saved in the project: ' + ((err && err.message) || err) + ' Download the Excel now and read the datasheet again later.', 'error');
     });
