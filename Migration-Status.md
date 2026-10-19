@@ -56,6 +56,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Next pieces of work, in order
 
+000. Requirement fingerprints (owner, 19 Oct 2026 night): phase 0 experiment first - `docs/Requirement-Fingerprints.md`. Owner to answer its section 6 (who maintains the vocabulary, granularity, capability vs selection, AHU first).
 00. Owner (19 Oct push, branch `fixes-2026-10-19`): `npm install`, then `npm run deploy` (applies migration **0005**
    then deploys). Then Compliance review > AI rules > **Update from template** once per rule book (the new 5-part brief).
    Re-read one datasheet per open project to save its factory and the EN 1886 / EN 13053 rows (the old table is replaced).

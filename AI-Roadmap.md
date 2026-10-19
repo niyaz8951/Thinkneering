@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026, night - direction: requirement fingerprints and the capability matrix (planned, not built)
+Owner's decision: identify the requirement behind each clause from its landmarks (component, property, standard, class, value, limit) and compare its level with the factory's capability by code; the AI answers descriptive clauses, writes remarks, reviews, and proposes types / synonyms / capabilities for approval. Whole specs matched to earlier ones as templates, so only the changes need review. Plan, phases and proofs: `docs/Requirement-Fingerprints.md` (project: `claude/Requirement-Fingerprints.md`). Next: phase 0 experiment (2 days).
+
 ### 19 Oct 2026, evening - Product Options values approved by an admin
 The AI reads only approved Product Options values (`evidence.ts`: `approved = 1`), so a wrong datasheet cannot teach it a false option.
 
