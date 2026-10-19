@@ -235,6 +235,9 @@ export async function aiMapFor(env: Env, productId: string, factoryId: string | 
     `SELECT l.factory_id, l.role, m.id, m.name, m.updated_at FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id
       WHERE l.product_id = ? AND (l.factory_id IS NULL OR l.factory_id = ?)`).bind(productId, factoryId || ""));
   if (!links.length) return { rules: [], settings: { ...DEFAULT_SETTINGS }, problems: [], instructions: null, knowledge: [], maps: [] };
+  // a map linked in both scopes (possible before 0005) is read once, at its widest scope
+  links.sort((a, b) => (a.factory_id ? 1 : 0) - (b.factory_id ? 1 : 0));
+  for (let i = links.length - 1; i > 0; i--) if (links.findIndex((l) => l.id === links[i].id) < i) links.splice(i, 1);
   const key = productId + "|" + (factoryId || "");
   const stamp = links.map((l) => l.role + l.id + l.updated_at).sort().join(",");
   const hit = cache.get(key);

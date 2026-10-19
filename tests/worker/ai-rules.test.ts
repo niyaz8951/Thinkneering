@@ -433,6 +433,13 @@ describe("AI rule book and knowledge maps", () => {
     expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "knowledge" })).toMatch(/is an AI rule book/);
     await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });
     await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "knowledge" });
+    // a rule book is linked once, anywhere; a knowledge map once per product (19 Oct 2026)
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/already linked for AHU, all factories/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "fcu", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/A rule book is linked once/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: kn.id, p_role: "knowledge" })).toMatch(/once per product/);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });                 // linking it again where it is: fine
+    const picker = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(picker.maps.find((m: any) => m.id === rb.id).linked).toEqual([{ role: "rulebook", product_id: "ahu", factory_id: null, where: "AHU, all factories" }]);
     // knowledge: a verified branch the AI may quote; one "to verify" is not a fact yet
     const kroot = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND parent_id IS NULL").bind(kn.id).first<any>();
     await env.DB.batch([

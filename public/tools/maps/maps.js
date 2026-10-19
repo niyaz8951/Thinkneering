@@ -5,7 +5,8 @@
      index.html            every map the user can open, search across them, Add map
      index.html?map=<id>   one map. #<branch id> shows that branch alone, #at-<branch id> selects it.
    Data only through Api.mp* (db/schema.sql, part "MAPS"). No AI in the tool: knowledge is typed,
-   or pasted as an outline with Import (those branches start as "to verify").
+   or pasted as an outline with Import. A branch is a fact for the AI only when verified, and only the super
+   user or an admin of the Maps tile verifies (19 Oct 2026); anyone else's new or changed branch is "to verify".
    ============================================================ */
 (function () {
   "use strict";
@@ -461,6 +462,8 @@
       if (n) {
         ["title", "notes", "special", "links"].forEach(function (k) { if (k in patch && !(draft && draft.id === id && k in draft.patch)) n[k] = r.node[k]; });
         n.updated_by = r.node.updated_by; n.updated_at = r.node.updated_at;
+        // an edit by someone who may not verify puts a verified branch back to "to verify"
+        if (n.verified && !r.node.verified) { n.verified = false; n.verified_by = null; n.verified_at = null; viewSoon(); }
         if (id === M.root && "title" in patch) { M.map.name = n.title; head(); }
       }
       if (!waiting && !draft) { status("Saved"); viewSoon(); foot(); }
@@ -570,8 +573,10 @@
       panel.appendChild(el("section", {}, [el("h3", {}, [el("label", { "for": "mpChild", text: "Add a branch under this one" })]),
         adder("mpChild", "Branch name", "Add", 120, function (v) { addBranch(n, v); })]));
       var sibs = isRoot ? [] : N(n.parent).kids, at = sibs.indexOf(n.id), tools2 = [];
-      if (!n.verified) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Mark as verified", onclick: function () { verify(n, true, false); } }));
-      if (below) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Verify this branch and " + (below === 1 ? "the 1" : "the " + below) + " under it", onclick: function () { verify(n, true, true); } }));
+      // only the super user and the admins of the Maps tile verify (a verified branch is a fact for the AI)
+      var mayVerify = !!M.map.can_verify;
+      if (!n.verified && mayVerify) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Mark as verified", onclick: function () { verify(n, true, false); } }));
+      if (below && mayVerify) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Verify this branch and " + (below === 1 ? "the 1" : "the " + below) + " under it", onclick: function () { verify(n, true, true); } }));
       if (n.verified) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Mark to verify", onclick: function () { verify(n, false, false); } }));
       if (!isRoot) {
         tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Move up", disabled: at <= 0, onclick: function () { move(n, -1); } }));

@@ -658,8 +658,19 @@
     var KINDS = { rulebook: "AI rule book", knowledge: "Knowledge map" };
     function picker(scope, role, link, label) {
       var mine = res.maps.filter(function (m) { return m.kind === role; });
+      // a rule book is linked once; a knowledge map once per product: elsewhere = shown, not offered
+      function taken(m) {
+        return (m.linked || []).filter(function (l) {
+          if (l.role !== role) return false;
+          var here = l.product_id === productId() && (l.factory_id || null) === (scope || null);
+          return !here && (role === "rulebook" || l.product_id === productId());
+        })[0] || null;
+      }
       var sel = el("select", { "class": "input", "aria-label": label + ": " + KINDS[role] }, [el("option", { value: "", text: link ? "None (take this map off)" : "None" })]
-        .concat(mine.map(function (m) { return el("option", { value: m.id, text: m.name + (m.share === "private" ? "" : m.share === "team_read" ? " (team reads)" : " (team edits)") }); })));
+        .concat(mine.map(function (m) {
+          var t = taken(m);
+          return el("option", { value: m.id, disabled: t ? true : null, text: m.name + (m.share === "private" ? "" : m.share === "team_read" ? " (team reads)" : " (team edits)") + (t ? " - linked for " + t.where : "") });
+        })));
       if (link && !mine.some(function (m) { return m.id === link.id; })) sel.appendChild(el("option", { value: link.id, text: link.name }));
       sel.value = link ? link.id : "";
       sel.addEventListener("change", function () {

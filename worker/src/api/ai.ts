@@ -316,8 +316,12 @@ export const routes: Routes = {
     const counts = (scope: string | null) => { const r = maps.rules.filter((x) => (x.factory_id || null) === scope); return { rules: r.length, direct: r.filter((x) => x.answer && x.remark).length }; };
     const branches = async (id: string) => (await env.DB.prepare("SELECT count(*) AS n FROM mp_nodes WHERE map_id = ? AND parent_id IS NOT NULL AND verified = 1").bind(id).first<{ n: number }>())?.n || 0;
     const canMaps = (() => { const t = s.tool("maps"); return !!t && t.status !== "hidden" && s.canOpen(t.category_id); })();
+    // where each map is linked already: the picker shows it and offers a rule book only where it is not linked yet
+    const links = await all<{ map_id: string; role: string; product_id: string; factory_id: string | null; product: string; factory: string | null }>(env.DB.prepare(
+      "SELECT l.map_id, l.role, l.product_id, l.factory_id, p.name AS product, f.name AS factory FROM ai_map_links l JOIN cm_products p ON p.id = l.product_id LEFT JOIN cm_factories f ON f.id = l.factory_id"));
     const all_ = canMaps ? (await all<MapRow & { kind: string }>(env.DB.prepare("SELECT * FROM mp_maps ORDER BY lower(name)")))
-      .filter((m) => mpRights(s, m) !== "none").map((m) => ({ id: m.id, name: m.name, updated_at: m.updated_at, share: m.share, kind: m.kind || "knowledge" })) : [];
+      .filter((m) => mpRights(s, m) !== "none").map((m) => ({ id: m.id, name: m.name, updated_at: m.updated_at, share: m.share, kind: m.kind || "knowledge",
+        linked: links.filter((l) => l.map_id === m.id).map((l) => ({ role: l.role, product_id: l.product_id, factory_id: l.factory_id, where: l.product + ", " + (l.factory ? l.factory + " only" : "all factories") })) })) : [];
     const rb = (scope: string | null) => { const l = link(scope, "rulebook"); return l ? { ...l, ...counts(scope) } : null; };
     const kn = async (scope: string | null) => { const l = link(scope, "knowledge"); return l ? { ...l, branches: await branches(l.id) } : null; };
     return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_,
@@ -345,6 +349,13 @@ export const routes: Routes = {
     const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow & { kind: string }>();
     if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
     if ((m.kind || "knowledge") !== role) fail(role === "rulebook" ? "That map is a knowledge map. Choose an AI rule book, or change the map's type in Maps (the map's settings)." : "That map is an AI rule book. Choose a knowledge map, or change the map's type in Maps (the map's settings).");
+    // a rule book is linked once, anywhere; a knowledge map once per product (its facts would count twice)
+    const elsewhere = await env.DB.prepare(
+      `SELECT l.product_id, l.factory_id, p.name AS product, f.name AS factory FROM ai_map_links l JOIN cm_products p ON p.id = l.product_id LEFT JOIN cm_factories f ON f.id = l.factory_id
+        WHERE l.map_id = ? AND l.role = ? AND NOT (l.product_id = ? AND ifnull(l.factory_id, '') = ?) ${role === "knowledge" ? "AND l.product_id = ?" : ""}`)
+      .bind(...(role === "knowledge" ? [m.id, role, prod.id, scope, prod.id] : [m.id, role, prod.id, scope])).first<{ product: string; factory: string | null }>();
+    if (elsewhere) fail(`"${m.name}" is already linked for ${elsewhere.product}, ${elsewhere.factory ? elsewhere.factory + " only" : "all factories"}. ` +
+      (role === "rulebook" ? "A rule book is linked once: take it off there first, or create a rule book for this scope from the template." : "A knowledge map is linked once per product: take it off there first."));
     await env.DB.batch([del,
       env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, ?, ?)").bind(prod.id, fac ? fac.id : null, m.id, role, s.id)
     ]);

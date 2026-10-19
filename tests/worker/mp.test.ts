@@ -76,7 +76,8 @@ describe("mp_* routes", () => {
     // team_edit: changes branches, but cannot rename, re-share or delete the map
     expect((await ok("mp_get", { p_token: other, p_map_id: edit.id })).map.rights).toBe("edit");
     const added = await ok("mp_node_add", { p_token: other, p_parent_id: edit.root, p_title: "Compressor" });
-    expect(added.node).toMatchObject({ title: "Compressor", parent: edit.root, verified: true, verified_by: "New Joiner", sort: 0 });
+    // (a plain user's new branch waits for an admin: 19 Oct 2026)
+    expect(added.node).toMatchObject({ title: "Compressor", parent: edit.root, verified: false, verified_by: null, sort: 0 });
     expect(await refused("mp_map_save", { p_token: other, p_map_id: edit.id, p_name: "Renamed", p_share: null })).toBe("Only the owner of this map can do this.");
     expect(await refused("mp_map_save", { p_token: other, p_map_id: edit.id, p_name: null, p_share: "private" })).toBe("Only the owner of this map can do this.");
     expect(await refused("mp_delete", { p_token: other, p_map_id: edit.id })).toBe("Only the owner of this map can do this.");
@@ -128,16 +129,31 @@ describe("mp_* routes", () => {
     await ok("mp_node_save", { p_token: t, p_node_id: m.root, p_patch: { title: "AHU Dubai" } });
     expect((await ok("mp_get", { p_token: t, p_map_id: m.id })).map.name).toBe("AHU Dubai");
 
-    // verify: off on one branch, back on deep
-    expect((await ok("mp_node_verify", { p_token: t, p_node_id: a.id, p_verified: false })).changed).toBe(1);
+    // verify (19 Oct 2026): a plain user's branches wait "to verify"; he may not verify them; an admin of the Maps
+    // tile verifies (on a shared map, which he manages); anyone who edits may mark a branch "to verify" again
     let g = await ok("mp_get", { p_token: t, p_map_id: m.id });
+    expect(g.map.can_verify).toBe(false);
+    expect(g.nodes.filter((n: any) => n.parent != null).every((n: any) => !n.verified)).toBe(true);
+    expect(await refused("mp_node_verify", { p_token: t, p_node_id: a.id, p_verified: true })).toMatch(/Only the super user or an admin of the Maps tile/);
+    await ok("mp_map_save", { p_token: t, p_map_id: m.id, p_share: "team_edit" });
+    const adm = await login("teamAdmin");
+    expect((await ok("mp_get", { p_token: adm, p_map_id: m.id })).map.can_verify).toBe(true);
+    expect((await ok("mp_node_verify", { p_token: adm, p_node_id: a.id, p_verified: true })).changed).toBe(1);
+    expect((await ok("mp_node_verify", { p_token: adm, p_node_id: a.id, p_verified: true, p_deep: true })).changed).toBe(1);   // a1
+    g = await ok("mp_get", { p_token: t, p_map_id: m.id });
+    expect(g.nodes.find((n: any) => n.id === a1.id)).toMatchObject({ verified: true, verified_by: "Team Admin" });
+    expect((await ok("mp_node_verify", { p_token: t, p_node_id: a.id, p_verified: false })).changed).toBe(1);
+    g = await ok("mp_get", { p_token: t, p_map_id: m.id });
     expect(g.nodes.find((n: any) => n.id === a.id)).toMatchObject({ verified: false, verified_by: null, verified_at: null });
-    expect(g.nodes.find((n: any) => n.id === a1.id).verified).toBe(true);
-    expect((await ok("mp_node_verify", { p_token: t, p_node_id: a.id, p_verified: false, p_deep: true })).changed).toBe(1);   // a1 was still verified
-    expect((await ok("mp_node_verify", { p_token: t, p_node_id: a.id, p_verified: true, p_deep: true })).changed).toBe(2);
+    // a verified branch the plain user changes goes back to "to verify"; the admin's own edit keeps it verified
+    await ok("mp_node_save", { p_token: t, p_node_id: a1.id, p_patch: { notes: "62 mm" } });
+    expect((await ok("mp_get", { p_token: t, p_map_id: m.id })).nodes.find((n: any) => n.id === a1.id).verified).toBe(false);
+    await ok("mp_node_verify", { p_token: adm, p_node_id: a1.id, p_verified: true });
+    await ok("mp_node_save", { p_token: adm, p_node_id: a1.id, p_patch: { notes: "62 mm foam" } });
+    expect((await ok("mp_get", { p_token: t, p_map_id: m.id })).nodes.find((n: any) => n.id === a1.id).verified).toBe(true);
+    await ok("mp_node_verify", { p_token: adm, p_node_id: m.root, p_verified: true, p_deep: true });
     g = await ok("mp_get", { p_token: t, p_map_id: m.id });
     expect(g.nodes.filter((n: any) => !n.verified).length).toBe(0);
-    expect(g.nodes.find((n: any) => n.id === a1.id).verified_by).toBe("SBU User");
 
     // move: reorders the siblings, the root cannot move, the edges stay put
     expect((await ok("mp_node_move", { p_token: t, p_node_id: c.id, p_dir: -1 })).order).toEqual([a.id, c.id, b.id]);
@@ -227,8 +243,10 @@ describe("mp_* routes", () => {
       .map((n: any) => [n.title, n.notes, n.special, shape(gg, n.id)]);
     expect(shape(g2, m2.root)).toEqual(shape(g, m.root));
 
-    // a verified import on top: the import stays unverified until someone confirms it
-    expect((await ok("mp_node_verify", { p_token: t, p_node_id: m2.root, p_verified: true, p_deep: true })).changed).toBe(6);
+    // a verified import on top: the import stays unverified until an admin confirms it
+    const adm = await login("teamAdmin");
+    await ok("mp_map_save", { p_token: t, p_map_id: m2.id, p_share: "team_read" });
+    expect((await ok("mp_node_verify", { p_token: adm, p_node_id: m2.root, p_verified: true, p_deep: true })).changed).toBe(6);
     expect(await refused("mp_import", { p_token: t, p_parent_id: m.root, p_items: [] })).toMatch(/Nothing to add/);
     expect(await refused("mp_import", { p_token: t, p_parent_id: m.root, p_items: new Array(501).fill({ title: "x" }) })).toMatch(/up to 500/);
     expect(await refused("mp_import", { p_token: t, p_parent_id: m.root, p_items: [{ title: "ok" }, { title: "" }] })).toBe("Give the branch a name.");

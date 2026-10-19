@@ -8,7 +8,9 @@
      - map managers (the admin of the tile, and users with "Can edit" for Maps) own every shared
        map and every map whose owner was deleted. A private map is its owner's alone, also for
        the super user.
-   Typed branches count as verified by their writer; imported branches start "to verify".
+   Verifying (19 Oct 2026, owner): a branch is a fact for the AI only once it is verified, and only the super user or
+   an admin of the Maps tile verifies. A branch anyone else adds or imports starts "to verify"; an edit by anyone else
+   to a verified branch puts it back to "to verify". Anyone who can edit may mark a branch "to verify".
 
    Images: the pages still send and expect JPEG data: URLs. The bytes live in R2
    (maps/<map>/<image>.jpg and -thumb.jpg); D1 keeps the keys and the caption. Decoded on write,
@@ -46,6 +48,12 @@ const JPEG_PREFIX = "data:image/jpeg;base64,";
 function hasMaps(s: Session): boolean {
   const t = s.tool("maps");
   return !!t && t.status !== "hidden" && s.canOpen(t.category_id);
+}
+
+/* Who may verify a branch: the super user and the admins of the tile the Maps tool sits on. */
+export function canVerify(s: Session): boolean {
+  const t = s.tool("maps");
+  return s.isSuper || (!!t && s.isTileAdmin(t.category_id));
 }
 
 async function mpUser(env: Env, token: unknown): Promise<Session> {
@@ -267,7 +275,7 @@ export const routes: Routes = {
       ir.forEach((r) => imgs.set(r.map_id, r.n));
     }
     return {
-      me: s.id, can_manage: s.canEdit("maps"),
+      me: s.id, can_manage: s.canEdit("maps"), can_verify: canVerify(s),
       maps: maps.map((m) => {
         const st = stats.get(m.id) || { n: 1, sp: 0, tv: 0 };
         return { id: m.id, name: m.name, share: m.share, kind: m.kind || "knowledge", rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at,
@@ -296,7 +304,8 @@ export const routes: Routes = {
         s.id, at, s.id, at, s.id, at)
     ];
     // an AI rule book starts from the template (instructions, decision steps, starter rules)
-    if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at));
+    // (its branches are verified only when the maker may verify; otherwise they wait for an admin)
+    if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
     for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
     return { ok: true, id };
   },
@@ -309,7 +318,7 @@ export const routes: Routes = {
     const counts = await all<{ node_id: string; n: number }>(env.DB.prepare("SELECT node_id, count(*) AS n FROM mp_images WHERE map_id = ? GROUP BY node_id").bind(m.id));
     const imgs = new Map(counts.map((c) => [c.node_id, c.n]));
     const name = await namesOf(env, [m.created_by, ...nodes.map((n) => n.verified_by), ...nodes.map((n) => n.updated_by)]);
-    return { map: mapJson(s, m, name), nodes: nodes.map((n) => nodeJson(n, name, imgs.get(n.id) || 0)) };
+    return { map: { ...mapJson(s, m, name), can_verify: canVerify(s) }, nodes: nodes.map((n) => nodeJson(n, name, imgs.get(n.id) || 0)) };
   },
 
   /* Rename a map, change who it is shared with or what it is for (p_kind) (its owner, or a map manager for a shared map).
@@ -365,10 +374,10 @@ export const routes: Routes = {
     if ((c?.n || 0) >= 2000) fail("A map holds up to 2000 branches. Start a second map for the rest.");
     const mx = await env.DB.prepare("SELECT max(sort) AS m FROM mp_nodes WHERE parent_id = ?").bind(par.id).first<{ m: number | null }>();
     const sort = mx && mx.m != null ? mx.m + 1 : 0;
-    const id = uuid(), at = now();
+    const id = uuid(), at = now(), v = canVerify(s);
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
-                      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`).bind(id, par.map_id, par.id, title, sort, s.id, at, s.id, at, s.id, at),
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, par.map_id, par.id, title, sort, v ? 1 : 0, v ? s.id : null, v ? at : null, s.id, at, s.id, at),
       touch(env, par.map_id, s.id)
     ]);
     return { ok: true, node: await oneNodeJson(env, id) };
@@ -396,6 +405,10 @@ export const routes: Routes = {
     if ("links" in patch) links = JSON.stringify(await mpLinks(env, s, patch.links));
     stmts.push(env.DB.prepare("UPDATE mp_nodes SET title = ?, notes = ?, special = ?, links = ?, updated_by = ?, updated_at = ? WHERE id = ?")
       .bind(title, notes, special, links, s.id, now(), n.id));
+    // a verified branch changed by someone who may not verify goes back to "to verify" (the root is the map's name)
+    const changed = title !== n.title || notes !== n.notes || special !== n.special || links !== n.links;
+    if (changed && n.verified && n.parent_id != null && !canVerify(s))
+      stmts.push(env.DB.prepare("UPDATE mp_nodes SET verified = 0, verified_by = NULL, verified_at = NULL WHERE id = ?").bind(n.id));
     stmts.push(touch(env, n.map_id, s.id));
     await env.DB.batch(stmts);
     return { ok: true, node: await oneNodeJson(env, n.id) };
@@ -406,6 +419,7 @@ export const routes: Routes = {
     const s = await mpUser(env, p.p_token);
     const n = await mpNode(env, s, p.p_node_id, "edit");
     const on = p.p_verified == null ? true : (p.p_verified === true || p.p_verified === "true" || p.p_verified === 1);
+    if (on && !canVerify(s)) fail("Only the super user or an admin of the Maps tile can verify a branch. Ask one of them to check it.");
     const deep = p.p_deep === true || p.p_deep === "true" || p.p_deep === 1;
     const ids = deep ? await subtree(env, n.id) : [n.id];
     let changed = 0;
