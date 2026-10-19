@@ -88,5 +88,8 @@ DELETE FROM ai_map_links WHERE role = 'knowledge' AND rowid NOT IN (
 CREATE UNIQUE INDEX ai_map_links_rulebook_once ON ai_map_links (map_id) WHERE role = 'rulebook';
 CREATE UNIQUE INDEX ai_map_links_knowledge_once ON ai_map_links (product_id, map_id) WHERE role = 'knowledge';
 
--- 5. The AI's clause-to-row matches were worked out with the old keywords: worked out again on the next review.
+-- 5. Review priority of an AI draft (GREEN / AMBER / RED, guard.ts priorityOf): where the reviewer looks first.
+ALTER TABLE ai_drafts ADD COLUMN priority TEXT NOT NULL DEFAULT '';
+
+-- 6. The AI's clause-to-row matches were worked out with the old keywords: worked out again on the next review.
 DELETE FROM ai_match_cache;

@@ -97,3 +97,49 @@ export function trimAnswerEcho(compliance: string, remarks: string): string {
 export function hedges(remarks: string): boolean {
   return /\b(should|approximately|approx\.?|typically|expected|likely|probably|we believe|may be|might)\b/i.test(remarks);
 }
+
+/* ---------- the remark lock and the review priority (master prompt v4.1 essence, 19 Oct 2026) ----------
+   Code, not model instructions: applied once to every draft whatever made it (datasheet, library, rule, model).
+   The six answers stay (owner, 19 Oct 2026):
+     Comply                 no confirming remark ("Comply", "As specified", "Noted" ...): it is blanked
+     Comply with Remarks    needs its one line: without one it is a plain Comply
+     Not Comply / Not Applicable   need a remark saying what / why: without one, low confidence
+     In Contractor's Scope  the standard scope line when it has none
+   Wording a consultant must not read (an internal source named, "please verify", TBC, a promise of a later
+   document, hedging) is not rewritten: the draft goes low confidence and the reason says what to fix. */
+export const SCOPE_REMARK = "By Contractor / others. Daikin scope is supply of equipment.";
+const ECHO = /^(comply|complies|complied( with)?|compliant|as specified|as per (the )?spec(ification)?s?|as required|as per requirement|noted|confirmed|acknowledged|included|provided( as specified)?|accepted|agreed|ok|yes)[\s.!]*$/i;
+const BANNED: [RegExp, string][] = [
+  [/\b(please (verify|confirm|check)|to be (verified|confirmed|checked)|(verify|confirm|check) (with|by|before|at site))\b/i, "asks the reader to verify"],
+  [/\b(tbc|tbd|pending|subject to (confirmation|approval)|to be advised)\b/i, "leaves the point open"],
+  [/\b(as )?per (the )?(daikin )?(catalog(ue)?|selection( report| software)?|(technical )?data ?sheet|database|reference compliance|internal (document|data)|project knowledge|library)\b/i, "names an internal source"],
+  [/\b(will be (submitted|provided|sent|furnished|issued)|shall be submitted later|to follow later|in due course|at a later stage)\b/i, "promises a later document"]
+];
+export function bannedIn(remarks: string): string[] {
+  const out = BANNED.filter(([re]) => re.test(remarks)).map(([, why]) => why);
+  if (hedges(remarks)) out.push("is not definite");
+  return out;
+}
+export type Priority = "green" | "amber" | "red";
+export interface Locked { compliance: string; remarks: string; confidence: "high" | "medium" | "low"; notes: string[] }
+export function lockRemarks(compliance: string, remarks: string, confidence: "high" | "medium" | "low"): Locked {
+  let c = compliance, r = String(remarks || "").replace(/\s*\n+\s*/g, " ").trim(), conf = confidence;
+  const notes: string[] = [];
+  if (ECHO.test(r)) r = "";
+  if (c === "Comply with Remarks" && !r) c = "Comply";
+  if ((c === "Not Comply" || c === "Not Applicable") && !r) { conf = "low"; notes.push(`a ${c} needs a remark saying ${c === "Not Comply" ? "what is offered" : "why"}`); }
+  if (c === "In Contractor's Scope" && !r) r = SCOPE_REMARK;
+  const banned = r ? bannedIn(r) : [];
+  if (banned.length) { conf = "low"; notes.push("the remark " + banned.join(", ")); }
+  return { compliance: c, remarks: r, confidence: conf, notes };
+}
+/* Where the reviewer looks: GREEN = settled by a rule, the same clause answered before, or the datasheet meeting
+   it; RED = low confidence, Not Comply, or a library answer the datasheet contradicts; AMBER = the rest (model
+   drafts, Comply with Remarks, similar but not identical clauses). The engineer reviews RED and AMBER. */
+export function priorityOf(d: { compliance: string; confidence: string; source: string; sources?: { score: number }[] }, conflict = false): Priority {
+  if (d.confidence === "low" || d.compliance === "Not Comply" || conflict) return "red";
+  if (d.confidence !== "high" || d.compliance === "Comply with Remarks") return "amber";
+  const top = d.sources && d.sources[0] ? d.sources[0].score : 0;
+  if (d.source === "rule" || d.source === "record" || (d.source === "datasheet" && d.compliance === "Comply") || (d.source === "library-similar" && top >= 0.97)) return "green";
+  return "amber";
+}

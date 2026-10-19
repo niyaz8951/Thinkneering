@@ -67,7 +67,7 @@ export const PROPERTIES: Property[] = [
   { name: "electrical supply", terms: ["voltage", "power supply", "electrical supply", "phase", "volt"], direction: "exact" },
   { name: "connection size", terms: ["connection size", "connection", "nozzle", "flange size"], direction: "exact", unit: "length" },
   { name: "thermal bridging class (EN 1886)", terms: ["thermal bridging", "thermal bridge", "tb class", "tb"], direction: "higher", scale: ["TB5", "TB4", "TB3", "TB2", "TB1"] },
-  { name: "thermal transmittance class (EN 1886)", terms: ["thermal transmittance class", "transmittance class", "t class"], direction: "higher", scale: ["T5", "T4", "T3", "T2", "T1"] },
+  { name: "thermal transmittance class (EN 1886)", terms: ["thermal transmittance class", "transmittance class", "thermal transmittance", "thermal transmit", "t class"], direction: "higher", scale: ["T5", "T4", "T3", "T2", "T1"] },
   { name: "casing strength class (EN 1886)", terms: ["mechanical strength", "casing strength", "deflection", "d class"], direction: "higher", scale: ["D3", "D2", "D1"] },
   { name: "casing leakage class (EN 1886)", terms: ["casing leakage", "air leakage class", "leakage class", "l class"], direction: "higher", scale: ["L3", "L2", "L1"] },
   { name: "filter class (EN 779)", terms: ["filter class", "filtration", "filter", "filters"], direction: "higher",
@@ -139,3 +139,21 @@ export function comparable(cell: string, req: Measure): { m: Measure; value: num
 }
 
 export function familyOfUnit(unit: string): string | null { return familyOf(unit); }
+
+/* What a percentage measures. "ISO Coarse 60%" and "arrestance 60 to 80 percent" are not the same quantity: a % is
+   compared only when the clause and the datasheet row name the same metric, or the row names none. */
+const METRICS: [string, RegExp][] = [
+  ["arrestance", /\barrestance\b/], ["coarse", /\bcoarse\b/], ["epm1", /\bepm\s?1\b/], ["epm2.5", /\bepm\s?2\.?5\b/], ["epm10", /\bepm\s?10\b/],
+  ["merv", /\bmerv\b/], ["dust spot", /\bdust[- ]spot\b/], ["efficiency", /\b(efficien\w*|effectiveness)\b/], ["humidity", /\b(humidity|rh)\b/],
+  ["recirculation", /\brecircul\w*\b/], ["leakage", /\bleak\w*\b/], ["slope", /\bslope\b/], ["speed", /\bspeed\b/], ["torque", /\btorque\b/]
+];
+export function metricsIn(text: string): string[] {
+  const t = String(text || "").toLowerCase();
+  const out = METRICS.filter(([, re]) => re.test(t)).map(([k]) => k);
+  // ePM1 / ePM2.5 / ePM10 / coarse are filter efficiencies by name
+  return out.length > 1 ? out.filter((k) => k !== "efficiency") : out;
+}
+export function sameMetric(clauseNear: string, rowText: string): boolean {
+  const a = metricsIn(clauseNear), b = metricsIn(rowText);
+  return !a.length || !b.length || a.some((x) => b.includes(x));
+}

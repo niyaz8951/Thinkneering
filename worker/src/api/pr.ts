@@ -358,18 +358,47 @@ export const routes: Routes = {
     const nameOf = await namesOf(env, [r.user_id, ...lines.map((x) => x.answered_by)]);
     // the reason behind every AI draft still on the record (the newest draft of a row wins)
     const canComment = s.canEdit("compliance-maker");
-    const reasons = new Map<number, { reason: string; confidence: string; source: string }>();
+    const reasons = new Map<number, { reason: string; confidence: string; source: string; priority: string }>();
     if (lines.some((x) => x.ai_draft)) {
-      const ds = await all<{ seq: number; reason: string; confidence: string; source: string }>(
-        env.DB.prepare("SELECT seq, reason, confidence, source FROM ai_drafts WHERE run_id = ? AND status = 'draft' ORDER BY created_at, id").bind(r.id));
-      ds.forEach((d) => reasons.set(d.seq, { reason: d.reason, confidence: d.confidence, source: d.source }));
+      const ds = await all<{ seq: number; reason: string; confidence: string; source: string; priority: string }>(
+        env.DB.prepare("SELECT seq, reason, confidence, source, priority FROM ai_drafts WHERE run_id = ? AND status = 'draft' ORDER BY created_at, id").bind(r.id));
+      ds.forEach((d) => reasons.set(d.seq, { reason: d.reason, confidence: d.confidence, source: d.source, priority: d.priority || "" }));
+    }
+    // the precedent: the earlier record that shares the most identical clauses with this one (consultants reuse their
+    // specifications), and what people answered there. An AI draft that answers an identical clause differently is RED.
+    const prec = await env.DB.prepare(
+      `SELECT b.run_id, r2.file_name, r2.created_at, p2.id AS project_id, p2.name AS project, p2.created_by,
+              count(*) AS same, sum(CASE WHEN b.ai_draft = 0 AND (b.compliance <> '' OR b.remarks <> '') THEN 1 ELSE 0 END) AS answered
+         FROM cm_run_lines a JOIN cm_run_lines b ON b.line_id = a.line_id AND b.run_id <> a.run_id
+         JOIN cm_runs r2 ON r2.id = b.run_id LEFT JOIN pr_projects p2 ON p2.id = r2.project_id
+        WHERE a.run_id = ? AND a.line_id IS NOT NULL AND r2.factory_id = ?
+        GROUP BY b.run_id ORDER BY same DESC, r2.created_at DESC LIMIT 1`).bind(r.id, r.factory_id)
+      .first<{ run_id: string; file_name: string; created_at: string; project_id: string | null; project: string | null; created_by: string | null; same: number; answered: number }>();
+    let precedent: Record<string, unknown> | null = null;
+    if (prec && prec.same >= 5) {
+      // another person's project is named only to those who may open it
+      const mayOpen = s.prAdmin || prec.created_by === s.id || (prec.project_id ? !!(await env.DB.prepare("SELECT 1 FROM pr_members WHERE project_id = ? AND user_id = ?").bind(prec.project_id, s.id).first()) : false);
+      precedent = { project: mayOpen ? prec.project || "" : "", file_name: mayOpen ? prec.file_name || "" : "", run_id: mayOpen ? prec.run_id : "", same: prec.same, answered: prec.answered,
+                    clauses: lines.filter((x) => x.line_id != null).length, at: prec.created_at };
+      if (reasons.size) {
+        const theirs = new Map((await all<{ line_id: string; compliance: string }>(env.DB.prepare(
+          "SELECT line_id, compliance FROM cm_run_lines WHERE run_id = ? AND ai_draft = 0 AND compliance <> ''").bind(prec.run_id))).map((x) => [x.line_id, x.compliance]));
+        for (const x of lines) {
+          const a = reasons.get(x.seq), t = x.line_id ? theirs.get(x.line_id) : undefined;
+          if (a && t && x.ai_draft && t !== x.compliance) {
+            a.priority = "red";
+            a.reason = (a.reason + ` The same clause was answered "${t}" in the precedent${mayOpen && prec.project ? " (" + prec.project + ")" : ""}.`).slice(0, 900);
+          }
+        }
+      }
     }
     return {
       run: { id: r.id, file_name: r.file_name, created_at: r.created_at, user: nameOf(r.user_id), product: nm.product, product_id: r.product_id, factory: nm.factory,
              project_id: pj.id, project: pj.name, client: pj.client_name,
              can_comment: canComment,           // may write Internal Comments (pr_run_save_comment)
              can_review: s.prAdmin,                                 // may write TL Review (pr_run_save_review)
-             can_ai: s.prAdmin, ai_available: aiAvailable(env) },           // may run the AI review (ai_review_run); whether this environment has a model
+             can_ai: s.prAdmin, ai_available: aiAvailable(env),             // may run the AI review (ai_review_run); whether this environment has a model
+             precedent },
       lines: lines.map((x) => ({
         seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text, can: x.line_id != null, own: x.compliance !== "" || x.remarks !== "",
         compliance: x.compliance, remarks: x.remarks, review: x.review, by: x.answered_by ? nameOf(x.answered_by) : "",

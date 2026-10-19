@@ -94,6 +94,65 @@ describe("compareDatasheet with the v3 rules", () => {
   });
 });
 
+describe("compareDatasheet: every part of a clause, ranges, metrics, rows that disagree (19 Oct 2026)", () => {
+  const filter = (cells1: string[], cells2: string[]) => [
+    hit({ key: "filter supply||filter class", section: "Filter Supply", component: "Filter Class · Filter 1", entries: [["filter", "class"], ["arrestance"]], cells: cells1, group: "filter supply||filter class" }),
+    hit({ key: "filter supply||filter class", section: "Filter Supply", component: "Filter Class · Filter 2", entries: [["filter", "class"], ["arrestance"]], cells: cells2, group: "filter supply||filter class" })];
+  it("a clean Comply carries no remark; the offer stays in the reason", () => {
+    const c = compareDatasheet("Casing panels shall be not less than 50 mm thick.", [hit({ cells: ["62 mm"], value: "62 mm" })], ["AHU-01"])!;
+    expect(c).toMatchObject({ compliance: "Comply", remarks: "" });
+    expect(c.reason).toMatch(/Offered: 62 mm\./);
+  });
+  it("a figure no row answers leaves the clause open; a broken one still fails it", () => {
+    const panel = [hit({ cells: ["62 mm"] })];
+    expect(compareDatasheet("Panels not less than 50 mm thick with leakage not exceeding 2 percent at 1000 Pa.", panel, ["AHU-01"])).toBeNull();
+    expect(compareDatasheet("Panels not less than 70 mm thick with leakage not exceeding 2 percent at 1000 Pa.", panel, ["AHU-01"])!.compliance).toBe("Not Comply");
+  });
+  it("reads a range as a range", () => {
+    const hz = hit({ key: "general||power supply", section: "General", component: "Power Supply", entries: [["frequency"]], cells: ["380V/3Ph/60Hz"] });
+    expect(compareDatasheet("Supply frequency 50 to 60 Hz.", [hz], ["AHU-01"])!.compliance).toBe("Comply");
+    const c = compareDatasheet("Supply frequency 6 to 50 Hz.", [hz], ["AHU-01"])!;
+    expect(c.compliance).toBe("Not Comply");
+    expect(c.reason).toMatch(/60Hz outside 6 to 50 Hz required/);
+  });
+  it("a percentage of another metric is not compared (ISO Coarse is not an ASHRAE arrestance)", () => {
+    expect(compareDatasheet("Bag filters, ASHRAE arrestance of 60 to 80 percent.", filter(["ISO Coarse 60%(G4)"], ["ePM1 65%(F7)"]), ["AHU-01"])).toBeNull();
+  });
+  it("Filter 1 and Filter 2 that disagree settle nothing; when both meet it, it is met", () => {
+    expect(compareDatasheet("Filters shall be class F7.", filter(["ISO Coarse 60%(G4)"], ["ePM1 65%(F7)"]), ["AHU-01"])).toBeNull();
+    expect(compareDatasheet("Filters shall be class M5.", filter(["ePM1 50%(M6)"], ["ePM1 65%(F7)"]), ["AHU-01"])!.compliance).toBe("Comply");
+  });
+});
+
+/* ---------- the remark lock and the review priority (guard.ts) ---------- */
+import { lockRemarks, priorityOf, SCOPE_REMARK } from "../../worker/src/ai/guard";
+import { valuesNotOnSheet } from "../../worker/src/ai/draft";
+describe("remark lock and review priority", () => {
+  it("blanks a confirming remark, keeps a real one, fills the scope line, flags wording", () => {
+    expect(lockRemarks("Comply", "Complies.", "high")).toMatchObject({ compliance: "Comply", remarks: "", confidence: "high" });
+    expect(lockRemarks("Comply with Remarks", "As specified", "medium")).toMatchObject({ compliance: "Comply", remarks: "" });
+    expect(lockRemarks("In Contractor's Scope", "", "high")).toMatchObject({ remarks: SCOPE_REMARK });
+    expect(lockRemarks("Not Comply", "", "high")).toMatchObject({ confidence: "low" });
+    const b = lockRemarks("Comply with Remarks", "Panels are 62 mm as per the datasheet, please confirm.", "high");
+    expect(b.confidence).toBe("low");
+    expect(b.notes.join(" ")).toMatch(/asks the reader to verify.*names an internal source|names an internal source.*asks the reader/);
+    expect(lockRemarks("Comply with Remarks", "Offered bag length: 510 mm.", "medium")).toMatchObject({ confidence: "medium", notes: [] });
+  });
+  it("puts each draft where the reviewer looks", () => {
+    expect(priorityOf({ compliance: "Comply", confidence: "high", source: "datasheet" })).toBe("green");
+    expect(priorityOf({ compliance: "In Contractor's Scope", confidence: "high", source: "rule" })).toBe("green");
+    expect(priorityOf({ compliance: "Comply", confidence: "high", source: "library-similar", sources: [{ score: 0.93 }] })).toBe("amber");
+    expect(priorityOf({ compliance: "Comply with Remarks", confidence: "high", source: "datasheet" })).toBe("amber");
+    expect(priorityOf({ compliance: "Comply", confidence: "medium", source: "model" })).toBe("amber");
+    expect(priorityOf({ compliance: "Not Comply", confidence: "high", source: "datasheet" })).toBe("red");
+    expect(priorityOf({ compliance: "Comply", confidence: "high", source: "library-similar", sources: [{ score: 1 }] }, true)).toBe("red");
+  });
+  it("finds the figures a copied answer states that the project's datasheet does not show", () => {
+    expect(valuesNotOnSheet("62 mm panels, 45 kg/m3 foam.", [{ value: "62 mm" }])).toEqual(["45 kg/m3"]);
+    expect(valuesNotOnSheet("Thermal break profile.", [])).toEqual([]);
+  });
+});
+
 /* ---------- section kinds and sections a unit does not have (sections.ts, draft.ts) ---------- */
 import { afterEach } from "vitest";
 import { env } from "cloudflare:test";

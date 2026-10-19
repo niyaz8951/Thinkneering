@@ -177,9 +177,9 @@ export const routes: Routes = {
         tally[d.source] = (tally[d.source] || 0) + 1;
         stmts.push(env.DB.prepare(`UPDATE ai_drafts SET status = 'replaced' WHERE run_id = ? AND seq = ? AND status = 'draft'
                                    AND EXISTS (SELECT 1 FROM cm_run_lines WHERE ${GUARD})`).bind(r.id, x.seq, r.id, x.seq, x.line_id));
-        stmts.push(env.DB.prepare(`INSERT INTO ai_drafts (id, run_id, seq, line_id, compliance, remarks, reason, source, sources, confidence, model, prompt_version, status, created_by, created_at)
-                                   SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ? WHERE EXISTS (SELECT 1 FROM cm_run_lines WHERE ${GUARD})`)
-          .bind(uuid(), r.id, x.seq, x.line_id, d.compliance, d.remarks, d.reason, d.source, JSON.stringify(d.sources), d.confidence, d.model, d.promptVersion, s.id, at, r.id, x.seq, x.line_id));
+        stmts.push(env.DB.prepare(`INSERT INTO ai_drafts (id, run_id, seq, line_id, compliance, remarks, reason, source, sources, confidence, model, prompt_version, status, created_by, created_at, priority)
+                                   SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ? WHERE EXISTS (SELECT 1 FROM cm_run_lines WHERE ${GUARD})`)
+          .bind(uuid(), r.id, x.seq, x.line_id, d.compliance, d.remarks, d.reason, d.source, JSON.stringify(d.sources), d.confidence, d.model, d.promptVersion, s.id, at, d.priority || "", r.id, x.seq, x.line_id));
         stmts.push(env.DB.prepare(`UPDATE cm_run_lines SET compliance = ?, remarks = ?, answered_by = NULL, answered_at = ?, review = '', reviewed_by = NULL, reviewed_at = NULL, ai_draft = 1
                                    WHERE ${GUARD}`).bind(d.compliance.slice(0, 200), d.remarks.slice(0, 4000), at, r.id, x.seq, x.line_id));
       } catch (e) {

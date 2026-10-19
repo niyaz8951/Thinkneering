@@ -36,6 +36,9 @@
   :root[data-theme="dark"] .rc tr.ai td.read, :root[data-theme="dark"] .rc .state.ai { color: var(--brand-sky); }
   .rc-ai-wrap { display: inline-flex; gap: 6px; }
   .rc .state.err { color: var(--danger); }
+  /* review priority of an AI draft (where the reviewer looks): written as a word, colour only as a help */
+  .rc .prio { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .02em; border: 1px solid currentColor; }
+  .rc .prio.red { color: var(--danger); } .rc .prio.amber { color: var(--warn); } .rc .prio.green { color: var(--ok); }
   .mode-seg { flex: 0 0 auto; } .mode-seg .tab { min-width: 64px; }
   .rc-sheet { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .rc-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
@@ -74,13 +77,15 @@
         <option value="filled">Filled</option>
         <option value="review">Waiting for review</option>
         <option value="ai">AI drafts</option>
+        <option value="check">To review: RED and AMBER</option>
       </select>
       <input class="input grow" id="rc-q" type="search" placeholder="Find a word in the specification" aria-label="Find" autocomplete="off">
       <span class="count" id="rc-count" role="status"></span>
       <div class="tabs mode-seg" id="rc-seg" role="group" aria-label="Read or edit"><button type="button" class="tab" data-mode="read" aria-selected="true">Read</button><button type="button" class="tab" data-mode="edit" aria-selected="false">Edit</button></div>
       <button type="button" class="btn dock-hide" id="rc-focus">Focus mode</button>
       <span class="more-items">
-        <button type="button" class="btn ghost" id="rc-download">Download Excel</button>
+        <button type="button" class="btn ghost" id="rc-download" title="The file for the consultant: Sr, Specifications, Compliance, Remarks. AI drafts nobody checked are left blank.">Download Excel</button>
+        <button type="button" class="btn ghost" id="rc-download-work" title="Your working copy: AI reasons, review priority, colours and the datasheet rows.">Download working Excel</button>
         <span class="rc-ai-wrap" id="rc-ai-wrap" hidden><button type="button" class="btn ghost" id="rc-ai">AI review</button><button type="button" class="btn ghost danger" id="rc-ai-clear" hidden>Remove AI drafts</button></span>
       </span>
       <button type="button" class="btn ghost more-btn" id="rc-more">More</button>
@@ -91,6 +96,7 @@
       <p class="rc-legend" id="rc-legend"><span class="lg-lib">Green: company library</span><span class="lg-ai">Blue: AI draft, check it</span><span class="lg-own">Plain: answered in this project</span></p>
       <p class="hint" id="rc-mode"></p>
       <p class="hint" id="rc-sheet-note" hidden></p>
+      <p class="hint" id="rc-review-note" hidden></p>
       <div class="notice warn" id="rc-factory-warn" role="alert" hidden></div>
     </div>
     <div class="empty" id="rc-empty" hidden></div>
@@ -136,12 +142,27 @@
     $("rc-count").textContent = done + " of " + can.length + " clauses answered" + (drafts ? ", " + drafts + (drafts === 1 ? " AI draft" : " AI drafts") + " to check" : "") + (rev ? ", " + rev + " waiting for review" : "") + ".";
     $("rc-bar").style.width = (can.length ? Math.round(100 * done / can.length) : 0) + "%";
     $("rc-bar-ai").style.width = (can.length ? Math.round(100 * drafts / can.length) : 0) + "%";
+    if (run) reviewNote();
   }
   /* An AI draft says why, in one visible line (hover does not exist on a phone). */
+  var PRIO = { red: "RED", amber: "AMBER", green: "GREEN" };
+  function prio(l) { return l.ai_draft && l.ai && PRIO[l.ai.priority] ? l.ai.priority : l.ai_draft ? "amber" : ""; }
   function why(l) {
     if (!l.ai_draft) return null;
-    var a = l.ai || {}, conf = a.confidence ? a.confidence + " confidence" : "";
-    return el("span", { "class": "why" }, [el("b", { text: "AI draft" + (conf ? ", " + conf : "") }), a.reason ? " \u2014 " + a.reason : ""]);
+    var a = l.ai || {}, conf = a.confidence ? a.confidence + " confidence" : "", p = prio(l);
+    return el("span", { "class": "why" }, [p ? el("span", { "class": "prio " + p, text: PRIO[p] }) : null, el("b", { text: "AI draft" + (conf ? ", " + conf : "") }), a.reason ? " \u2014 " + a.reason : ""]);
+  }
+  /* What the reviewer has to look at (master prompt v4.1: review RED and AMBER only), and the precedent:
+     the earlier record that shares the most identical clauses with this one. */
+  function reviewNote() {
+    var box = $("rc-review-note"), d = lines.filter(function (l) { return l.ai_draft; }), n = { red: 0, amber: 0, green: 0 };
+    d.forEach(function (l) { n[prio(l)]++; });
+    var parts = [];
+    if (d.length) parts.push("AI drafts: " + n.red + " RED, " + n.amber + " AMBER, " + n.green + " GREEN. Review RED (" + n.red + ") and AMBER (" + n.amber + ") only: choose \u201cTo review\u201d above.");
+    var pc = run.precedent;
+    if (pc) parts.push("Precedent: " + (pc.project ? pc.project + (pc.file_name ? " (" + bare(pc.file_name) + ")" : "") : "an earlier record of another project") + " has " + pc.same + " of these " + pc.clauses + " clauses word for word, " + pc.answered + " of them answered by people.");
+    box.textContent = parts.join(" ");
+    box.hidden = !parts.length;
   }
 
   // sent with every write: the database refuses it when the row with this number is no longer this clause
@@ -456,7 +477,7 @@
   function refresh() {
     var y = window.pageYOffset;
     return Api.prRunGet(Hub.token(), runId).then(function (res) {
-      run = res.run || run; lines = res.lines || []; counts(); draw(); aiButtons(); window.scrollTo(0, y); loadMatch();
+      run = res.run || run; lines = res.lines || []; counts(); draw(); aiButtons(); reviewNote(); window.scrollTo(0, y); loadMatch();
     });
   }
   function valueText(cells) {
@@ -479,6 +500,7 @@
         if (show === "filled" && !filled(l)) return;
         if (show === "review" && !(l.own && l.review === "pending")) return;
         if (show === "ai" && !l.ai_draft) return;
+        if (show === "check" && !(l.ai_draft && prio(l) !== "green")) return;
         if (q && l.spec.toLowerCase().indexOf(q) < 0) return;
         if (part) { frag.appendChild(row(part)); part = null; }
         if (sect) { frag.appendChild(row(sect)); sect = null; }
@@ -487,7 +509,7 @@
     });
     body.textContent = ""; body.appendChild(frag);
     $("rc-wrap").hidden = !n; $("rc-empty").hidden = !!n;
-    if (!n) Hub.emptyState($("rc-empty"), { title: "No clause matches", text: show === "ai" ? "There is no AI draft on this record." : show === "review" ? "No answer of this record is waiting for review." : show === "open" ? "Every clause shows an answer." : "Nothing fits this search.",
+    if (!n) Hub.emptyState($("rc-empty"), { title: "No clause matches", text: show === "ai" ? "There is no AI draft on this record." : show === "check" ? "No AI draft is RED or AMBER." : show === "review" ? "No answer of this record is waiting for review." : show === "open" ? "Every clause shows an answer." : "Nothing fits this search.",
       action: { label: "Show all rows", ghost: true, onClick: function () { $("rc-show").value = "all"; $("rc-q").value = ""; draw(); } } });
   }
   var timer;
@@ -537,16 +559,28 @@
       : match.table.map(function (r) { var first = r.section !== s; s = r.section; return { section: first ? r.section : "", component: r.component, text: r.spec, kind: r.kind, cells: [] }; });
     return rows.length ? { name: "Datasheet rows", columns: match.columns, rows: rows } : null;
   }
-  $("rc-download").addEventListener("click", function () {
-    var rows = lines.map(function (l) {
-      var s = shown(l);
-      return { type: l.type, sr: l.sr, spec: l.spec, compliance: l.can ? s.c : "", remarks: l.can ? s.r : "",
-               auto: l.can && !l.own && filled(l) ? { type: "exact" } : l.can && l.ai_draft ? { type: "ai", confidence: (l.ai && l.ai.confidence) || "", reason: (l.ai && l.ai.reason) || "" } : null };   // an AI draft is flagged in the Excel too, with its confidence and reason
+  /* Two files (master prompt v4.1): the consultant's, with the four columns and nothing internal, where an AI draft no
+     person has checked is left blank and the name ends in _DRAFT while any clause is open; and the working copy. */
+  function excelRows(external) {
+    return lines.map(function (l) {
+      var s = shown(l), out = external && l.ai_draft ? { c: "", r: "" } : s;
+      return { type: l.type, sr: l.sr, spec: l.spec, compliance: l.can ? out.c : "", remarks: l.can ? out.r : "",
+               auto: external ? null : l.can && !l.own && filled(l) ? { type: "exact" } : l.can && l.ai_draft ? { type: "ai", confidence: (l.ai && l.ai.confidence) || "",
+                 reason: (prio(l) ? PRIO[prio(l)] + ". " : "") + ((l.ai && l.ai.reason) || "") } : null };   // an AI draft is flagged in the working copy, with its priority, confidence and reason
     });
+  }
+  $("rc-download").addEventListener("click", function () {
+    var rows = excelRows(true), open = rows.filter(function (r, i) { return lines[i].can && !r.compliance && !r.remarks; }).length;
     var blob = window.xlsxWriter.build(rows, null, function (text) { return CMHighlight.runs(text); },
+      { projectName: run.project, bandText: "Product : " + run.product + "     Factory : " + run.factory, external: true });
+    PRXlsx.save(blob, bare(run.file_name) + " - compliance" + (open ? "_DRAFT" : "") + ".xlsx");
+    Hub.toast(open ? "Excel downloaded as a draft: " + open + (open === 1 ? " clause is" : " clauses are") + " still open (AI drafts nobody checked are left blank)." : "Excel downloaded.");
+  });
+  $("rc-download-work").addEventListener("click", function () {
+    var blob = window.xlsxWriter.build(excelRows(false), null, function (text) { return CMHighlight.runs(text); },
       { projectName: run.project, bandText: "Product : " + run.product + "     Factory : " + run.factory, sheet2: sheet2() });
-    PRXlsx.save(blob, bare(run.file_name) + " - compliance.xlsx");
-    Hub.toast("Excel downloaded.");
+    PRXlsx.save(blob, bare(run.file_name) + " - compliance (working).xlsx");
+    Hub.toast("Working Excel downloaded.");
   });
 
   $("rc-loading").appendChild(Hub.skeleton(6, { flat: true, label: "Loading the specification" }));
@@ -562,9 +596,9 @@
     var facts = $("rc-facts");
     [run.project, run.product + ", " + run.factory + " factory", "Converted by " + run.user + ", " + when(run.created_at)].forEach(function (t) { facts.appendChild(el("span", { "class": "badge", text: t })); });
     $("rc-loading").hidden = true; $("rc-main").hidden = false;
-    setMode(false, true); counts(); draw(); aiButtons();
+    setMode(false, true); counts(); draw(); aiButtons(); reviewNote();
     Hub.autoHide($("rc-workbar"));
-    Hub.more($("rc-more"), [$("rc-download"), $("rc-ai"), $("rc-ai-clear")], "This specification");
+    Hub.more($("rc-more"), [$("rc-download"), $("rc-download-work"), $("rc-ai"), $("rc-ai-clear")], "This specification");
     Hub.dock([el("button", { type: "button", "class": "btn", text: "Focus mode", onclick: focusMode })]);
     loadMatch();
     // on a phone the table is hard to fill: start in the full-screen mode, "Done" shows the table
