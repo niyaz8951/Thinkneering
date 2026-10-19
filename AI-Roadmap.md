@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 19 Oct 2026, evening - AI notes moved from Product Options to Maps
+Migration 0006 moves every AI note into the factory's knowledge map (verified branches); the AI reads them there as [K] knowledge. Product Options: datasheet values, special options and notes only.
+
 ### 19 Oct 2026, afternoon - whole-record AI review off, Focus mode only
 The AI review button shows "coming soon"; `ai_review_run` refuses unless `AI_WHOLE_REVIEW = "1"` ([vars]). Focus-mode proposals (`ai_suggest`) stay on for every user. To switch the whole review back on: add the var and deploy.
 

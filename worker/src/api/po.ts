@@ -179,7 +179,10 @@ export const routes: Routes = {
     const s = (await sessionUser(env, p.p_token)).requireEditor("product-options");
     const f = await cmFactory(env, p.p_factory_id);
     const kind = str(p.p_kind), section = tidy(p.p_section), body = trimmed(p.p_body);
-    if (kind !== "option" && kind !== "note" && kind !== "ai") fail("Choose special option, note or AI note.");
+    // Product Options holds the datasheet values and the editors' special options and notes; facts for the AI are
+    // branches of a knowledge map in Maps (19 Oct 2026; migration 0006 moved the old AI notes there)
+    if (kind === "ai") fail("AI notes are kept in Maps now: add the fact as a branch of the knowledge map linked in Compliance review > AI rules.");
+    if (kind !== "option" && kind !== "note") fail("Choose special option or note.");
     if (section.length < 1 || section.length > 120) fail("Give the section a name of up to 120 characters.");
     if (body.length === 0) fail("Type the text first.");
     if (body.length > 1000) fail("The text is longer than 1000 characters.");

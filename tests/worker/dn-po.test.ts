@@ -287,11 +287,9 @@ describe("po_* routes", () => {
     const plain = await login("sbu");
     expect(await refused("po_admin_save_extra", { p_token: plain, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/Edit access/);
     const ta = await login("teamAdmin");                       // admin of the General tile = editor of Product Options
-    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option, note or AI note/);
-    // an AI note: saved like a note, seen by editors in the tree, not by readers
-    const ai = await ok("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "ai", p_body: "Panels are 62 mm double wall." });
-    expect((await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-dubai" })).extras.some((x: any) => x.id === ai.id && x.kind === "ai")).toBe(true);
-    expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" })).extras.some((x: any) => x.kind === "ai")).toBe(false);
+    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option or note/);
+    // AI notes are kept in Maps since 19 Oct 2026 (migration 0006): Product Options refuses them
+    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "ai", p_body: "Panels are 62 mm double wall." })).toMatch(/kept in Maps/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: " ", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/section a name/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "  " })).toMatch(/Type the text/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x".repeat(1001) })).toMatch(/longer than 1000/);
