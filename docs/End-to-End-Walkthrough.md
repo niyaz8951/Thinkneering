@@ -183,7 +183,7 @@ Code: `worker/src/ai/evidence.ts` (`optionPicks`, `compareOptions`, `picksFor`),
 - [ ] Project created with code `P-<year>-0001`-style; renaming keeps the code; the list search finds it by code
 - [ ] Project page leads with "Step 1 of 2 (optional): Read the datasheet first"
 - [ ] Datasheet: 15 units, rows as expected; read again replaces; factory Riyadh; Product Options shows new values *to approve*; approve them
-- [ ] Product Options > Filter Supply: one framed block per filter (G4: Chevronet, Synthetic, 592x592x48 and 287x592x48, 44 / 69 / 94 Pa; F7: its own); EN 1886 classes framed under the profile
+- [ ] Product Options > Filter Supply: one framed block per filter (G4: Chevronet, Synthetic, 592x592x48 and 287x592x48, 44 / 69 / 94 Pa; F7: its own); EN 1886 classes framed under each profile (Aluminium Natural; Aluminium Natural Thermal Break); old values without a group: "Remove values without a group" (admins) after the datasheets are read again
 - [ ] Product Options as admin: the AI notes show in read and edit; *+ AI note* adds one; as a plain user or editor: no AI notes
 - [ ] AI rules: one picker (rule book), no knowledge map; the line to Product Options AI notes
 - [ ] Spec: factory pre-selected; warning on Dubai; 404 clauses

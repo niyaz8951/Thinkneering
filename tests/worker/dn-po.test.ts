@@ -369,6 +369,34 @@ describe("po_* routes", () => {
     expect(n).toEqual([{ grp: G4, value: "592x592x48", times: 2 }, { grp: G4, value: "287x592x48", times: 2 }, { grp: F7, value: "592x592x48", times: 2 }]);
   });
 
+  it("profiles (20 Oct 2026): EN 1886 classes per profile; a value approved before groups keeps its approval; old values without a group are removed by an admin", async () => {
+    const t = await login("sbu");
+    await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [
+      { key: "unit data||profile", section: "Unit Data", sub: "", component: "Profile" },
+      { key: "mechanical characteristic (en1886)||casing strength", section: "Mechanical Characteristic (EN1886)", sub: "", component: "Casing Strength" },
+      { key: "mechanical characteristic (en1886)||thermal transmit", section: "Mechanical Characteristic (EN1886)", sub: "", component: "Thermal Transmit" }] });
+    // before groups: D1(M), T2(M), T3(M) without a group, approved
+    await env.DB.batch(["D1(M)", "T2(M)", "T3(M)"].map((v) => env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, grp, value_key, value, times, approved, approved_by) VALUES ('ahu-riyadh', ?, '', '', ?, ?, 90, 1, ?)")
+      .bind(v === "D1(M)" ? "mechanical characteristic (en1886)||casing strength" : "mechanical characteristic (en1886)||thermal transmit", v.toLowerCase(), v, USERS.teamAdmin.id)));
+    const N = "Profile: Aluminium Natural", TB = "Profile: Aluminium Natural Thermal Break";
+    const it = (key: string, value: string, grp: string) => ({ factory: "Riyadh", key, value, model: "", grp });
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: [
+      it("unit data||profile", "Aluminium Natural", ""), it("mechanical characteristic (en1886)||casing strength", "D1(M)", N), it("mechanical characteristic (en1886)||thermal transmit", "T3(M)", N),
+      it("unit data||profile", "Aluminium Natural Thermal Break", ""), it("mechanical characteristic (en1886)||casing strength", "D1(M)", TB), it("mechanical characteristic (en1886)||thermal transmit", "T2(M)", TB)] });
+    const ta = await login("teamAdmin");
+    const tree = await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" });
+    const tt = tree.rows.find((r: any) => r.key === "mechanical characteristic (en1886)||thermal transmit").values.map((v: any) => [v.g, v.v, v.wait]);
+    expect(tt).toEqual([["", "T2(M)", false], ["", "T3(M)", false], [N, "T3(M)", false], [TB, "T2(M)", false]]);   // approved before: approved in its group
+    expect(tree.rows.find((r: any) => r.key === "unit data||profile").values.every((v: any) => v.wait)).toBe(true);   // new values wait as always
+    // the old values without a group: removed by an admin, section by section, only where the row has groups
+    const e = await poEditor();
+    expect(await refused("po_admin_clear_ungrouped", { p_token: e, p_factory_id: "ahu-riyadh", p_section: "Mechanical Characteristic (EN1886)" })).toMatch(/super user or an admin/);
+    expect((await ok("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-riyadh", p_section: "mechanical characteristic (en1886)" })).removed).toBe(3);
+    expect(await refused("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-riyadh", p_section: "Unit Data" })).toMatch(/Nothing to remove/);   // profile values have no group
+    const after = (await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" })).rows.find((r: any) => r.key === "mechanical characteristic (en1886)||casing strength").values.map((v: any) => v.g);
+    expect(after).toEqual([N, TB]);
+  });
+
   it("approval: a value new to the factory waits; only the super user or a General admin approves or rejects it; users and the AI see approved values only", async () => {
     const t = await login("sbu");
     await mapping(t);

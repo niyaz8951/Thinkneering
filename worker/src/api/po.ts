@@ -110,14 +110,17 @@ export const routes: Routes = {
     if (groups.size === 0) return { ok: true, saved: 0 };
     // what is already there for the rows touched: existing keys and the count per row and model
     const have = new Set<string>(), count = new Map<string, number>();
+    // a value approved before it had a group (saved before 20 Oct 2026) keeps its approval when it comes back grouped
+    const plainOk = new Map<string, string | null>();
     const byFactory = new Map<string, Set<string>>();
     for (const g of groups.values()) (byFactory.get(g.factory_id) || byFactory.set(g.factory_id, new Set()).get(g.factory_id)!).add(g.row_key);
     for (const [fid, keys] of byFactory) {
       for (const part of chunks([...keys])) {
-        const rows = await all<{ row_key: string; model: string; grp: string; value_key: string }>(env.DB.prepare(
-          `SELECT row_key, model, grp, value_key FROM po_values WHERE factory_id = ? AND row_key IN (${marks(part.length)})`).bind(fid, ...part));
+        const rows = await all<{ row_key: string; model: string; grp: string; value_key: string; approved: number; approved_by: string | null }>(env.DB.prepare(
+          `SELECT row_key, model, grp, value_key, approved, approved_by FROM po_values WHERE factory_id = ? AND row_key IN (${marks(part.length)})`).bind(fid, ...part));
         for (const r of rows) {
           have.add([fid, r.row_key, r.model, r.grp, r.value_key].join("\u0001"));
+          if (r.grp === "" && r.approved) plainOk.set([fid, r.row_key, r.model, r.value_key].join("\u0001"), r.approved_by);
           const ck = [fid, r.row_key, r.model].join("\u0001");
           count.set(ck, (count.get(ck) || 0) + 1);
         }
@@ -132,8 +135,9 @@ export const routes: Routes = {
           .bind(g.n, at, g.factory_id, g.row_key, g.model, g.grp, g.value_key));
       } else if ((count.get(ck) || 0) < MAX_VALUES) {
         count.set(ck, (count.get(ck) || 0) + 1);
-        stmts.push(env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, grp, value_key, value, times, first_at, last_at, approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
-          .bind(g.factory_id, g.row_key, g.model, g.grp, g.value_key, g.value, g.n, at, at));
+        const pk = [g.factory_id, g.row_key, g.model, g.value_key].join("\u0001"), inherit = g.grp !== "" && plainOk.has(pk);
+        stmts.push(env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, grp, value_key, value, times, first_at, last_at, approved, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(g.factory_id, g.row_key, g.model, g.grp, g.value_key, g.value, g.n, at, at, inherit ? 1 : 0, inherit ? plainOk.get(pk) ?? null : null, inherit ? at : null));
       }
     }
     await batched(env.DB, stmts);
@@ -289,6 +293,24 @@ export const routes: Routes = {
     if (!n) fail("Nothing waits for approval there any more. Refresh the page.");
     await audit(env, s.id, approve ? "po_approve" : "po_reject", f.id, "", { values: n, all: bool(p.p_all), items: bool(p.p_all) ? [] : p.p_items });
     return { ok: true, changed: n };
+  },
+
+  /* Values saved before 20 Oct 2026 have no group. Once a row is read with groups (each filter, each profile), its
+     values without a group are left-overs: this removes them for one section of one factory, in the rows that have
+     grouped values. The super user or an admin of the tile Product Options sits on. */
+  async po_admin_clear_ungrouped(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    if (!poApprover(s)) fail("Only the super user or an admin of the tile Product Options sits on removes values.");
+    const f = await cmFactory(env, p.p_factory_id);
+    const section = tidy(p.p_section);
+    if (!section) fail("Choose the section.");
+    const r = await env.DB.prepare(`DELETE FROM po_values WHERE factory_id = ? AND grp = ''
+        AND row_key IN (SELECT m.row_key FROM dn_map m WHERE m.product_id = ? AND lower(m.section) = lower(?))
+        AND row_key IN (SELECT g.row_key FROM po_values g WHERE g.factory_id = ? AND g.grp <> '')`).bind(f.id, f.product_id, section, f.id).run();
+    const n = r.meta.changes || 0;
+    if (!n) fail("Nothing to remove there: no row of this section has values both with and without a group.");
+    await audit(env, s.id, "po_clear_ungrouped", f.id, "", { section, values: n });
+    return { ok: true, removed: n };
   }
 
 };

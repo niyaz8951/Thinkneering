@@ -63,6 +63,7 @@
     poAdminDeleteExtra: function (t, id) { return rpc("po_admin_delete_extra", { p_token: t, p_id: id }); },
     prRunSelection: function (t, runId) { return rpc("pr_run_selection", { p_token: t, p_run_id: runId }); },
     poAdminApprove: function (t, d) { return rpc("po_admin_approve", { p_token: t, p_factory_id: d.factoryId, p_items: d.items || null, p_all: !!d.all, p_approve: !!d.approve }); },
+    poAdminClearUngrouped: function (t, d) { return rpc("po_admin_clear_ungrouped", { p_token: t, p_factory_id: d.factoryId, p_section: d.section }); },
     poAdminSetHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: d.key, p_value_key: d.valueKey || "", p_hidden: !!d.hidden, p_model: d.model || "", p_grp: d.grp || "" }); },
     // Projects (every piece of work is saved under one) and the review of users' compliance answers
     prOptions: function (t) { return rpc("pr_options", { p_token: t }); },

@@ -344,6 +344,17 @@
       // drops) and Filter 2 are two groups; the EN 1886 classes are grouped under the profile they belong to
       var groups = [];
       if (!model) rows.forEach(function (r) { r.values.forEach(function (v) { if (v.g && groups.indexOf(v.g) < 0) groups.push(v.g); }); });
+      // values read before the groups (20 Oct 2026) in rows that now have groups: admins can remove them
+      var stale = 0;
+      if (groups.length) rows.forEach(function (r) { if (r.values.some(function (v) { return v.g; })) stale += r.values.filter(function (v) { return !v.g; }).length; });
+      if (stale && tree.can_approve) body.appendChild(el('div', { 'class': 'notice warn po-stale' }, [
+        el('span', { text: stale + (stale === 1 ? ' value' : ' values') + ' of this section were saved before values were grouped (20 Oct 2026), so they belong to no filter or profile. Read the datasheets again to have them grouped, then remove the old ones. ' }),
+        el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove values without a group', onclick: function (e) {
+          var btn = e.currentTarget;
+          window.Hub.confirm('Remove the ' + stale + ' values of ' + s.name + ' (' + tree.factory.name + ') that have no group? The grouped values stay. A datasheet read again brings them back in their group.', { title: 'Remove values without a group', ok: 'Remove', danger: true }).then(function (yes) {
+            if (yes) busy(btn, Api.poAdminClearUngrouped(window.Hub.token(), { factoryId: tree.factory.id, section: s.name }), 'Removed.');
+          });
+        } })]));
       var sub = '', tooled = {};
       rows.forEach(function (r) {
         var plain = groups.length ? r.values.filter(function (v) { return !v.g; }) : r.values;
