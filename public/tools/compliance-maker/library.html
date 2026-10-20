@@ -187,7 +187,7 @@
       <div class="card stack">
         <div>
           <h2 id="rulesTitle">AI rules</h2>
-          <p class="muted small" style="margin:4px 0 0">Two maps from Maps, for every factory of this product and, if needed, for this factory alone (read first). The <b>AI rule book</b> is what the AI follows: its instructions, decision steps and rules, and what it learned. The <b>knowledge map</b> (process or product understanding) gives it facts. Product facts can also go in Product Options (+ AI note). People who run the AI review or use focus mode do not need access to Maps.</p>
+          <p class="muted small" style="margin:4px 0 0">Two maps from Maps, for every factory of this product and, if needed, for this factory alone (read first). The <b>AI rule book</b> is what the AI follows: its instructions, decision steps and rules, and what it learned. The <b>knowledge map</b> (process or product understanding) gives it facts: product facts that are on no datasheet belong there (Product Options holds only datasheet values and editors' special options and notes). People who run the AI review or use focus mode do not need access to Maps.</p>
         </div>
         <div id="mapLinks" class="map-links"></div>
         <div id="mapProblems" class="notice warn" hidden></div>
@@ -211,7 +211,7 @@
       <div class="card stack">
         <div>
           <h2>Check the AI</h2>
-          <p class="muted small" style="margin:4px 0 0">Takes clauses people answered in the library of this factory, hides each answer, and lets the AI answer the clause from everything else: the rule book, Product Options and AI notes, knowledge maps, the rest of the library and people's corrections. Then compares. Run it after you change the rule book, the notes or the model, and see whether the AI gets closer to your answers. 20 clauses use about 200 neurons with the small model.</p>
+          <p class="muted small" style="margin:4px 0 0">Takes clauses people answered in the library of this factory, hides each answer, and lets the AI answer the clause from everything else: the rule book, Product Options, knowledge maps, the rest of the library and people's corrections. Then compares. Run it after you change the rule book, the notes or the model, and see whether the AI gets closer to your answers. 20 clauses use about 200 neurons with the small model.</p>
         </div>
         <div class="row">
           <select class="input" id="evalN" aria-label="How many clauses to check" style="width:auto">
@@ -827,7 +827,7 @@
       });
       out.appendChild(d);
     }
-    rows(differ, "Where the AI differs from people: correct these in a rule, an AI note or a knowledge branch", true);
+    rows(differ, "Where the AI differs from people: correct these in a rule or a knowledge branch", true);
     rows(left, "Left for a person: nothing on file supports an answer", false);
     rows(agree, "Where the AI agrees", false);
   }
