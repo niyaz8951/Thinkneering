@@ -4,6 +4,11 @@ For the owner and the admins. Updated 16 Oct 2026 (night): rule book and knowled
 clause), `worker/src/ai/draft.ts` (the order and the model), `worker/src/ai/guard.ts` (checks), `worker/src/ai/map.ts`
 (the AI maps), `worker/src/api/ai.ts` (routes). Everything below can be changed in the site; nothing needs code.
 
+> **20 Oct 2026 (afternoon):** maps hold the AI's rules only. Knowledge maps and the rule book's Facts branch are no
+> longer read; facts about the product are **AI notes in Product Options** (admins only, cited as `[N]`). Source
+> order: datasheet with its Product Options notes; without a datasheet the closest higher approved Product Options
+> value; then the library. Where this page mentions knowledge maps, `[K]` or `[F]`, read AI notes.
+
 ## 1. Where the AI works
 - **Focus mode, for everyone who fills a record.** A clause with no answer shows a dashed **Proposed** card: the
   answer, the remark, where it came from and why. **Keep & next** saves it and moves on; **Keep** saves it; **Not this**

@@ -13,8 +13,8 @@
    ai_try(token, product_id, factory_id, clause, part)
                                                   what the AI would go through for a pasted clause (no model)
    ai_map_get / ai_map_link(…, role) / ai_map_create(token, product_id, factory_id)
-                                                  the maps (Maps) linked for a product and for a factory: one AI
-                                                  rule book and one knowledge map for each
+                                                  the AI rule book (Maps) of one factory; maps hold rules only,
+                                                  product facts are AI notes in Product Options (20 Oct 2026)
    ai_map_upgrade(token, product_id, factory_id)  adds the template's Instructions / Decision steps / Learned to a linked map
    ai_quality(token, product_id)                  what people did with proposals, last 30 days; often-changed patterns
    ai_learn(token, product_id)                    writes those patterns into the maps, as "to verify" branches under Learned
@@ -35,10 +35,10 @@ import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, wholeReview,
 import { ClauseSearch } from "../ai/search";
 import { loadContext, compareDatasheet, libraryConflict, picksFor, type Context, type RunRowFull } from "../ai/evidence";
 import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai/decide";
-import { aiMapFor, createAiMap, createKnowledgeMap, upgradeAiMap, instructionsText } from "../ai/map";
+import { aiMapFor, createAiMap, upgradeAiMap, instructionsText } from "../ai/map";
 import { learnToMaps } from "../ai/learn";
 import { mpRights, type MapRow } from "./mp";
-import { pickRules, directRule, splitComments, notesMatching, prepareKnowledge, knowledgeMatching } from "../ai/rules";
+import { pickRules, directRule, splitComments, notesMatching } from "../ai/rules";
 import { standardChoice, systemPrompt, userPrompt, promptVersionOf } from "../ai/draft";
 import { pickLines, runEval, tally } from "../ai/eval";
 
@@ -107,10 +107,10 @@ function requireRulesEditor(s: Session): Session {
   return s;
 }
 
-/* Rule books and knowledge maps belong to one factory (owner, 20 Oct 2026: each factory's team keeps its own). */
+/* Rule books belong to one factory (owner, 20 Oct 2026: each factory's team keeps its own). */
 async function ownFactory(env: Env, productId: string, id: unknown): Promise<{ id: string; name: string }> {
   const f = await factoryRow(env, productId, id);
-  if (!f) fail("Choose the factory: every factory has its own AI rule book and knowledge map, and the AI never reads another factory's.");
+  if (!f) fail("Choose the factory: every factory has its own AI rule book, and the AI never reads another factory's.");
   return f;
 }
 async function factoryRow(env: Env, productId: string, id: unknown): Promise<{ id: string; name: string } | null> {
@@ -319,24 +319,20 @@ export const routes: Routes = {
     const best = similar[0];
     const st = map.settings;
     const libCopy = st.useLibrary && best && best.score >= st.copyAt && best.status === "answered" && standardChoice(best.compliance);
-    const know = st.useKnowledge ? knowledgeMatching(prepareKnowledge(map.knowledge), clause, section, 4) : [];
     const steps = [
       { step: "Project datasheet", result: !st.useDatasheet ? "Switched off in Decision steps." : "Not part of a pasted clause: in a record, the blue chips under the clause are compared first." },
-      { step: "Product Options and AI notes", result: !st.useOptions ? "Switched off in Decision steps." : aiNotes.length ? aiNotes.length + " AI notes match" : "No AI note of " + f.name + " matches this clause." },
-      { step: "Knowledge maps", result: !st.useKnowledge ? "Switched off in Decision steps." : !map.knowledge.length ? "No knowledge map is linked (or it has no verified branches)." : know.length ? know.length + " branches of the knowledge maps match" : "No branch of the knowledge maps matches this clause." },
+      { step: "Product Options and AI notes", result: !st.useOptions ? "Switched off in Decision steps." : aiNotes.length ? aiNotes.length + " AI notes match" : "No AI note of " + f.name + " matches this clause (Product Options > Edit > + AI note)." },
       { step: "Library", result: !st.useLibrary ? "Copying is switched off in Decision steps; similar answers still go to the model." : best ? `Most similar answered clause: ${(best.score * 100).toFixed(0)}% similar${libCopy ? `, at or above ${(map.settings.copyAt * 100).toFixed(0)}%: its answer "${best.compliance}" is copied` : ", below the copy threshold: shown to the model"}.` : "No similar clause in the library." },
-      { step: "Facts (rule book)", result: picked.facts.length ? picked.facts.length + " facts match: the AI may cite them for Comply, Comply with Remarks, Not Comply or Not Applicable." : "No verified fact of the rule book matches this clause: without a datasheet row, Product Options entry, AI note, knowledge branch or library answer, a Part 2 clause waits for a person." },
       { step: "AI rules (map)", result: !st.useRules && picked.rules.length ? picked.rules.length + " rules apply; answering by themselves is switched off in Decision steps, so they go to the model as instructions." : direct ? `"${direct.rule.title}" answers it by itself: ${direct.rule.answer}, "${direct.rule.remark}".` : picked.rules.length ? picked.rules.length + " rules apply; they are instructions for the model." : "No rule of the AI map applies." },
       { step: "AI model", result: libCopy || direct ? "Not needed." : map.settings.useModel ? "Writes the answer from the sources above (within the daily budget)." : "Switched off in Settings: the clause would be left for a person." }
     ];
     // the exact text the model would read for this clause (system brief + the clause with its sources)
-    const din = { clause, sr: "", part, section, product: prod.name, factory: f.name, similar, comments: "", rules: picked.rules, facts: picked.facts, notes: st.useOptions ? aiNotes : [], knowledge: know, instructions: map.instructions };
+    const din = { clause, sr: "", part, section, product: prod.name, factory: f.name, similar, comments: "", rules: picked.rules, facts: picked.facts, notes: st.useOptions ? aiNotes : [], instructions: map.instructions };
     const prompt = { system: systemPrompt(prod.name, f.name, map.instructions), user: userPrompt(din), version: promptVersionOf(map.instructions), from_map: !!map.instructions };
     return { ok: true, map: map.maps.length > 0, problems: map.problems, steps, prompt,
              rules: picked.rules.map((h) => ({ title: h.rule.title, where: h.rule.source || "", matched: h.matched, answer: h.rule.answer, remark: h.rule.remark, instruction: h.rule.instruction })),
-             facts: picked.facts.map((h) => ({ title: h.rule.title, where: h.rule.source || "", matched: h.matched, instruction: h.rule.instruction })),
              direct: direct ? { title: direct.rule.title, answer: direct.rule.answer, remark: direct.rule.remark, where: direct.rule.source || "" } : null,
-             similar: similar.map((x) => ({ text: x.spec_text.slice(0, 200), compliance: x.compliance, remarks: x.remarks, score: x.score })), notes: aiNotes, knowledge: know };
+             similar: similar.map((x) => ({ text: x.spec_text.slice(0, 200), compliance: x.compliance, remarks: x.remarks, score: x.score })), notes: aiNotes };
   },
 
   /* The maps linked for one factory (p_factory_id required), what in them the AI cannot use, and the
@@ -348,7 +344,6 @@ export const routes: Routes = {
     const maps = await aiMapFor(env, prod.id, fac.id);
     const link = (scope: string | null, role: string) => maps.maps.find((m) => (m.scope || null) === scope && m.role === role) || null;
     const counts = (scope: string | null) => { const r = maps.rules.filter((x) => (x.factory_id || null) === scope); return { rules: r.length, direct: r.filter((x) => x.answer && x.remark).length }; };
-    const branches = async (id: string) => (await env.DB.prepare("SELECT count(*) AS n FROM mp_nodes WHERE map_id = ? AND parent_id IS NOT NULL AND verified = 1").bind(id).first<{ n: number }>())?.n || 0;
     const canMaps = (() => { const t = s.tool("maps"); return !!t && t.status !== "hidden" && s.canOpen(t.category_id); })();
     // where each map is linked already: the picker shows it and offers a rule book only where it is not linked yet
     const links = await all<{ map_id: string; role: string; product_id: string; factory_id: string | null; product: string; factory: string | null }>(env.DB.prepare(
@@ -357,24 +352,24 @@ export const routes: Routes = {
       .filter((m) => mpRights(s, m) !== "none").map((m) => ({ id: m.id, name: m.name, updated_at: m.updated_at, share: m.share, kind: m.kind || "knowledge",
         linked: links.filter((l) => l.map_id === m.id).map((l) => ({ role: l.role, product_id: l.product_id, factory_id: l.factory_id, where: l.product + ", " + (l.factory ? l.factory + " only" : "all factories") })) })) : [];
     const rb = (scope: string | null) => { const l = link(scope, "rulebook"); return l ? { ...l, ...counts(scope) } : null; };
-    const kn = async (scope: string | null) => { const l = link(scope, "knowledge"); return l ? { ...l, branches: await branches(l.id) } : null; };
     // maps linked for "all factories" before 20 Oct 2026: no longer read; the page offers to move them to one factory
     const legacy = await all<{ id: string; name: string; role: string }>(env.DB.prepare(
-      "SELECT m.id, m.name, l.role FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.product_id = ? AND l.factory_id IS NULL").bind(prod.id));
+      "SELECT m.id, m.name, l.role FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.product_id = ? AND l.factory_id IS NULL AND l.role = 'rulebook'").bind(prod.id));
     return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_, legacy,
-             own: rb(fac.id), k_own: await kn(fac.id),
+             own: rb(fac.id),
              settings: maps.settings, problems: maps.problems, used_today: await neuronsToday(env),
              instructions: maps.instructions ? maps.instructions.map((x) => x.title).filter(Boolean) : null,
              brief_length: instructionsText(maps.instructions, prod.name, fac.name).length };
   },
 
-  /* Choose (p_map_id) or take off (null) the rule book or knowledge map of one factory (p_factory_id required).
-     p_role: rulebook (default) | knowledge; the map must be of that kind (Maps > the map's settings). */
+  /* Choose (p_map_id) or take off (null) the rule book of one factory (p_factory_id required). The map must be an AI
+     rule book (Maps > the map's settings). Knowledge maps are not used since 20 Oct 2026. */
   async ai_map_link(env, p) {
     const s = requireRulesEditor(await sessionUser(env, p.p_token));
     const prod = await productRow(env, p.p_product_id);
     const fac = await ownFactory(env, prod.id, p.p_factory_id);
-    const role = p.p_role === "knowledge" ? "knowledge" : "rulebook";
+    if (p.p_role === "knowledge") fail("Knowledge maps are not used since 20 Oct 2026: facts about the product are AI notes in Product Options (admins), and maps hold the AI's rules only.");
+    const role = "rulebook";
     const mapId = str(p.p_map_id, 60);
     const scope = fac.id;
     const del = env.DB.prepare("DELETE FROM ai_map_links WHERE product_id = ? AND ifnull(factory_id, '') = ? AND role = ?").bind(prod.id, scope, role);
@@ -385,7 +380,7 @@ export const routes: Routes = {
     }
     const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow & { kind: string }>();
     if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
-    if ((m.kind || "knowledge") !== role) fail(role === "rulebook" ? "That map is a knowledge map. Choose an AI rule book, or change the map's type in Maps (the map's settings)." : "That map is an AI rule book. Choose a knowledge map, or change the map's type in Maps (the map's settings).");
+    if ((m.kind || "knowledge") !== role) fail("That map is a knowledge map. Choose an AI rule book, or change the map's type in Maps (the map's settings).");
     // a map belongs to one factory: linked for another factory, it is refused; linked for "all factories" of this
     // product (before 20 Oct 2026), it moves here
     const elsewhere = await env.DB.prepare(
@@ -408,17 +403,6 @@ export const routes: Routes = {
     const fac = await ownFactory(env, prod.id, p.p_factory_id);
     const made = await createAiMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
     await audit(env, s.id, "ai_map_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
-    return { ok: true, ...made };
-  },
-
-  /* A new knowledge map for one factory from the template (Product facts and the Vocabulary of requirement types),
-     private to its maker, linked at once. */
-  async ai_knowledge_create(env, p) {
-    const s = requireRulesEditor(await sessionUser(env, p.p_token));
-    const prod = await productRow(env, p.p_product_id);
-    const fac = await ownFactory(env, prod.id, p.p_factory_id);
-    const made = await createKnowledgeMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
-    await audit(env, s.id, "ai_knowledge_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
     return { ok: true, ...made };
   },
 

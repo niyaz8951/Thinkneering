@@ -53,6 +53,11 @@
   .po-tools { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; }
   .po-form { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
   .po-form textarea { min-height: 64px; resize: vertical; }
+  .po-group { margin-top: 10px; padding: 2px 12px 4px; border: 1px solid var(--border); border-left: 3px solid var(--brand); border-radius: 8px; background: var(--surface-2); }
+  .po-group-name { padding: 8px 0 4px; font-weight: 650; overflow-wrap: anywhere; }
+  .po-group .po-row:first-of-type { border-top: 0; }
+  .po-note.ai { border-left-color: var(--warn); }
+  .po-note.ai b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--warn); }
   .po-secx { padding: 8px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
   /* FCU: series > model > section */
   .po-series { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }

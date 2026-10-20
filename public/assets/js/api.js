@@ -63,7 +63,7 @@
     poAdminDeleteExtra: function (t, id) { return rpc("po_admin_delete_extra", { p_token: t, p_id: id }); },
     prRunSelection: function (t, runId) { return rpc("pr_run_selection", { p_token: t, p_run_id: runId }); },
     poAdminApprove: function (t, d) { return rpc("po_admin_approve", { p_token: t, p_factory_id: d.factoryId, p_items: d.items || null, p_all: !!d.all, p_approve: !!d.approve }); },
-    poAdminSetHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: d.key, p_value_key: d.valueKey || "", p_hidden: !!d.hidden, p_model: d.model || "" }); },
+    poAdminSetHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: d.key, p_value_key: d.valueKey || "", p_hidden: !!d.hidden, p_model: d.model || "", p_grp: d.grp || "" }); },
     // Projects (every piece of work is saved under one) and the review of users' compliance answers
     prOptions: function (t) { return rpc("pr_options", { p_token: t }); },
     prList: function (t) { return rpc("pr_list", { p_token: t }); },
@@ -116,7 +116,6 @@
     aiMapGet: function (t, d) { return rpc("ai_map_get", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
     aiMapLink: function (t, d) { return rpc("ai_map_link", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_map_id: d.mapId || null, p_role: d.role || "rulebook" }); },
     aiMapCreate: function (t, d) { return rpc("ai_map_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
-    aiKnowledgeCreate: function (t, d) { return rpc("ai_knowledge_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
     aiEval: function (t, d) { return rpc("ai_eval", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId, p_check: d.check, p_n: d.n, p_seen: d.seen || [] }); },
     aiEvalHistory: function (t, d) { return rpc("ai_eval_history", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId }); },
     aiMapUpgrade: function (t, d) { return rpc("ai_map_upgrade", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },

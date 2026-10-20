@@ -130,3 +130,4 @@ about one 300-clause review. Paid ($5 a month) lifts all of these; see AI-Roadma
 - An existing rule book: Compliance review > AI rules > **Add the new parts**.
 - What the AI learned, by hand: Compliance review > AI rules > How the AI did > **Write to the map** (also nightly, 02:30 UTC).
 
+- 20 Oct 2026: knowledge maps are no longer read; product facts are AI notes in Product Options (admins). Migration 0009 (applied by Workers Builds on push) copies the maps' verified facts there and groups Product Options values. To see an existing factory's values grouped, read its datasheets again; to start the factory's values afresh first (they then wait for approval again), in the D1 Console: `DELETE FROM po_values WHERE factory_id = 'ahu-riyadh';`

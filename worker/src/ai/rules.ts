@@ -238,18 +238,3 @@ export function notesMatching(notes: { section: string; body: string }[], clause
   return notes.map((n) => { let c = 0; for (const w of tellingWords(n.body + " " + n.section)) if (words.has(w)) c++; return { t: `${n.section}: ${n.body}`, c }; })
     .filter((z) => z.c >= 2).sort((a, b) => b.c - a.c).slice(0, k).map((z) => z.t);
 }
-
-
-/* Branches of the knowledge maps for a clause: the k sharing the most telling words (2 at least). The words of
-   every branch are worked out once per record (prepareKnowledge). */
-export interface KnowledgeIndexed { t: string; words: Set<string> }
-export function prepareKnowledge(items: { map: string; path: string; text: string; keys?: string }[]): KnowledgeIndexed[] {
-  return items.map((k) => ({ t: `${k.path}: ${k.text}`, words: tellingWords(k.path + " " + k.text + " " + (k.keys || "")) }));
-}
-export function knowledgeMatching(items: KnowledgeIndexed[], clause: string, section: string, k = 4): string[] {
-  if (!items.length) return [];
-  const words = tellingWords(clause + " " + section);
-  const scored: { t: string; c: number }[] = [];
-  for (const it of items) { let c = 0; for (const w of it.words) if (words.has(w)) c++; if (c >= 2) scored.push({ t: it.t, c }); }
-  return scored.sort((a, b) => b.c - a.c).slice(0, k).map((z) => z.t.slice(0, 700));
-}

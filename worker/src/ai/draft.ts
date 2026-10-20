@@ -11,7 +11,7 @@
 
    The contract with the model (16 Oct 2026, owner: "the AI must follow a strict set of directions"):
      - every source in the prompt carries an id: [D1] datasheet row, [L1] library answer, [O1] Product Options,
-       [N1] AI note, [K1] knowledge branch, [R1] rule, [C1] clause rule, [F1] fact, [M1] a correction people made to an
+       [N1] AI note, [R1] rule, [C1] clause rule, [M1] a correction people made to an
        AI answer, [E1] an earlier answer in this specification, [P1] an answer in another project;
      - the model replies with the ids it used ("cites"); Comply, Comply with Remarks, Not Comply and Not Applicable
        must cite at least one id that was in the prompt, or code asks once more and then leaves the clause for a
@@ -41,7 +41,6 @@ export interface DraftInput {
   conflict?: string;                     // the library's value differs from this project's datasheet
   options?: string[];                    // Product Options lines for the rows of this clause
   notes?: string[];                      // AI notes of the Options tree
-  knowledge?: string[];                  // verified branches of the knowledge maps that match the clause
   record?: PastAnswerIn | null;          // the same clause answered by a person in this record
   inSection?: string[];                  // answers given earlier in this section of the record
   project?: PastAnswerIn[];              // the same / similar clause answered in other projects of the factory
@@ -72,7 +71,7 @@ export class NeedsSource extends NoFreeAnswer { constructor(why: string) { super
 /* The answers that state something about the product: they need a source the model cites. */
 export const NEEDS_SOURCE = ["Comply", "Comply with Remarks", "Not Comply", "Not Applicable"];
 
-/* What may back an answer about the product: a fact, a datasheet row, Product Options, an AI note, a knowledge branch,
+/* What may back an answer about the product: a datasheet row, Product Options, an AI note,
    a library or earlier answer, a correction, the clause's own rule - or a rule that gives that very answer. A rule
    that only says how to answer ("compare the panel with the datasheet") is an instruction, not a fact: citing it
    alone is not enough. */
@@ -117,7 +116,7 @@ Answer with ONE JSON object and nothing else:
 {"cites": ["<the ids of the sources you used, first>"], "reason": "<one sentence a reviewer can check: what those sources say and what needs checking>", "compliance": "<one of the six answers, or empty>", "remarks": "<one or two short sentences for the consultant, or empty>", "confidence": "high" | "medium" | "low"}
 Work in that order: find the sources that apply, say what they show, then choose the answer they support.
 The six answers, written exactly: ${CHOICES.map((c) => '"' + c + '"').join(", ")}.
-SOURCES: every source in the message has an id in square brackets: [D] project datasheet row, [L] library answer, [O] Product Options of the factory, [N] AI note, [K] knowledge map, [R] rule, [C] rule of this clause, [F] factory fact, [M] a correction people made to an AI answer on a similar clause, [E] an answer given earlier in this specification, [P] an answer in another project. Nothing else is a source: not your general knowledge, not the clause itself.
+SOURCES: every source in the message has an id in square brackets: [D] project datasheet row, [L] library answer, [O] Product Options of the factory, [N] AI note (a fact about this factory's product), [R] rule, [C] rule of this clause, [M] a correction people made to an AI answer on a similar clause, [E] an answer given earlier in this specification, [P] an answer in another project. Nothing else is a source: not your general knowledge, not the clause itself.
 - "Comply", "Comply with Remarks", "Not Comply" and "Not Applicable" must cite at least one id that supports them.
 - "Noted" and "In Contractor's Scope" may cite "I" (these instructions) when no source applies.
 - If no source supports any answer, reply {"compliance": "", "remarks": "", "reason": "<what is missing>", "confidence": "low", "cites": []}: the clause goes to a person. That is a correct answer, not a failure.
@@ -181,7 +180,6 @@ export function evidenceOf(d: DraftInput): EvItem[] {
   (d.facts || []).forEach((h) => add("F", h.rule.id, `fact "${h.rule.title || h.rule.instruction.slice(0, 50)}"`, `${h.rule.title ? h.rule.title + ": " : ""}${h.rule.instruction.slice(0, 400)}`, `${h.rule.title} ${h.rule.instruction}`));
   (d.options || []).forEach((t, i) => add("O", "options-" + (i + 1), "Product Options", t.slice(0, 400), t));
   (d.notes || []).forEach((t, i) => add("N", "note-" + (i + 1), "AI note", t.slice(0, 500), t));
-  (d.knowledge || []).forEach((t, i) => add("K", "knowledge-" + (i + 1), "knowledge map", t.slice(0, 700), t));
   (d.corrections || []).forEach((c, i) => add("M", "correction-" + (i + 1), `a correction people made (${c.score.toFixed(2)})`,
     `(similarity ${c.score.toFixed(2)}) Clause: ${c.spec.slice(0, 500)}\n   The AI answered: ${c.suggested}${c.suggested_remarks ? " | " + c.suggested_remarks.slice(0, 200) : ""}\n   A person answered instead: ${c.final}${c.final_remarks ? " | " + c.final_remarks.slice(0, 300) : ""}`,
     `${c.final} ${c.final_remarks}`, c.score, standardChoice(c.final)));
@@ -211,7 +209,6 @@ export function userPrompt(d: DraftInput): string {
   if (of("F").length) parts.push(block(`Factory facts (${d.product}, standard offering)`, of("F")));
   parts.push(block(`Product Options of the ${d.factory} factory for this clause (values seen on its datasheets, special options, notes)`, of("O")));
   parts.push(block("AI notes (library team, facts about the product)", of("N")));
-  if (of("K").length) parts.push(block("Knowledge maps (process and product understanding, verified)", of("K")));
   if (of("M").length) parts.push(block("Corrections people made to the AI's answers on similar clauses (the person is right; follow the person)", of("M")));
   if (d.conflict) parts.push("Conflict: " + d.conflict + " The project's datasheet wins.");
   parts.push(block("Answers given earlier in this section of this specification (keep to them)", of("E")));

@@ -1,4 +1,4 @@
-/* The AHU rule book (template-ahu.ts): Facts the AI may cite, the AHU rules on the clauses of the Riyadh Metro AHU
+/* The AHU rule book (template-ahu.ts): the AHU rules on the clauses of the Riyadh Metro AHU
    specification, and how Create / Update from template bring them in. Owner, 16 Oct 2026. */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { env } from "cloudflare:test";
@@ -24,29 +24,23 @@ const pick = (clause: string, section: string, part: number) => pickRules(ahu.ru
 const direct = (clause: string, section: string, part: number) => directRule(pick(clause, section, part).rules);
 
 describe("The AHU rule book template", () => {
-  it("has Facts and AHU rules for AHUs only; the Riyadh rule book gets the KSA defaults, to verify", () => {
-    const facts = (tree: Seed[]) => tree.find((x) => x.title === "Facts")!.kids || [];
-    expect(facts(seedTree("AHU", null)).map((f) => f.title)).toEqual(expect.arrayContaining(["Eurovent certification", "AHU datasheet", "Manuals", "Warranty period"]));
-    expect(facts(seedTree("FCU", null))).toEqual([]);
+  it("has the AHU rules for AHUs only, and no Facts branch: facts about the product are AI notes in Product Options (20 Oct 2026)", () => {
+    for (const p of ["AHU", "FCU"]) for (const f of [null, "Riyadh", "Dubai"]) expect(seedTree(p, f).map((x) => x.title)).not.toContain("Facts");
     expect(seedTree("FCU", null).find((x) => x.title === "Part 2 Products")!.kids!.map((k) => k.title)).not.toContain("Fans");
-    // every factory's rule book is the whole template (20 Oct 2026); Riyadh's also gets the KSA defaults, to verify
-    const ksa = facts(seedTree("AHU", "Riyadh")).filter((f) => /\(Riyadh\)$/.test(f.title));
-    expect(ksa.map((f) => f.title)).toEqual(["Panels (Riyadh)", "Filters (Riyadh)", "Fans (Riyadh)", "Controls (Riyadh)", "Filter bypass leakage (Riyadh)"]);
-    expect(ksa.every((f) => f.off)).toBe(true);
-    expect(facts(seedTree("AHU", "Riyadh")).map((f) => f.title)).toEqual(expect.arrayContaining(["Eurovent certification", "Warranty period"]));
-    expect(facts(seedTree("AHU", "Dubai")).filter((f) => /\(/.test(f.title))).toEqual([]);
+    expect(seedTree("AHU", null).find((x) => x.title === "Part 2 Products")!.kids!.map((k) => k.title)).toContain("Fans");
+    const steps = seedTree("AHU", "Riyadh").find((x) => x.title === "Decision steps")!.kids!.map((k) => k.title);
+    expect(steps.some((t) => /knowledge/i.test(t))).toBe(false);
     expect(ahu.problems).toEqual([]);
+    expect(ahu.rules.filter((r) => r.kind === "fact")).toEqual([]);
   });
 
-  it("reads Facts as facts; a fact to verify is not used; a fact without When is reported", () => {
-    const factRules = ahu.rules.filter((r) => r.kind === "fact");
-    expect(factRules.map((r) => r.title)).toEqual(["Eurovent certification", "AHU datasheet", "Manuals"]);     // the others come in to verify
+  it("a Facts branch left in an older rule book is not read, and the tab says where facts go", () => {
     const bare = parseMap([
       { id: "root", parent_id: null, title: "AI rules", notes: "", special: "[]", sort: 0, verified: 1 },
       { id: "f", parent_id: "root", title: "Facts", notes: "", special: "[]", sort: 0, verified: 1 },
       { id: "f1", parent_id: "f", title: "Paint", notes: "Units are powder coated.", special: "[]", sort: 0, verified: 1 }], null);
-    expect(bare.rules[0]).toMatchObject({ kind: "fact", title: "Paint" });
-    expect(bare.problems.join(" ")).toMatch(/fact "Facts › Paint" has no When or Section/);
+    expect(bare.rules).toEqual([]);
+    expect(bare.problems.join(" ")).toMatch(/"Facts" branch is not read: facts about the product are AI notes in Product Options/);
   });
 
   it("answers the scope clauses of the Riyadh Metro spec by itself, and leaves product clauses to the model", () => {
@@ -61,10 +55,9 @@ describe("The AHU rule book template", () => {
     expect(direct("Manufacturer's Field Inspection: Engage a factory-authorized service representative to perform the following:", "COMMISSIONING", 3)).toBeNull();
     expect(pick("Manufacturer's Field Inspection: Engage a factory-authorized service representative to perform the following:", "COMMISSIONING", 3).rules.map((h) => h.rule.title)).toContain("Manufacturer's service at site");
     expect(pick("Engage a factory-authorized service representative to train Employer's maintenance personnel.", "DEMONSTRATION", 3).rules.map((h) => h.rule.title)).toContain("Training and demonstration");
-    // a product clause: the casing rule and the Eurovent fact, no fixed answer
+    // a product clause: the casing rule, no fixed answer
     const casing = pick("Thermal Conductance (C): Maximum overall thermal conductance of casing panels shall not exceed 0.68 W/square meter. K.", "CABINET", 2);
     expect(casing.rules.map((h) => h.rule.title)).toContain("Casing and panels (EN 1886)");
-    expect(casing.facts.map((h) => h.rule.title)).toContain("Eurovent certification");
     expect(directRule(casing.rules)).toBeNull();
     // belt parts with EC fans: the fan rules, which need Product Options or the datasheet to apply
     expect(pick("Belt Guards: Fabricate to OSHA/SMACNA requirements, 2.7 mm thick.", "FAN SECTION", 2).rules.map((h) => h.rule.title)).toEqual(expect.arrayContaining(["Belt drives and VFDs"]));
@@ -106,26 +99,30 @@ describe("Facts and instructions in the source contract", () => {
 describe("Create and Update from template", () => {
   beforeEach(async () => { await resetLogins(); });
 
-  it("an AHU rule book gets the AHU rules and facts; the Riyadh one gets the KSA facts to verify; nothing twice", async () => {
+  it("an AHU rule book gets the AHU rules, no facts; nothing twice; an old Knowledge maps step is switched off; the AI reads the factory's AI notes", async () => {
     const t = await login("teamAdmin");
     const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
-    const titles = async (id: string, sql = "") => (await env.DB.prepare("SELECT title, verified FROM mp_nodes WHERE map_id = ? " + sql).bind(id).all<any>()).results;
-    expect((await titles(made.id)).map((x: any) => x.title)).toEqual(expect.arrayContaining(["Facts", "Fans", "Submittals", "Eurovent certification", "Warranty period"]));
-    expect((await titles(made.id, "AND title = 'Warranty period'"))[0].verified).toBe(0);
+    const titles = async (id: string, sql = "") => (await env.DB.prepare("SELECT id, title, verified FROM mp_nodes WHERE map_id = ? " + sql).bind(id).all<any>()).results;
+    const all = (await titles(made.id)).map((x: any) => x.title);
+    expect(all).toEqual(expect.arrayContaining(["Fans", "Submittals", "7. AI model", "8. Checks (always on)"]));
+    expect(all).not.toContain("Facts");
+    expect(all).not.toContain("Eurovent certification");
     expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added).toEqual([]);
-    // an AHU rule book from before: no Facts, no AHU rules
-    await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND (title IN ('Facts', 'Fans', 'Coils') OR parent_id IN (SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Facts'))").bind(made.id, made.id).run();
+    // an AHU rule book from before: no AHU rules, a Facts branch and a Knowledge maps step
+    await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND title IN ('Fans', 'Coils')").bind(made.id).run();
+    const stepsId = (await titles(made.id, "AND title = 'Decision steps'"))[0].id;
+    await env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('ks', ?, ?, '7. Knowledge maps', '', '[]', 6, 1)").bind(made.id, stepsId).run();
     const up = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added;
-    expect(up).toEqual(expect.arrayContaining(["Facts", "Fans (added under Part 2 Products)", "Coils (added under Part 2 Products)"]));
+    expect(up).toEqual(expect.arrayContaining(["Fans (added under Part 2 Products)", "Coils (added under Part 2 Products)", "7. Knowledge maps (switched off: product facts are AI notes in Product Options)"]));
+    expect(up.some((x: string) => /^Facts/.test(x))).toBe(false);
     expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added).toEqual([]);
-    // the Riyadh rule book
-    const own = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
-    const ksa = await titles(own.id, "AND title LIKE '%(Riyadh)'");
-    expect(ksa.map((x: any) => x.title).sort()).toEqual(["Controls (Riyadh)", "Fans (Riyadh)", "Filter bypass leakage (Riyadh)", "Filters (Riyadh)", "Panels (Riyadh)"]);
-    expect(ksa.every((x: any) => x.verified === 0)).toBe(true);
-    // what the AI sees: the verified AHU facts, not the ones to verify
-    const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Casing air leakage shall be class L1 at -400 Pa to EN 1886.", p_section: "CABINET", p_part: 2 });
-    expect(tried.facts.map((f: any) => f.title)).toEqual(["Eurovent certification"]);
-    expect(tried.prompt.user).toMatch(/\[F1\] Eurovent certification: Daikin AHUs \(D-AHU\) are Eurovent certified/);
+    // the facts the AI quotes are the factory's AI notes (Product Options), only that factory's
+    await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    await ok("po_admin_save_extra", { p_token: t, p_factory_id: "ahu-riyadh", p_id: null, p_section: "General", p_row_key: "", p_kind: "ai", p_body: "Eurovent certification: Daikin AHUs are Eurovent certified to EN 1886; casing leakage class L1(M) at -400 Pa." });
+    const clause = { p_token: t, p_product_id: "ahu", p_clause: "Casing air leakage shall be class L1 at -400 Pa to EN 1886.", p_section: "CABINET", p_part: 2 };
+    const tried = await ok("ai_try", { ...clause, p_factory_id: "ahu-riyadh" });
+    expect(tried.notes.join(" ")).toMatch(/Eurovent certification/);
+    expect(tried.prompt.user).toMatch(/\[N1\][^\n]*Eurovent certification/);
+    expect((await ok("ai_try", { ...clause, p_factory_id: "ahu-dubai" })).notes).toEqual([]);
   });
 });

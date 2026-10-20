@@ -187,7 +187,7 @@
       <div class="card stack">
         <div>
           <h2 id="rulesTitle">AI rules</h2>
-          <p class="muted small" style="margin:4px 0 0">Two maps from Maps, for this factory only: every factory has its own, kept by its own team, and the AI never reads another factory's (nor its Product Options or library). The <b>AI rule book</b> is what the AI follows: its instructions, decision steps and rules, and what it learned. The <b>knowledge map</b> (process or product understanding) gives it facts: product facts that are on no datasheet belong there (Product Options holds only datasheet values and editors' special options and notes). People who run the AI review or use focus mode do not need access to Maps.</p>
+          <p class="muted small" style="margin:4px 0 0">One map from Maps, for this factory only: every factory has its own, kept by its own team, and the AI never reads another factory's (nor its Product Options or library). The <b>AI rule book</b> holds how the AI thinks: its instructions, decision steps and rules, and what it learned. Facts about the product are not kept in maps: they are the factory's datasheet values, special options, notes and <b>AI notes</b> (admins) in Product Options. The AI reads, in this order: the project datasheet with its Product Options notes, then the closest higher Product Options value when there is no datasheet, then the library. People who run the AI review or use focus mode do not need access to Maps.</p>
         </div>
         <div id="mapLinks" class="map-links"></div>
         <div id="mapProblems" class="notice warn" hidden></div>
@@ -211,7 +211,7 @@
       <div class="card stack">
         <div>
           <h2>Check the AI</h2>
-          <p class="muted small" style="margin:4px 0 0">Takes clauses people answered in the library of this factory, hides each answer, and lets the AI answer the clause from everything else: the rule book, Product Options, knowledge maps, the rest of the library and people's corrections. Then compares. Run it after you change the rule book, the notes or the model, and see whether the AI gets closer to your answers. 20 clauses use about 200 neurons with the small model.</p>
+          <p class="muted small" style="margin:4px 0 0">Takes clauses people answered in the library of this factory, hides each answer, and lets the AI answer the clause from everything else: the rule book, Product Options and its AI notes, the rest of the library and people's corrections. Then compares. Run it after you change the rule book, the notes or the model, and see whether the AI gets closer to your answers. 20 clauses use about 200 neurons with the small model.</p>
         </div>
         <div class="row">
           <select class="input" id="evalN" aria-label="How many clauses to check" style="width:auto">
@@ -666,7 +666,7 @@
   }
   function drawLinks(res) {
     var host = $("mapLinks"); host.textContent = "";
-    var KINDS = { rulebook: "AI rule book", knowledge: "Knowledge map" };
+    var KINDS = { rulebook: "AI rule book", knowledge: "Knowledge map" };   // knowledge maps: shown only when linked before 20 Oct 2026
     function picker(scope, role, link, label) {
       var mine = res.maps.filter(function (m) { return m.kind === role; });
       // a map belongs to one factory: used for another factory = shown, not offered (one linked for "all factories"
@@ -690,16 +690,17 @@
         }, function (err) { sel.disabled = false; fail(err); });
       });
       var open = link && res.can_maps ? el("a", { "class": "btn ghost", href: mapUrl(link.id), text: "Open in Maps" }) : null;
-      var make = el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () { role === "rulebook" ? createMap(scope) : createKnowledge(scope); } });
-      var sum;
-      if (role === "rulebook") sum = link ? link.rules + (link.rules === 1 ? " rule" : " rules") + ", " + link.direct + " of them answer by themselves · changed " + Hub.date(link.updated_at, true)
-                                          : "None: for " + factoryName() + " the AI uses its built-in instructions, the datasheet, " + factoryName() + "'s Product Options and library.";
-      else sum = link ? link.branches + " verified branches · changed " + Hub.date(link.updated_at, true)
-                      : "None. The knowledge map holds " + factoryName() + "'s product facts and the vocabulary of requirement types (what each clause asks, and what " + factoryName() + " offers): the AI quotes its verified facts and offers.";
+      var make = el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () { createMap(scope); } });
+      var sum = link ? link.rules + (link.rules === 1 ? " rule" : " rules") + ", " + link.direct + " of them answer by themselves · changed " + Hub.date(link.updated_at, true)
+                     : "None: for " + factoryName() + " the AI uses its built-in instructions, the datasheet, " + factoryName() + "'s Product Options and library.";
       return el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: KINDS[role] }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })]);
     }
     var label = factoryName() + " factory";
-    host.appendChild(el("div", { "class": "map-link" }, [el("b", { text: label }), picker(factoryId(), "rulebook", res.own, label), picker(factoryId(), "knowledge", res.k_own, label)]));
+    host.appendChild(el("div", { "class": "map-link" }, [el("b", { text: label }), picker(factoryId(), "rulebook", res.own, label)]));
+    var po = el("p", { "class": "small muted" }, [document.createTextNode("Facts about " + factoryName() + "'s product (what is standard, what is offered): AI notes in "),
+      el("a", { href: "../product-options/?product=" + encodeURIComponent(productId()) + "&factory=" + encodeURIComponent(factoryId()), text: "Product Options" }),
+      document.createTextNode(" (Edit on, + AI note; admins only).")]);
+    host.appendChild(po);
     // maps linked for "all factories" before 20 Oct 2026 are no longer read: one press moves one to this factory
     (res.legacy || []).forEach(function (m) {
       host.appendChild(el("div", { "class": "notice warn" }, [
@@ -713,7 +714,7 @@
     });
     if (res.own && !res.instructions) {
       host.appendChild(el("div", { "class": "notice" }, [
-        el("span", { text: "“" + res.own.name + "” has no Instructions branch yet, so the AI uses its built-in brief. Add the parts of the template it does not have (Instructions, Decision steps, rules, Facts, Learned); what you wrote stays as it is. " }),
+        el("span", { text: "“" + res.own.name + "” has no Instructions branch yet, so the AI uses its built-in brief. Add the parts of the template it does not have (Instructions, Decision steps, rules, Learned); what you wrote stays as it is. " }),
         el("button", { type: "button", "class": "btn ghost sm", text: "Add the new parts", onclick: function () { upgrade(factoryId()); } })]));
     } else if (res.own) {
       /* the template gets better (stricter rules, "Unless:" words): this brings a linked rule book up to date without
@@ -730,7 +731,7 @@
     var st = res.settings, off = [];
     if (!st.useDatasheet) off.push("datasheet"); if (!st.useLibrary) off.push("library copy"); if (!st.useRecord) off.push("earlier answers");
     if (!st.useRules) off.push("rules that answer by themselves"); if (!st.projectAnswers) off.push("other projects"); if (!st.useOptions) off.push("Product Options");
-    if (!st.useKnowledge) off.push("knowledge maps"); if (!st.useModel) off.push("AI model");
+    if (!st.useModel) off.push("AI model");
     $("mapSettings").textContent = "AI model: " + modelName(st.model ? (st.model === "large" ? LARGE_ID : st.model) : SMALL_ID) + " · The AI reads " + (res.instructions ? res.instructions.length + " instruction sections from the rule book (" + res.instructions.join(", ") + ")" : "its built-in instructions") +
       " · copies from the library at " + Math.round(st.copyAt * 100) + "% similar · daily budget " + st.budget + " neurons (" + (res.used_today || 0) + " used today) · focus-mode suggestions " + (st.suggest ? "on" : "off") +
       " · datasheet wins over the library: " + (st.datasheetWins ? "yes" : "no") + (off.length ? " · steps switched off: " + off.join(", ") : " · all decision steps on") + ".";
@@ -740,18 +741,9 @@
       Hub.toast(r.added.length ? "Done: " + r.added.join(", ") + "." : "The rule book is up to date."); loadRules.scope = ""; loadRules();
     }, fail);
   }
-  function createKnowledge(scope) {
-    Hub.ask("Name of the new knowledge map", { title: "Create from template", ok: "Create", placeholder: productName() + " " + factoryName() + " - knowledge",
-      hint: "The knowledge map of " + factoryName() + " only: Product facts, and the Vocabulary of " + productName() + " requirement types with an \"Offered (" + factoryName() + ")\" branch under each to fill in and verify. Everything about the factory comes in \"to verify\". It is private to you; share it in Maps with the " + factoryName() + " team." }).then(function (name) {
-      if (name === null) return;
-      Api.aiKnowledgeCreate(Hub.token(), { productId: productId(), factoryId: scope, name: name.trim() }).then(function (res) {
-        Hub.toast("“" + res.name + "” created and linked. Open it in Maps to fill in and verify."); loadRules.scope = ""; loadRules();
-      }, fail);
-    });
-  }
   function createMap(scope) {
     Hub.ask("Name of the new AI rule book", { title: "Create from template", ok: "Create", placeholder: "AI rules: " + productName() + (scope ? " " + factoryName() : ""),
-      hint: "The rule book of " + factoryName() + " only: the AI's instructions, the decision steps, the settings, starter rules and facts. It is private to you; share it in Maps with the " + factoryName() + " team." }).then(function (name) {
+      hint: "The rule book of " + factoryName() + " only: the AI's instructions, the decision steps, the settings and starter rules. It is private to you; share it in Maps with the " + factoryName() + " team." }).then(function (name) {
       if (name === null) return;
       Api.aiMapCreate(Hub.token(), { productId: productId(), factoryId: scope, name: name.trim() }).then(function (res) {
         Hub.toast("“" + res.name + "” created and linked."); loadRules.scope = ""; loadRules();
@@ -771,16 +763,11 @@
         var hit = /copied|answers it by itself|match/.test(st.result) && !/^No /.test(st.result);
         return el("li", { "class": hit ? "hit" : "" }, [el("b", { text: (k + 1) + ". " + st.step }), st.result]);
       })));
-      (res.facts || []).forEach(function (r) {
-        out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: "Fact: " + r.title }), " · found: " + r.matched.join(", ") + " · " + r.instruction.slice(0, 300),
-          el("div", { "class": "small muted", text: r.where })]));
-      });
       res.rules.forEach(function (r) {
         out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: r.title }), " · " + (r.matched.length ? "found: " + r.matched.join(", ") : "applies to every clause of its Part"),
           r.answer ? " · " + r.answer + (r.remark ? ": " + r.remark : "") : "", el("div", { "class": "small muted", text: r.where })]));
       });
       res.notes.forEach(function (n) { out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: "AI note: " }), n])); });
-      (res.knowledge || []).forEach(function (n) { out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: "Knowledge: " }), n])); });
       if (res.prompt) out.appendChild(el("details", { "class": "try-prompt" }, [
         el("summary", { text: "What the AI reads for this clause (" + (res.prompt.from_map ? "instructions from the rule book" : "built-in instructions") + ", version " + res.prompt.version + ")" }),
         el("p", { "class": "small muted", text: "Only when the steps above leave the clause to the model. In a record, the datasheet rows, Product Options and earlier answers are added." }),
@@ -845,7 +832,7 @@
       });
       out.appendChild(d);
     }
-    rows(differ, "Where the AI differs from people: correct these in a rule or a knowledge branch", true);
+    rows(differ, "Where the AI differs from people: correct these in a rule or an AI note", true);
     rows(left, "Left for a person: nothing on file supports an answer", false);
     rows(agree, "Where the AI agrees", false);
   }

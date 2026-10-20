@@ -165,17 +165,46 @@
   var PROJECT_ROWS = /^general\|\|(?!power supply$)/;
   // FCU trees are kept per unit model (series > model): the model is the datasheet's Unit Model row.
   var MODEL_ROW = { fcu: 'unit data||unit model' };
+  /* Values that belong together are saved as one group of Product Options (owner, 20 Oct 2026):
+     - a numbered item of a section ("Filter 1", "Filter 2" ...): its rows are grouped under its class row (else its
+       first row), "Filter Class: ISO Coarse 60%(G4)", so a filter's name, material, dimensions and pressure drops stay with its class;
+     - a section whose values depend on a row of another section: the EN 1886 classes depend on the casing profile, so
+       they are grouped under "Profile: Aluminium Natural Thermal Break". Add a line here for another such pair. */
+  var LINKED = { 'mechanical characteristic (en1886)': 'unit data||profile' };
+  function groupsOf(rows, strip) {
+    var out = [], lead = {}, byKey = {};
+    var item = function (r) { return r.sub && /\s\d+$/.test(r.sub) && r.key.split('|')[1] === '' ? r.group + '|' + r.nth + '|' + r.sub : ''; };
+    rows.forEach(function (r) { if (!byKey[r.key]) byKey[r.key] = r; });
+    // the item is named after its class or grade row when it has one (Filter Class), else its first row with a value
+    rows.forEach(function (r) {
+      var bk = item(r), v = bk ? strip(r) : '';
+      if (!bk || !v || v === '-') return;
+      if (!lead[bk] || (!lead[bk].cls && /class|grade/i.test(r.component))) lead[bk] = { text: r.component + ': ' + v, cls: /class|grade/i.test(r.component) };
+    });
+    rows.forEach(function (r, i) {
+      var g = '', bk = item(r);
+      if (bk) g = lead[bk] ? lead[bk].text : r.sub;
+      else {
+        var sec = r.key.split('|')[0], from = LINKED[sec] && byKey[LINKED[sec]];
+        if (from && strip(from)) g = from.component + ': ' + strip(from);
+      }
+      out[i] = g;
+    });
+    return out;
+  }
   function collect(c, m, units) {
     var items = [];
     units.forEach(function (unit) {
       if (!unit.hdr.factory) return;
       var rows = window.DSParse.rows(unit, c), modelKey = MODEL_ROW[unit.type], model = '';
       if (modelKey) rows.forEach(function (r) { if (r.key === modelKey && !model) model = window.DSParse.fill('', r.value); });
-      rows.forEach(function (r) {
+      var valueOf = function (r) { var rule = m.rules[r.key]; return window.DSParse.fill('', r.value, rule && rule.strip); };
+      var grp = groupsOf(rows, valueOf);
+      rows.forEach(function (r, i) {
         var rule = m.rules[r.key];
         if (PROJECT_ROWS.test(r.key) || (rule ? rule.show === false : !m.showUnmapped)) return;
-        var v = window.DSParse.fill('', r.value, rule && rule.strip);
-        if (v && v !== '-') items.push({ factory: unit.hdr.factory, key: r.key, value: v, model: model });
+        var v = valueOf(r);
+        if (v && v !== '-') items.push({ factory: unit.hdr.factory, key: r.key, value: v, model: model, grp: grp[i] || '' });
       });
     });
     // the database takes at most 20000 values per call; a long FCU schedule gives more

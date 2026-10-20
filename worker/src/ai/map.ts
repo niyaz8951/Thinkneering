@@ -1,8 +1,8 @@
-/* The AI maps: maps in Maps, chosen by name in Compliance review > AI rules (ai_map_links). A map is of one of two
-   kinds (mp_maps.kind, chosen when it is made): an AI rule book (below) or knowledge (process or product
-   understanding: its verified branches are facts for the model, knowledgeOf). One of each per factory, kept by
-   that factory's team (owner, 20 Oct 2026): a record of AHU / Riyadh reads only Riyadh's maps, as it reads only
-   Riyadh's Product Options and library. The server reads them itself: people who run the review or use focus mode never
+/* The AI maps: maps in Maps, chosen by name in Compliance review > AI rules (ai_map_links). One AI rule book per
+   factory, kept by that factory's team (owner, 20 Oct 2026): a record of AHU / Riyadh reads only Riyadh's rule book,
+   as it reads only Riyadh's Product Options and library. A rule book holds the AI's rules and way of thinking only;
+   facts about the product are AI notes in Product Options (20 Oct 2026). Maps of the kind "knowledge" are ordinary
+   maps for people: the AI does not read them. The server reads them itself: people who run the review or use focus mode never
    need access to Maps; only the people who write the rules do.
 
      <any name, e.g. "AHU-Riyadh-AI notes">
@@ -29,8 +29,7 @@ import type { Env } from "../env";
 import { all, now, uuid } from "../lib/sql";
 import { CHOICES, choiceOf } from "../lib/cm";
 import type { AiRule } from "./rules";
-import { isAhu, AHU_PART1, AHU_PART2, AHU_PART3, AHU_FACTS, FACTS_NOTES, factoryFacts } from "./template-ahu";
-import { knowledgeSeed, FILL_IN } from "./knowledge-template";
+import { isAhu, AHU_PART1, AHU_PART2, AHU_PART3 } from "./template-ahu";
 
 export interface AiSettings {
   copyAt: number; useModel: boolean; budget: number; suggest: boolean; datasheetWins: boolean; projectAnswers: boolean;
@@ -45,7 +44,7 @@ export const DEFAULT_SETTINGS: AiSettings = { copyAt: 0.9, useModel: true, budge
 /* The decision steps, by what their title names (the order is fixed in draft.ts). */
 const STEPS: { re: RegExp; key: keyof AiSettings; name: string }[] = [
   { re: /other projects?/i, key: "projectAnswers", name: "Other projects" },
-  { re: /knowledge/i, key: "useKnowledge", name: "Knowledge maps" },
+  { re: /knowledge/i, key: "useKnowledge", name: "Knowledge maps (not used since 20 Oct 2026)" },
   { re: /datasheet/i, key: "useDatasheet", name: "Project datasheet" },
   { re: /product options|ai notes/i, key: "useOptions", name: "Product Options and AI notes" },
   { re: /library|compliance review/i, key: "useLibrary", name: "Library" },
@@ -96,7 +95,7 @@ export interface Section { title: string; text: string }
    of the team's master prompt v4.1, about 330 words instead of 810). */
 export const DEFAULT_INSTRUCTIONS: Section[] = [
   { title: "Role", text: "You are the compliance engine of the Application Team of Daikin Applied Products, {factory} factory, product line {product}. Your answers go to MEP consultants under Daikin's name. The worst failures, in order: a wrong Comply; a shortfall hidden behind a Comply; a value no source gives; a remark that opens a discussion. Leaving a clause for a person is better than any of them." },
-  { title: "Sources", text: "Use only the sources in the message. The project datasheet governs everything it states; Product Options, notes, knowledge and rules fill only what it does not state. Library answers and other projects' answers give the wording and the treatment of standards, never the offered values. Tested is not certified, available is not included, a typical or range value is not the selected one. Code has already compared every figure it could: do not compare numbers yourself, and never estimate, interpolate or recall a value." },
+  { title: "Sources", text: "Use only the sources in the message. The project datasheet governs everything it states; Product Options, their notes and AI notes, and the rules fill only what it does not state. Library answers and other projects' answers give the wording and the treatment of standards, never the offered values. Tested is not certified, available is not included, a typical or range value is not the selected one. Code has already compared every figure it could: do not compare numbers yourself, and never estimate, interpolate or recall a value." },
   { title: "Which answer", text: "Comply only when every part of the clause is met for every unit: a clause is a set of obligations (material, size, standard, limit, document) and meeting one part does not close it. Comply with Remarks when it is met in another way, by an equivalent standard a source names, or differently for some units. Not Comply only when a source shows the shortfall. Not Applicable only when a source shows the clause is outside the offered units; say why. Noted for a statement with nothing to comply with. If the sources do not settle the clause, or it is ambiguous or conflicts with them, leave compliance empty and say in the reason what is missing. Confidence is high only when a source covers the requirement directly." },
   { title: "Scope of supply", text: "Daikin's scope is supply of equipment. Site work (installation, rigging, connections, site tests, commissioning labour; mostly Part 3) is In Contractor's Scope, remark: \"By Contractor / others. Daikin scope is supply of equipment.\" A clause mixing supply and site work: answer the supply part and add that the site work is by the contractor." },
   { title: "Remarks", text: "A clean Comply has no remark. Any other remark is one definitive line that closes the point: the offered fact, the equivalence (\"[offered standard] is equivalent to [specified standard] for [scope].\"), the per-unit difference or the reason. Never name internal sources (datasheet, catalogue, selection, library), never ask anyone to verify or confirm, promise no later document, no hedging (should, typically, approximately), nothing the clause did not ask." }
@@ -106,7 +105,7 @@ export const DEFAULT_INSTRUCTIONS: Section[] = [
    brief from "Update from template"; a section someone edited is never touched. */
 export const OLD_INSTRUCTIONS: Section[] = [
   { title: "Role", text: "You are the compliance engine of the Application Team of Daikin Applied Products, {factory} factory, product line {product}. You answer a consultant's specification clause by clause; the answers go to MEP consultants under Daikin's name. Accuracy outranks speed and completeness. A wrong \"Comply\" is the worst possible failure. An answer left low confidence, or a [value] left open, is acceptable; an invented value is not." },
-  { title: "Where values come from", text: "Use only these, strongest first:\n1. Project datasheet rows: the units selected for this project. They govern: never answer from a range value or a catalogue figure when the project's datasheet gives the value.\n2. Product Options and AI notes of this factory (what it offers, its standard build, special options, notes), and the knowledge maps (process and product understanding).\n3. AI rules of this map and of the clause (Internal Comments after #).\n4. Library answers of similar clauses, and the answers given earlier in this specification.\n5. Answers of other projects of this factory (not yet approved).\nNothing else. Your general knowledge of Daikin, HVAC products or standards is never a source for a value. Never estimate, interpolate or recall a value. When no source gives a value, write [value] where it belongs and set confidence \"low\": the reviewer sees it as to verify." },
+  { title: "Where values come from", text: "Use only these, strongest first:\n1. Project datasheet rows: the units selected for this project. They govern: never answer from a range value or a catalogue figure when the project's datasheet gives the value.\n2. Product Options of this factory: the values its datasheets showed (the closest higher one when the project has no datasheet), its special options, notes and AI notes (what it offers, its standard build).\n3. AI rules of this map and of the clause (Internal Comments after #).\n4. Library answers of similar clauses, and the answers given earlier in this specification.\n5. Answers of other projects of this factory (not yet approved).\nNothing else. Your general knowledge of Daikin, HVAC products or standards is never a source for a value. Never estimate, interpolate or recall a value. When no source gives a value, write [value] where it belongs and set confidence \"low\": the reviewer sees it as to verify." },
   { title: "Library answers are a style reference", text: "Reuse the structure and the wording of a library answer (how a remark is phrased, how a deviation or a scope line is written), but take every value from this project's sources. Never copy values, model numbers or verdicts from another project or from a library answer that does not cover the same requirement." },
   { title: "Which answer", text: "- Comply: only when a source shows the offer meets or exceeds the requirement as written.\n- Comply with Remarks: the offer meets the intent but differs from the wording, a condition applies, or there is a genuine technical difference (what other sheets call a Deviation or \"Comply as noted\"). The remark states what is offered, in one sentence.\n- Not Comply: a stated requirement is genuinely not met, and a source shows it. Never soften a Not Comply into Comply with Remarks without an engineering basis; never write Not Comply from a guess.\n- Noted: a statement with nothing to comply with. Never a bare Noted on a clause that asks for something.\n- Not Applicable: the clause does not apply to this product or selection; say why in a few words.\n- In Contractor's Scope: site works (see Scope of supply)." },
   { title: "Equivalent standards", text: "When the clause asks for a standard the units are not certified to directly, but an AI note, a rule or a library answer names an equivalent standard with the same test scope and acceptance criteria (for example AMCA 500-D and EN 1751 for dampers), answer Comply, remark: \"Comply as equivalent per [our standard], which covers the same test scope and acceptance criteria as [specified standard].\" Only when a source names the equivalence." },
@@ -203,8 +202,12 @@ export function parseMap(nodes: MapNode[], scope: string | null, label = "map"):
     }
     if (/^how\b/i.test(t)) continue;
     if (/^settings?\b/i.test(t)) { if (top.verified) settingsLines.push(...specials(top), ...top.notes.split("\n")); continue; }
-    // Facts: what is true about the units; the branches under it are facts the model may cite ([F1])
-    if (/^(facts|product facts|factory facts)\b/i.test(t)) { if (top.verified) for (const c of kids.get(top.id) || []) walk(c, 0, "", "", [top.title], "", "fact"); continue; }
+    // Facts are not read since 20 Oct 2026 (owner): a map holds rules and the way of thinking; what is true about the
+    // units is an AI note in Product Options (migration 0009 copied the verified facts there)
+    if (/^(facts|product facts|factory facts)\b/i.test(t)) {
+      if (top.verified && (kids.get(top.id) || []).some((c) => c.verified)) problems.push(`${label}: the "${t}" branch is not read: facts about the product are AI notes in Product Options (admins). Move them there and delete the branch.`);
+      continue;
+    }
     // Learned: its own notes explain it to people; the branches under it are rules
     if (/^learned\b/i.test(t)) { if (top.verified) for (const c of kids.get(top.id) || []) walk(c, 0, "", "", [top.title]); continue; }
     const pn = partOf(t);
@@ -215,56 +218,20 @@ export function parseMap(nodes: MapNode[], scope: string | null, label = "map"):
 
 /* ---------- reading the linked maps, with a short cache per Worker instance ---------- */
 
-/* A branch of a knowledge map, for the AI: where it is ("Fans › EC fans"), and what it says (title, notes,
-   special notes). Branches "to verify" are not facts yet and are left out, with everything under them. */
-export interface KnowledgeItem { map: string; path: string; text: string; keys?: string }
-/* The verified branches of a knowledge map, as facts the model may quote. Under "Vocabulary" (the requirement types,
-   knowledge-template.ts) only the verified "Offered (...)" and "Equivalences" branches are facts; the engineering lines
-   (Terms, Kind, Scale ...) are for code, and their words help find the clauses a fact is about (keys). */
-export function knowledgeOf(nodes: MapNode[], mapName: string): KnowledgeItem[] {
-  const kids = new Map<string | null, MapNode[]>();
-  for (const n of nodes) { const l = kids.get(n.parent_id) || []; l.push(n); kids.set(n.parent_id, l); }
-  for (const l of kids.values()) l.sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title));
-  const root = (kids.get(null) || [])[0];
-  const out: KnowledgeItem[] = [];
-  if (!root) return out;
-  const termsOf = (n: MapNode | undefined) => (n ? specials(n).filter((x) => /^terms\s*:/i.test(x)).map((x) => x.replace(/^terms\s*:\s*/i, "")).join(", ") : "");
-  (function walk(n: MapNode, path: string[], vocab: boolean, chain: MapNode[]) {
-    for (const c of kids.get(n.id) || []) {
-      if (!c.verified) continue;
-      const here = [...path, c.title.trim()];
-      const isVocab = vocab || (path.length === 0 && /^vocabulary\b/i.test(c.title.trim()));
-      if (isVocab) {
-        const offered = /^offered\b/i.test(c.title.trim()), eq = /^equivalen/i.test(c.title.trim());
-        if (offered && c.notes.trim() && !c.notes.trim().startsWith(FILL_IN)) {
-          out.push({ map: mapName, path: here.join(" \u203a "), text: [c.notes.trim(), ...specials(c)].filter(Boolean).join(" · ").slice(0, 1200), keys: chain.map(termsOf).join(", ") });
-        } else if (eq && specials(c).length) {
-          out.push({ map: mapName, path: here.join(" \u203a "), text: specials(c).join(" · ").slice(0, 1200), keys: chain.map(termsOf).join(", ") });
-        }
-        if (out.length < 3000) walk(c, here, true, [...chain, c]);
-        continue;
-      }
-      const body = [c.notes.trim(), ...specials(c)].filter(Boolean).join(" · ");
-      if (body) out.push({ map: mapName, path: here.join(" \u203a "), text: body.slice(0, 1200) });
-      if (out.length < 3000) walk(c, here, false, []);
-    }
-  })(root, [], false, []);
-  return out;
-}
-
 export interface AiMaps {
-  rules: AiRule[]; settings: AiSettings; problems: string[]; instructions: Section[] | null; knowledge: KnowledgeItem[];
-  maps: { scope: string | null; role: "rulebook" | "knowledge"; id: string; name: string; updated_at: string }[];
+  rules: AiRule[]; settings: AiSettings; problems: string[]; instructions: Section[] | null;
+  maps: { scope: string | null; role: "rulebook"; id: string; name: string; updated_at: string }[];
 }
 const cache = new Map<string, { at: number; stamp: string; v: AiMaps }>();
 
 export async function aiMapFor(env: Env, productId: string, factoryId: string | null): Promise<AiMaps> {
-  // every factory has its own maps, kept by its own team (owner, 20 Oct 2026): a map linked for "all factories"
-  // before that is not read for any factory (AI rules shows it, to be moved to one factory)
-  const links = await all<{ factory_id: string | null; role: "rulebook" | "knowledge"; id: string; name: string; updated_at: string }>(env.DB.prepare(
+  // every factory has its own rule book, kept by its own team (owner, 20 Oct 2026): a map linked for "all factories"
+  // before that is not read for any factory (AI rules shows it, to be moved to one factory). Maps hold only rules and
+  // the way of thinking: knowledge maps are not read (product facts are AI notes in Product Options).
+  const links = await all<{ factory_id: string | null; role: "rulebook"; id: string; name: string; updated_at: string }>(env.DB.prepare(
     `SELECT l.factory_id, l.role, m.id, m.name, m.updated_at FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id
-      WHERE l.product_id = ? AND l.factory_id = ?`).bind(productId, factoryId || ""));
-  if (!links.length) return { rules: [], settings: { ...DEFAULT_SETTINGS }, problems: [], instructions: null, knowledge: [], maps: [] };
+      WHERE l.product_id = ? AND l.factory_id = ? AND l.role = 'rulebook'`).bind(productId, factoryId || ""));
+  if (!links.length) return { rules: [], settings: { ...DEFAULT_SETTINGS }, problems: [], instructions: null, maps: [] };
   // a map linked in both scopes (possible before 0005) is read once, at its widest scope
   links.sort((a, b) => (a.factory_id ? 1 : 0) - (b.factory_id ? 1 : 0));
   for (let i = links.length - 1; i > 0; i--) if (links.findIndex((l) => l.id === links[i].id) < i) links.splice(i, 1);
@@ -277,10 +244,8 @@ export async function aiMapFor(env: Env, productId: string, factoryId: string | 
   let settings = { ...DEFAULT_SETTINGS };
   const rules: AiRule[] = [], problems: string[] = [];
   let instructions: Section[] | null = null;
-  const knowledge: KnowledgeItem[] = [];
   for (const l of links) {
     const nodes = await all<MapNode>(env.DB.prepare("SELECT id, parent_id, title, notes, special, sort, verified FROM mp_nodes WHERE map_id = ?").bind(l.id));
-    if (l.role === "knowledge") { (l.factory_id ? knowledge.unshift(...knowledgeOf(nodes, l.name)) : knowledge.push(...knowledgeOf(nodes, l.name))); continue; }
     const p = parseMap(nodes, l.factory_id, `"${l.name}"`);
     settings = applySettings({ ...settings, ...p.steps }, p.settingsLines, problems, `"${l.name}" > Settings`);
     if (p.instructions) {
@@ -292,7 +257,7 @@ export async function aiMapFor(env: Env, productId: string, factoryId: string | 
     problems.push(...p.problems);
     rules.unshift(...p.rules.map((r) => ({ ...r, product_id: productId })));
   }
-  const v = { rules, settings, problems, instructions, knowledge, maps: links.map((l) => ({ scope: l.factory_id, role: l.role, id: l.id, name: l.name, updated_at: l.updated_at })) };
+  const v = { rules, settings, problems, instructions, maps: links.map((l) => ({ scope: l.factory_id, role: l.role, id: l.id, name: l.name, updated_at: l.updated_at })) };
   cache.set(key, { at: Date.now(), stamp, v });
   return v;
 }
@@ -307,27 +272,27 @@ const STEP_SEEDS: Seed = { title: "Decision steps", notes: "What the AI goes thr
   { title: "3. Earlier answers in this record", notes: "IF a person answered the same clause earlier in this specification -> proposed again (\"same as your answer to 1.04 H\"). The answers given earlier in the same section also go to the model, so it stays consistent." },
   { title: "4. Map rules that answer by themselves", notes: "IF a rule of this map (Part branches, Learned) has an Answer and a Remark AND its When / Section match the clause -> applied as written, no model call. Rules without an Answer are instructions for the model. Only this factory's rule book is read." },
   { title: "5. Other projects", notes: "IF the same clause was answered in another project of this factory -> proposed, marked \"not yet approved\" (below the library)." },
-  { title: "6. Product Options and AI notes", notes: "Values seen on this factory's datasheets, and the special options and notes the editors wrote, for the rows of the clause. They go to the model as facts it may quote. Facts about the product that are not datasheet values belong in a knowledge map (step 7)." },
-  { title: "7. Knowledge maps", notes: "The verified branches of the knowledge maps linked in Compliance review > AI rules (process or product understanding) that share telling words with the clause. They go to the model as facts it may quote. A branch \"to verify\" is not a fact yet and is left out." },
-  { title: "8. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [K1] knowledge branch, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person. The small model (AI model: small, 8B) is the default: fast, and about 8 times cheaper than the large one (AI model: large, 70B). Compare them with Check the AI.", special: ["Use the AI model: yes", "AI model: small", "Daily AI budget: 9000 neurons", "Answer without a source: no"] },
-  { title: "9. Checks (always on)", notes: "Code checks every model answer: one of the six answers (else one retry); Comply, Comply with Remarks, Not Comply and Not Applicable must cite at least one source id that was in the prompt (else one retry, then the clause waits for a person, unless Answer without a source is yes); a number with a unit must appear in a cited source, otherwise it becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." },
+  { title: "6. Product Options, notes and AI notes", notes: "The approved values seen on this factory's datasheets for the rows of the clause, with the special options, notes and AI notes (facts about the product, written by admins) of those rows and sections. They go to the model as facts it may quote. IF the project has no datasheet: the closest value that meets the clause is proposed (0.9 mm asked, 1.0 mm seen -> Comply with Remarks, 1.0 mm), never a lower one, and the record's Selection list says what to select." },
+  { title: "7. AI model", notes: "ONLY IF nothing above settled the clause, and while today's budget lasts. It reads the Instructions branch, then everything above, each source with an id ([D1] datasheet row, [L1] library answer, [O1] Product Options, [N1] AI note, [R1] rule, [M1] a correction people made, [E1] earlier answer, [P1] other project), and writes the answer, the remark, the reason and the ids it used. IF the clause is in Part 2 and no source at all is on file, the model is not asked (Answer without a source: no): the clause waits for a person. The small model (AI model: small, 8B) is the default: fast, and about 8 times cheaper than the large one (AI model: large, 70B). Compare them with Check the AI.", special: ["Use the AI model: yes", "AI model: small", "Daily AI budget: 9000 neurons", "Answer without a source: no"] },
+  { title: "8. Checks (always on)", notes: "Code checks every model answer: one of the six answers (else one retry); Comply, Comply with Remarks, Not Comply and Not Applicable must cite at least one source id that was in the prompt (else one retry, then the clause waits for a person, unless Answer without a source is yes); a number with a unit must appear in a cited source, otherwise it becomes [value] with low confidence; the remark does not repeat the answer; no uncertain words; Not Comply only with a rule, a datasheet row, a library answer or Product Options behind it. Every proposal stays blue until a person keeps it." },
   { title: "How to write a rule", notes: "Add a branch under a Part. Title = a name. Notes = what the AI should do, in a plain sentence. Special notes, one per line:\n  When: words or phrases, commas between (the clause mentions one; \"install\" also finds installation)\n  Unless: words or phrases (the rule stays off a clause that mentions one; passes to the branches under it)\n  Section: words or phrases (the section title mentions one)\n  Answer: one of the six answers\n  Remark: the exact remark\nWith Answer and Remark the rule answers by itself. When and Section pass to the branches under it. Mark a branch \"to verify\" to switch it off. Compliance review > AI rules > Try a clause shows what applies and the exact text the AI reads." }
 ] };
 
 const INSTRUCTION_SEEDS = (): Seed => ({ title: "Instructions", notes: "The AI's brief. The model reads every section below, in this order, before it answers a clause ({product} and {factory} are filled in). Edit a section to change how it answers; mark one \"to verify\" to leave it out. The reply format and the six answers are fixed in the site.",
   kids: DEFAULT_INSTRUCTIONS.map((x) => ({ title: x.title, notes: x.text })) });
 
+export const RETIRED_STEP = "Not used since 20 Oct 2026: maps hold the AI's rules only; facts about the product are AI notes in Product Options (admins). You can delete this branch.";
+
 const LEARNED_SEED: Seed = { title: "Learned", notes: "Rules the AI writes here when people change its answer the same way 3 times or more (every night, or AI rules > How the AI did > Write to the map). They are \"to verify\": check one, edit it if needed and mark it verified to switch it on; delete the ones that are wrong (they are not written again)." };
 
-/* The whole template. Since 20 Oct 2026 every rule book belongs to one factory (its team keeps it): the factory's own
-   facts come with the product's. */
-export function seedTree(product: string, factory: string | null): Seed[] {
+/* The whole template. Since 20 Oct 2026 every rule book belongs to one factory (its team keeps it) and holds rules and
+   the way of thinking only: facts about the product are AI notes in Product Options. */
+export function seedTree(product: string, _factory: string | null): Seed[] {
   const ahu = isAhu(product);
   return [
     INSTRUCTION_SEEDS(),
     STEP_SEEDS,
     { title: "Settings", notes: "Change a value after the colon. The AI reads it within a minute.", special: ["Suggest in focus mode: yes", "Use answers from other projects: yes"] },
-    { title: "Facts", notes: FACTS_NOTES, kids: [...(ahu ? AHU_FACTS : []), ...(factory ? factoryFacts(product, factory) : [])] },
     { title: "Part 1 General", kids: [
       { title: "Reference standards", notes: "A line that only names a standard or a code is Noted. A standard the units are certified or tested to (a fact, an AI note or the library says so: Eurovent / EN 1886 / EN 13053, AHRI 410 coils) is Comply, with that fact as the remark. Codes for the building and its installation (SASO installation codes, NFPA 90A, IBC, IMC, local codes) are Noted. A standard the units are not certified to, with an equivalent a fact names: Comply with Remarks, 'Comply as equivalent: <the offered standard>'. Never claim an equivalence no fact names.", special: ["Section: references, reference standards, codes and standards, applicable standards"] },
       { title: "Scope statements", notes: "Statements of what the section covers or how it relates to other sections. A clause in these sections that asks for something (shall, provide, select, a standard, a limit) is not a scope statement: the Unless line keeps the rule off it.", special: ["Section: section includes, related sections, related documents, summary, description of work", "Unless: shall, provide, select, must, submit, comply, standard, standards, equivalent, minimum, maximum, limit, limits, deviation", "Answer: Noted", "Remark: Noted."] },
@@ -392,7 +357,6 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
   const want = seedTree(product, factory).filter((x) =>
     (/^instructions/i.test(x.title) && !has(/^(instructions|prompt|rule ?book|brief)\b/i)) ||
     (/^decision steps/i.test(x.title) && !has(/^(decision steps|steps)\b/i)) ||
-    (/^facts/i.test(x.title) && !has(/^(facts|product facts|factory facts)\b/i)) ||
     (/^learned/i.test(x.title) && !has(/^learned\b/i)));
   const at = now(), stmts: D1PreparedStatement[] = [], done: string[] = [];
   let sort = Math.min(0, ...tops.map((t) => t.sort)) - want.length;
@@ -404,15 +368,10 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
   const nodes = await all<MapNode>(env.DB.prepare("SELECT id, parent_id, title, notes, special, sort, verified FROM mp_nodes WHERE map_id = ?").bind(mapId));
   const topId = new Map<string, string>();
   for (const n of nodes) if (n.parent_id === root.id) topId.set(n.title.trim().toLowerCase(), n.id);
-  // facts of the template the map's Facts branch does not have yet (by title, anywhere in the map); "to verify" ones stay off
-  const factsTop = [...topId.entries()].find(([t]) => /^(facts|product facts|factory facts)\b/.test(t));
-  if (factsTop) {
-    const seedFacts = seedTree(product, factory).find((x) => /^facts/i.test(x.title))?.kids || [];
-    for (const f of seedFacts) {
-      if (nodes.some((x) => x.title.trim() === f.title)) continue;
-      addSeed(env, stmts, mapId, factsTop[1], f, 100 + done.length, userId, at);
-      done.push(`${f.title} (fact added${f.off ? ", to verify" : ""})`);
-    }
+  // the Knowledge maps step is not used since 20 Oct 2026: switched off with a note
+  for (const n of nodes) if (n.verified && /^\s*\d+[.)]?\s*knowledge maps?\b/i.test(n.title) && nodes.some((t) => t.id === n.parent_id && /^(decision steps|steps)\b/i.test(t.title.trim()))) {
+    stmts.push(env.DB.prepare("UPDATE mp_nodes SET verified = 0, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?").bind(RETIRED_STEP, userId, at, n.id));
+    done.push(`${n.title} (switched off: product facts are AI notes in Product Options)`);
   }
 
   // the brief (19 Oct 2026): Instructions sections that still hold the old template words get the new ones; a section
@@ -508,22 +467,3 @@ export async function createAiMap(env: Env, userId: string, product: { id: strin
   return { id: mapId, name: title };
 }
 
-/* A new knowledge map for one factory from the template (knowledge-template.ts): Product facts and the Vocabulary,
-   private to its maker, linked at once as the factory's knowledge map. */
-export async function createKnowledgeMap(env: Env, userId: string, product: { id: string; name: string }, factory: { id: string; name: string }, name?: string): Promise<{ id: string; name: string }> {
-  const mapId = uuid(), at = now(), rootId = uuid();
-  let title = (name || `${product.name} ${factory.name} - knowledge`).slice(0, 120);
-  const clash = await env.DB.prepare("SELECT 1 FROM mp_maps WHERE created_by = ? AND lower(name) = lower(?)").bind(userId, title).first();
-  if (clash) title = (title + " " + at.slice(0, 10)).slice(0, 120);
-  const stmts: D1PreparedStatement[] = [
-    env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES (?, ?, 'private', 'knowledge', ?, ?, ?, ?)").bind(mapId, title, userId, at, userId, at),
-    env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
-                    VALUES (?, ?, NULL, ?, ?, '[]', 0, 1, ?, ?, ?, ?, ?, ?)`)
-      .bind(rootId, mapId, title, `What ${product.name} units made in ${factory.name} are: the facts the AI may quote, and the vocabulary of the requirements specifications ask. Kept by the ${factory.name} team; the AI never reads it for another factory. Linked in Compliance review > AI rules.`, userId, at, userId, at, userId, at)
-  ];
-  knowledgeSeed(product.name, factory.name).forEach((s, i) => addSeed(env, stmts, mapId, rootId, s, i, userId, at));
-  stmts.push(env.DB.prepare("DELETE FROM ai_map_links WHERE product_id = ? AND factory_id = ? AND role = 'knowledge'").bind(product.id, factory.id));
-  stmts.push(env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, 'knowledge', ?)").bind(product.id, factory.id, mapId, userId));
-  for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
-  return { id: mapId, name: title };
-}

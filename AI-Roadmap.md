@@ -60,7 +60,10 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
-### 20 Oct 2026 - knowledge map template: facts + vocabulary (step A started)
+### 20 Oct 2026, afternoon - maps = rules; facts in Product Options; groups; closest higher
+Knowledge maps retired: the rule book holds only rules and the way of thinking; product facts are AI notes in Product Options (admins only; `[N]`). Migration 0009 moved the verified facts there. Product Options values are grouped per item (Filter 1 / Filter 2 under their class, EN 1886 classes under the profile). Without a datasheet the closest higher value is offered (Comply with Remarks naming it); a lower value never meets. The vocabulary of the fingerprint plan (step A) will live with Product Options rows, not in a map: to design with the owner.
+
+### 20 Oct 2026 - knowledge map template: facts + vocabulary (step A started; retired the same afternoon)
 `ai_knowledge_create` makes a factory's knowledge map from `knowledge-template.ts` (AHU 12 components / 34 types, FCU 7 / 18, Chiller 6 / 18), with "Offered (<factory>)" and "Equivalences" under each type, to verify. The AI quotes verified offers now (found by the type's terms); step A's reader of the vocabulary lines (identification by fingerprint) is next.
 
 ### 20 Oct 2026 - every AI source per factory

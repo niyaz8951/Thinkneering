@@ -24,7 +24,7 @@ import { measurements, type Measure } from "./guard";
 import { classRequirements, comparable, propertyOf, judge, fmt, familyOfUnit, classIn, compareClass, sameMetric } from "./compare";
 import { ClauseSearch, GramIndex, lexicalScore, type Similar } from "./search";
 import { aiMapFor, type AiSettings, type Section } from "./map";
-import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, prepareKnowledge, knowledgeMatching, type KnowledgeIndexed, type AiRule, type RuleHit } from "./rules";
+import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
 import type { AiUsage } from "./models";
 
 export interface RunInfo { id: string; product_id: string; factory_id: string; project_id: string | null; product: string; factory: string }
@@ -46,7 +46,7 @@ export interface Comparison { compliance: string; remarks: string; reason: strin
 export interface Context {
   run: RunInfo; rows: RunRowFull[]; place: Map<number, { part: number; section: string }>;
   columns: string[]; sheet: Map<number, SheetHit[]>; options: Map<number, OptionInfo>; aiNotes: { section: string; key: string; body: string }[];
-  rules: AiRule[]; settings: AiSettings; instructions: Section[] | null; knowledge: KnowledgeIndexed[]; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
+  rules: AiRule[]; settings: AiSettings; instructions: Section[] | null; search: ClauseSearch; project: PastAnswer[]; names: Map<string, string>;
   projectIndex?: GramIndex<PastAnswer>; recordIndex?: GramIndex<RunRowFull>;
   kinds: Map<string, SectionInfo>;          // what kind of question each section asks (sections.ts)
   corrections: Correction[];                 // what people changed in the AI's answers for this factory (newest 400)
@@ -58,7 +58,7 @@ export interface Context {
   poValues: Map<string, PoValue[]>;          // approved Product Options values of the factory, per mapping row, most seen first
 }
 export interface OptRow { key: string; section: string; component: string; entries: string[][] }
-export interface PoValue { value: string; times: number }
+export interface PoValue { value: string; times: number; group?: string }
 
 /* The factory a saved table names: its General > Factory row, first unit that has one. */
 function factoryRow(rows: NoteTable["rows"]): string {
@@ -105,7 +105,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
     env.DB.prepare("SELECT row_key, section, sub, component, show, label, keywords, strip, response FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),
     env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
-    env.DB.prepare("SELECT row_key, value, times FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
+    env.DB.prepare("SELECT row_key, value, times, grp FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
     env.DB.prepare("SELECT section, row_key, kind, body FROM po_extras WHERE factory_id = ? ORDER BY created_at").bind(run.factory_id),
     // other projects' answers of this factory, by people (newest first; the cap keeps the work small)
     env.DB.prepare(`SELECT rl.spec_text, rl.compliance, rl.remarks, rl.answered_by, rl.review, p.name AS project
@@ -144,10 +144,15 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const absent = new Map<number, string[]>();
   // Product Options of the factory, per mapping row and per section
   const valuesByRow = new Map<string, string[]>(), poValues = new Map<string, PoValue[]>();
-  for (const v of valRes.results as unknown as { row_key: string; value: string; times: number }[]) {
-    const l = valuesByRow.get(v.row_key) || []; if (l.length < 8) l.push(v.value); valuesByRow.set(v.row_key, l);
-    const p = poValues.get(v.row_key) || []; if (p.length < 40) p.push({ value: v.value, times: v.times }); poValues.set(v.row_key, p);
+  // a value seen in two groups (the same size on the G4 and the F7 filter) counts once, with both counts
+  for (const v of valRes.results as unknown as { row_key: string; value: string; times: number; grp: string }[]) {
+    const l = valuesByRow.get(v.row_key) || []; if (l.length < 8 && !l.includes(v.value)) l.push(v.value); valuesByRow.set(v.row_key, l);
+    const p = poValues.get(v.row_key) || [];
+    const same = p.find((x) => x.value.toLowerCase() === v.value.toLowerCase());
+    if (same) same.times += v.times; else if (p.length < 40) p.push({ value: v.value, times: v.times, group: v.grp || "" });
+    poValues.set(v.row_key, p);
   }
+  for (const p of poValues.values()) p.sort((a, b) => b.times - a.times);
   const optRows = new Map<number, OptRow[]>();
   const extras = extraRes.results as unknown as { section: string; row_key: string; kind: string; body: string }[];
   const aiNotes = extras.filter((x) => x.kind === "ai").map((x) => ({ section: x.section, key: x.row_key, body: x.body }));
@@ -196,7 +201,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   }
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
-  return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions, knowledge: prepareKnowledge(ai.knowledge),
+  return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions,
            search: new ClauseSearch(env, usage), project, names, kinds, absent, hasSheet: tables.length > 0, optRows, poValues,
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
@@ -397,6 +402,7 @@ export interface OptionPick {
   key: string; section: string; component: string; required: string[];
   status: "meets" | "not seen" | "choose";             // a value meets / values seen, none meets / nothing to compare
   pick: string; times: number; candidates: PoValue[]; reason: string;
+  exact: boolean;                                      // the pick is what is asked (not the closest higher)
 }
 const OPS: Record<string, string> = { ">=": "≥ ", "<=": "≤ ", "=": "", range: "" };
 export function optionPicks(clause: string, rows: OptRow[], values: Map<string, PoValue[]>, subject = ""): OptionPick[] {
@@ -414,7 +420,8 @@ export function optionPicks(clause: string, rows: OptRow[], values: Map<string, 
       const hit: SheetHit = { key: row.key, section: row.section, component: row.component, label: `${row.section} • ${row.component}`, cells: [v.value], value: v.value, entries: row.entries };
       const c = compareDatasheet(clause, [hit], ["Product Options"], subject);
       if (!c) continue;
-      if (c.compliance === "Not Comply") { fails++; continue; }
+      // below what is asked (0.8 mm for 0.9 mm) does not meet it; above it does: the closest higher is offered
+      if (c.compliance === "Not Comply" || c.confidence === "low") { fails++; continue; }
       let dist = Infinity;
       for (const r of reqs) { const g = comparable(v.value, r.m); if (g) { dist = Math.abs(g.value - r.m.n); break; } }
       meets.push({ v, exact: c.compliance === "Comply", dist });
@@ -424,12 +431,14 @@ export function optionPicks(clause: string, rows: OptRow[], values: Map<string, 
     const asked = required.join(", ") || "the clause";
     if (meets.length) {
       const p = meets[0].v;
-      return { ...base, status: "meets" as const, pick: p.value, times: p.times, reason: `${p.value} (seen ${p.times}×) meets ${asked}` };
+      const exact = meets[0].exact;
+      return { ...base, status: "meets" as const, pick: p.value, times: p.times, exact,
+               reason: `${p.value} (seen ${p.times}×) ${exact ? "meets" : "is the closest higher value to"} ${asked}` };
     }
-    if (fails) return { ...base, status: "not seen" as const, pick: "", times: 0, reason: `none of the values seen (${list}) meets ${asked}: ask the factory` };
+    if (fails) return { ...base, status: "not seen" as const, pick: "", times: 0, exact: false, reason: `none of the values seen (${list}) meets ${asked}: ask the factory` };
     // nothing to compare: the only value the factory has shown is the one to select; several: a person chooses
-    if (cands.length === 1) return { ...base, status: "choose" as const, pick: cands[0].value, times: cands[0].times, reason: `${cands[0].value} (the only value seen, ${cands[0].times}×)` };
-    return { ...base, status: "choose" as const, pick: "", times: 0, reason: cands.length ? `choose: ${list}` : "no value seen for this factory yet" };
+    if (cands.length === 1) return { ...base, status: "choose" as const, pick: cands[0].value, times: cands[0].times, exact: false, reason: `${cands[0].value} (the only value seen, ${cands[0].times}×)` };
+    return { ...base, status: "choose" as const, pick: "", times: 0, exact: false, reason: cands.length ? `choose: ${list}` : "no value seen for this factory yet" };
   });
 }
 /* The selection list of a record without a datasheet: per clause, the rows it is about with their picks. */
@@ -439,13 +448,16 @@ export function picksFor(ctx: Context, x: RunRowFull): OptionPick[] {
   const parent = parentOf(ctx.rows.map((r) => ({ seq: r.seq, type: r.type, sr: r.sr, spec: r.spec_text })), x.seq);
   return optionPicks(x.spec_text, rows, ctx.poValues, subjectOf(parent));
 }
-/* The clause answered from Product Options: Comply only when every row it asks a figure of has a value that meets
-   it; medium confidence (the units are not selected yet), so never green. */
+/* The clause answered from Product Options: only when every row it asks a figure of has a value that meets it.
+   Comply when each pick is what is asked; Comply with Remarks naming the offer when one is the closest higher
+   (0.9 mm asked, 1.0 mm offered: owner, 20 Oct 2026). Medium confidence (the units are not selected yet). */
 export function compareOptions(clause: string, picks: OptionPick[], factory: string): Comparison | null {
   const asked = picks.filter((p) => p.required.length);
   if (!asked.length || asked.some((p) => p.status !== "meets")) return null;
   const rows: SheetHit[] = asked.map((p) => ({ key: p.key, section: p.section, component: p.component, label: `${p.section} • ${p.component}`, cells: [p.pick], value: p.pick, entries: [] }));
-  return { compliance: "Comply", remarks: "", rows, values: [], confidence: "medium",
+  const higher = asked.filter((p) => !p.exact);
+  const remarks = higher.map((p) => (asked.length > 1 ? p.component + ": " : "") + p.pick).join("; ");
+  return { compliance: higher.length ? "Comply with Remarks" : "Comply", remarks, rows, values: [], confidence: "medium",
            reason: `No datasheet in this project. From the approved Product Options of ${factory}: ` + asked.map((p) => `${p.component}: ${p.reason}`).join("; ") +
              ". Select " + (asked.length === 1 ? "it" : "them") + " in the selection software." };
 }
@@ -505,7 +517,7 @@ export function notesFor(ctx: Context, x: RunRowFull): string[] {
 export interface ClauseEvidence {
   part: number; section: string; parent: string; sheet: SheetHit[]; cmp: Comparison | null; conflict: string;
   cmpFrom: "datasheet" | "options" | ""; picks: OptionPick[];
-  options: OptionInfo; notes: string[]; knowledge: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
+  options: OptionInfo; notes: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; facts: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
   sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
 }
@@ -526,7 +538,6 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   return {
     part: pl.part, section: pl.section, parent, sheet, cmp, conflict, cmpFrom: sheetCmp ? "datasheet" : optCmp ? "options" : "", picks,
     options: ctx.options.get(x.seq) || { values: [], specials: [], notes: [], ai: [] }, notes: notesFor(ctx, x),
-    knowledge: knowledgeMatching(ctx.knowledge, x.spec_text, ctx.place.get(x.seq)?.section || ""),
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
     rules: picked.rules, facts: picked.facts, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,

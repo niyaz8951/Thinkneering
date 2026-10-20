@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { ok, refused, rpc, login, resetLogins, USERS } from "./helpers";
-import { poSkip, poModel, poSeries, poValue } from "../../worker/src/api/po";
+import { poSkip, poModel, poSeries, poValue, poPieces } from "../../worker/src/api/po";
 
 /* A plain user given "Can edit" for Product Options (the grant is read on every request). */
 async function poEditor(): Promise<string> {
@@ -261,7 +261,7 @@ describe("po_* routes", () => {
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
     expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, values: [
-      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", wait: false }
+      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
     expect(u.models).toEqual([
@@ -285,7 +285,7 @@ describe("po_* routes", () => {
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
     await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", wait: false }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -295,9 +295,7 @@ describe("po_* routes", () => {
     const plain = await login("sbu");
     expect(await refused("po_admin_save_extra", { p_token: plain, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/Edit access/);
     const ta = await login("teamAdmin");                       // admin of the General tile = editor of Product Options
-    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option or note/);
-    // AI notes are kept in Maps since 19 Oct 2026 (migration 0006): Product Options refuses them
-    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "ai", p_body: "Panels are 62 mm double wall." })).toMatch(/kept in Maps/);
+    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option, note or AI note/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: " ", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/section a name/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "  " })).toMatch(/Type the text/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x".repeat(1001) })).toMatch(/longer than 1000/);
@@ -313,6 +311,62 @@ describe("po_* routes", () => {
     expect(await refused("po_admin_delete_extra", { p_token: plain, p_id: a.id })).toMatch(/Edit access/);
     expect(await ok("po_admin_delete_extra", { p_token: ta, p_id: a.id })).toMatchObject({ ok: true });
     expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" })).extras).toEqual([]);
+  });
+
+  it("AI notes (20 Oct 2026): written, changed and deleted by the super user or a General admin only; seen by them only, in read and edit", async () => {
+    const e = await poEditor(), ta = await login("teamAdmin"), plain = await login("sales"), su = await login("admin");
+    const note = { p_factory_id: "ahu-riyadh", p_id: null, p_section: "General", p_row_key: "", p_kind: "ai", p_body: "Panels are 62 mm double wall." };
+    expect(await refused("po_admin_save_extra", { p_token: e, ...note })).toMatch(/super user or an admin/);
+    expect(await refused("po_admin_save_extra", { p_token: plain, ...note })).toMatch(/Edit access/);
+    const a = await ok("po_admin_save_extra", { p_token: ta, ...note });
+    const o = await ok("po_admin_save_extra", { p_token: e, ...note, p_kind: "option", p_body: "Marine coating" });
+    expect((await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" })).extras.map((x: any) => x.kind)).toEqual(["ai", "option"]);
+    expect((await ok("po_get_tree", { p_token: su, p_factory_id: "ahu-riyadh" })).extras.map((x: any) => x.kind)).toEqual(["ai", "option"]);
+    expect((await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" })).extras.map((x: any) => x.kind)).toEqual(["option"]);
+    expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-riyadh" })).extras.map((x: any) => x.kind)).toEqual(["option"]);
+    // an editor can neither turn his option into an AI note, nor change or delete an AI note
+    expect(await refused("po_admin_save_extra", { p_token: e, ...note, p_id: o.id })).toMatch(/super user or an admin/);
+    expect(await refused("po_admin_save_extra", { p_token: e, ...note, p_id: a.id, p_kind: "note", p_body: "x" })).toMatch(/no longer exists/);
+    expect(await refused("po_admin_delete_extra", { p_token: e, p_id: a.id })).toMatch(/super user or an admin/);
+    await ok("po_admin_save_extra", { p_token: ta, ...note, p_id: a.id, p_body: "Panels are 62 mm." });
+    expect(await ok("po_admin_delete_extra", { p_token: ta, p_id: a.id })).toMatchObject({ ok: true });
+    expect((await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" })).extras.map((x: any) => x.kind)).toEqual(["option"]);
+  });
+
+  it("groups (20 Oct 2026): the rows of one filter stay together, a value can sit in two groups, a set of sizes is saved as its sizes", async () => {
+    expect(poPieces("2x(592x592x48) 2x(490x592x48) 1x(287x592x48)")).toEqual(["592x592x48", "490x592x48", "287x592x48"]);
+    expect(poPieces("592x592x48")).toEqual(["592x592x48"]);
+    expect(poPieces("2 x 50 mm")).toEqual(["2 x 50 mm"]);
+    const t = await login("sbu");
+    await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [
+      { key: "filter supply||filter class", section: "Filter Supply", sub: "", component: "Filter Class" },
+      { key: "filter supply||dimensions", section: "Filter Supply", sub: "", component: "Dimensions" },
+      { key: "filter supply||clean pressure drop", section: "Filter Supply", sub: "", component: "Clean Pressure Drop" }] });
+    const G4 = "Filter Class: ISO Coarse 60%(G4)", F7 = "Filter Class: ePM1 65%(F7)";
+    const items = [
+      { factory: "Riyadh", key: "filter supply||filter class", value: "ISO Coarse 60%(G4)", model: "", grp: G4 },
+      { factory: "Riyadh", key: "filter supply||dimensions", value: "2x(592x592x48) 2x(287x592x48)", model: "", grp: G4 },
+      { factory: "Riyadh", key: "filter supply||clean pressure drop", value: "44 Pa", model: "", grp: G4 },
+      { factory: "Riyadh", key: "filter supply||filter class", value: "ePM1 65%(F7)", model: "", grp: F7 },
+      { factory: "Riyadh", key: "filter supply||dimensions", value: "2x(592x592x48)", model: "", grp: F7 },
+      { factory: "Riyadh", key: "filter supply||clean pressure drop", value: "65 Pa", model: "", grp: F7 }];
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: items });
+    const ta = await login("teamAdmin");
+    const w = await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" });
+    const dims = w.rows.find((r: any) => r.key === "filter supply||dimensions").values.map((v: any) => [v.g, v.v]);
+    expect(dims).toEqual([[G4, "287x592x48"], [G4, "592x592x48"], [F7, "592x592x48"]]);   // groups in datasheet order: Filter 1 first
+    expect(w.waiting).toBe(7);
+    // approving the F7 size leaves the G4 one waiting
+    await ok("po_admin_approve", { p_token: ta, p_factory_id: "ahu-riyadh", p_items: [{ key: "filter supply||dimensions", model: "", grp: F7, value_key: "592x592x48" }], p_approve: true });
+    const plain = await login("sales");
+    const u = await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-riyadh" });
+    expect(u.rows.flatMap((r: any) => r.values.map((v: any) => [v.g, v.v]))).toEqual([[F7, "592x592x48"]]);
+    await ok("po_admin_set_hidden", { p_token: ta, p_factory_id: "ahu-riyadh", p_row_key: "filter supply||dimensions", p_value_key: "592x592x48", p_model: "", p_grp: F7, p_hidden: true });
+    expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-riyadh" })).rows).toEqual([]);
+    // read again: each group counts its own
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: items });
+    const n = (await env.DB.prepare("SELECT grp, value, times FROM po_values WHERE factory_id = 'ahu-riyadh' AND row_key = 'filter supply||dimensions' ORDER BY rowid").all<any>()).results;
+    expect(n).toEqual([{ grp: G4, value: "592x592x48", times: 2 }, { grp: G4, value: "287x592x48", times: 2 }, { grp: F7, value: "592x592x48", times: 2 }]);
   });
 
   it("approval: a value new to the factory waits; only the super user or a General admin approves or rejects it; users and the AI see approved values only", async () => {

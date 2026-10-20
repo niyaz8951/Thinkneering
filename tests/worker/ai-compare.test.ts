@@ -195,3 +195,29 @@ describe("the model is told the section kind and the missing sections", () => {
     expect(d.reason).toMatch(/the datasheet has no Heat Wheel section/);
   });
 });
+
+/* No datasheet: the closest HIGHER Product Options value (owner, 20 Oct 2026: "skin thickness 0.9 mm GI asked, we comply
+   with 1.0 mm"), never a lower one; the offer is the remark. */
+import { optionPicks, compareOptions } from "../../worker/src/ai/evidence";
+describe("Product Options without a datasheet: closest higher", () => {
+  const row = [{ key: "unit data||inner skin", section: "Unit Data", component: "Inner skin", entries: [["skin"]] }];
+  const vals = (...v: [string, number][]) => new Map([["unit data||inner skin", v.map(([value, times]) => ({ value, times }))]]);
+
+  it("0.9 mm asked, 0.8 / 1.0 / 1.2 mm seen: 1.0 mm, Comply with Remarks naming it", () => {
+    const clause = "Inner skin: galvanized steel sheet, 0.9 mm thick.";
+    const picks = optionPicks(clause, row, vals(["0.8 mm", 40], ["1.2 mm", 20], ["1.0 mm", 5]));
+    expect(picks[0]).toMatchObject({ status: "meets", pick: "1.0 mm", exact: false });
+    expect(picks[0].reason).toMatch(/closest higher value/);
+    expect(compareOptions(clause, picks, "Riyadh")).toMatchObject({ compliance: "Comply with Remarks", remarks: "1.0 mm", confidence: "medium" });
+  });
+
+  it("the value asked is seen: Comply, no remark; only lower values: none meets", () => {
+    const clause = "Inner skin: galvanized steel sheet, 0.9 mm thick.";
+    const exact = optionPicks(clause, row, vals(["1.0 mm", 40], ["0.9 mm", 2]));
+    expect(exact[0]).toMatchObject({ status: "meets", pick: "0.9 mm", exact: true });
+    expect(compareOptions(clause, exact, "Riyadh")).toMatchObject({ compliance: "Comply", remarks: "" });
+    const low = optionPicks(clause, row, vals(["0.8 mm", 40], ["0.7 mm", 2]));
+    expect(low[0].status).toBe("not seen");
+    expect(compareOptions(clause, low, "Riyadh")).toBeNull();
+  });
+});

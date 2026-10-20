@@ -92,55 +92,5 @@ export const AHU_PART3: Seed[] = [
     special: ["When: train, training, demonstration, demonstrate, instruct"] }
 ];
 
-/* ---------- Facts: what is true about the units (cited as [F]) ---------- */
-
-/* off: comes in "to verify" (a person checks it in Maps and marks it verified to let the AI use it). */
-export const AHU_FACTS: Seed[] = [
-  { title: "Eurovent certification", notes: "Daikin AHUs (D-AHU) are Eurovent certified (EN 1886, EN 13053), made in Dubai and Riyadh. Certified classes by range (panel, insulation, casing strength, casing leakage at -400 Pa / +700 Pa, filter bypass leakage, thermal transmittance, thermal bridging): Energy F2: 42 mm, foam, D1(M), L1(M) / L1(M), F9(M), T3, TB4. Energy S2: 62 mm, foam, D1(M), L1(M) / L1(M), M6(M), T3, TB4. Energy TermiC F2: 42 mm, foam, thermal-break profile, D1(M), L1(M) / L1(M), F9(M), T2, TB2. Energy TermiC S2: 62 mm, foam, thermal-break profile, D1(M), L1(M) / L1(M), F9(M), T2, TB2. Sound F2: 42 mm, mineral wool, D2(M), L1(M) / L1(M), M6(M), T3, TB4. Sound S2: 62 mm, mineral wool, D2(M), L1(M) / L3(M), F9(M), T3, TB3. Sound TermiC F2: 42 mm, mineral wool, thermal-break profile, D1(M), L1(M) / L2(M), F9(M), T2, TB2. Sound TermiC S2: 62 mm, mineral wool, thermal-break profile, D1(M), L1(M) / L2(M), F9(M), T2, TB2. The range of a project is the one on its AHU datasheet.",
-    special: ["When: eurovent, EN 1886, EN 13053, casing strength, casing leakage, air leakage, filter bypass, bypass leakage, thermal transmittance, thermal bridging, thermal conductance, deflection, panel thickness, double wall, double skin, certified, certification"] },
-  { title: "AHU datasheet", notes: "The AHU datasheet (selection report) of each unit gives: fan curves with the operating point, fan and motor data (air flow, pressures, power, speed, electrical data), coil performance (air side and water side, entering and leaving conditions, pressure drops), sound power levels by octave band, internal pressure drops of every component, filter classes, dimensions and weights.",
-    special: ["When: product data, datasheet, data sheet, fan curve, fan curves, sound power, coil performance, coil-performance, motor ratings, electrical characteristics, pressure drop, pressure drops, static pressure, dimensions, weights, equipment schedule, selection"] },
-  { title: "Manuals", notes: "Installation, operation and maintenance (IOM) manuals are provided with the units.",
-    special: ["When: operation and maintenance, maintenance manual, maintenance manuals, o&m, IOM, maintenance data, troubleshooting, lists of parts, parts list"] },
-  { title: "Coils AHRI certified", off: true, notes: "Cooling coils are AHRI certified (AHRI 410).",
-    special: ["When: AHRI 410, coil performance, coil-performance, certified coil, coil ratings, coil rating"] },
-  { title: "AMCA", off: true, notes: "AMCA 210 certified fans can be provided on request; EC plug fans are not AMCA certified.",
-    special: ["When: AMCA"] },
-  { title: "Warranty period", off: true, notes: "Standard AHU warranty: 12 months from start-up or 18 months from delivery, whichever comes first. A longer period is a commercial matter.",
-    special: ["When: warranty, warranties, guarantee, guarantee period"] },
-  { title: "Factory acceptance test", off: true, notes: "Daikin AHUs are Eurovent certified and made in an ISO certified facility. A factory acceptance test, and its witnessing, can be provided at extra cost on request.",
-    special: ["When: factory test, factory tests, factory tested, factory acceptance, witness, witnessed, tested prior to shipment, tested at the manufacturer"] },
-  { title: "Spare parts", off: true, notes: "Spare parts (filters, belts, gaskets) can be provided at extra cost on request.",
-    special: ["When: extra materials, spare, spares, spare parts, furnish 1 set, replacement cylinder"] },
-  { title: "Supervision by a Daikin engineer", off: true, notes: "A Daikin engineer can be provided to supervise the assembly or installation at site, at extra cost.",
-    special: ["When: supervise, supervision, local representative, factory-authorized, factory authorized, manufacturer's representative, service representative, field inspection"] },
-  { title: "Delivery and packing", off: true, notes: "Units are delivered nylon wrapped on wooden crating, with lifting holes on the base frame. Daikin delivers to site without unloading.",
-    special: ["When: crating, crated, packing, packaging, shipped, shipping, deliver, delivery, lifting lug, lifting lugs, lifting points, lifting holes, protective covering"] },
-  { title: "Insulation fire rating", off: true, notes: "Foam insulation: surface spread of flame class 1 per ASTM E84 (flame spread index below 25, smoke developed index below 250); fire resistance class 1 per BS 476 parts 6 and 7.",
-    special: ["When: flame spread, smoke developed, smoke generation, ASTM E84, ASTM 84, fire rating, BS 476"] },
-  { title: "Motor standards", off: true, notes: "AHU motors comply with IEC standards. EC plug fans have integrated EC motors with built-in speed control.",
-    special: ["When: IEC, NEMA, motor efficiency, IE3, IE4, premium efficiency, EC motor, EC motors"] },
-  { title: "Manufacturing and support", off: true, notes: "Daikin AHUs are manufactured in an ISO certified facility and supported by Daikin's local service and technical support organisation.",
-    special: ["When: manufacturer, regularly engaged, local service, service organization, service organisation, single manufacturer, technical support"] }
-];
-
-/* Facts that hold for one factory only (its own rule book), from the owner's AHU compliance engine v2: "Default
-   Daikin KSA factory configuration; the selection report always overrides these defaults". All "to verify". */
-export function factoryFacts(product: string, factory: string): Seed[] {
-  if (!isAhu(product) || !/riyadh|ksa|saudi/i.test(factory)) return [];
-  const f = factory.trim() || "Riyadh";
-  return [
-    { title: "Panels (" + f + ")", off: true, notes: `${f} factory standard: Besta double-skin panels with PU foam insulation, unless the project selection says otherwise.`,
-      special: ["When: panel, panels, casing, double skin, double wall, insulation, foam"] },
-    { title: "Filters (" + f + ")", off: true, notes: `${f} factory standard: AAF filters, unless the project selection says otherwise.`,
-      special: ["When: filter, filters, filter media"] },
-    { title: "Fans (" + f + ")", off: true, notes: `${f} factory standard: ebm-papst RadiPac EC fans, or Yilida belt-driven EC fans, as the project selection says.`,
-      special: ["When: fan, fans, plug fan, belt, belts, belt-driven, EC motor"] },
-    { title: "Controls (" + f + ")", off: true, notes: `${f} factory standard controls: starter panel; WL9 PT10K potentiometer.`,
-      special: ["When: controls, control panel, starter, starters, potentiometer, speed control"] },
-    { title: "Filter bypass leakage (" + f + ")", off: true, notes: "Filter bypass leakage per EN 1886: front-withdrawal filters F9; side-withdrawal filters F7.",
-      special: ["When: filter bypass, bypass leakage, EN 1886, front withdrawal, side withdrawal"] }
-  ];
-}
-
-export const FACTS_NOTES = "What is true about the units, for the AI to cite ([F1]) when it answers Comply, Comply with Remarks, Not Comply or Not Applicable: an instruction rule alone is never enough. Title = the subject, notes = the fact as it may be quoted, When = the words of the clauses it is about (a fact without When or Section is shown on every clause). A fact \"to verify\" is not used: check it, edit it if needed and mark it verified. Values that differ per project or factory stay in the datasheet and Product Options.";
+/* Facts about the units (the Eurovent classes, the Riyadh factory standards) were a Facts branch of the rule book until
+   20 Oct 2026; they are AI notes in Product Options now (migration 0009 copied the verified ones there). */

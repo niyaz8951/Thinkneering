@@ -51,7 +51,7 @@
   }
   // what a map is for: knowledge (process or product understanding) or an AI rule book (Compliance review > AI rules)
   var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: what the AI follows" };
-  var KIND_HINT = "Knowledge maps are read by people, and by the AI as facts when linked in Compliance review > AI rules. An AI rule book holds the AI's instructions, decision steps and rules; a new one starts from the template.";
+  var KIND_HINT = "Knowledge maps are for people: the AI does not read them (facts about a product are AI notes in Product Options). An AI rule book holds the AI's instructions, decision steps and rules, linked in Compliance review > AI rules; a new one starts from the template.";
   function kindSelect(id, value) {
     var s = el("select", { "class": "input", id: id }, Object.keys(KIND).map(function (k) { return el("option", { value: k, text: KIND[k] }); }));
     s.value = value || "knowledge";

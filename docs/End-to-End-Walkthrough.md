@@ -1,6 +1,6 @@
 # End-to-end walkthrough: one datasheet, one specification, from an empty database to the final Excel
 
-Version: 19 Oct 2026 (night), `main` after migration 0008 and the "no datasheet" path. Live at https://thinkneering.com.
+Version: 20 Oct 2026 (afternoon), `main` after migration 0009 (maps = rules only, AI notes in Product Options, grouped values, closest higher). Live at https://thinkneering.com.
 
 Use it to reset the site, run the whole flow by hand, and read the code behind every step. The example is the pair used for every test so far: the **Qiddiya Tennis Center MEP2 R9 datasheet** (15 AHU units, Riyadh factory) and the **AHU specification 23 73 13** (437 rows, 404 clauses to answer). Section 9 repeats the flow **without** a datasheet.
 
@@ -32,9 +32,10 @@ Rule of the house (standards A.13.8): **the model writes, code compares.** Every
    - Deleted: projects and records, datasheet tables, the compliance library, Product Options values and notes, all maps (rule books and knowledge maps), the row mapping, AI tables, sessions.
 3. **Cloudflare > R2 > hub-files:** delete the folders `notes/` and `maps/`.
 4. Sign in again as the super user.
-5. **Compliance review > AI rules:** choose AHU and **the factory** (e.g. Riyadh), *Create from template*. Every factory has its own rule book and knowledge map, kept by its own team; the AI never reads another factory's (20 Oct 2026). Verify the branches you want switched on (only the super user and Maps admins can). Repeat for each factory. Then, under *Knowledge map*, *Create from template*: the factory's knowledge map with **Product facts** (for AHU Riyadh, your former AI notes, to verify) and the **Vocabulary** of requirement types (AHU, FCU or Chiller) with an "Offered (<factory>)" branch under each. Open it in Maps, fill in and verify what the factory offers; only verified facts and offers are quoted by the AI.
+5. **Compliance review > AI rules:** choose AHU and **the factory** (e.g. Riyadh), *Create from template*. Every factory has its own rule book, kept by its own team; the AI never reads another factory's (20 Oct 2026). Verify the branches you want switched on (only the super user and Maps admins can). Repeat for each factory. The rule book holds only rules and the way of thinking: there is no knowledge map any more.
+6. **Product Options > AHU > Riyadh > Edit on > + AI note** (admins only): the facts about the product that are on no datasheet ("Warranty: 2 years from system acceptance ..."). Migration 0009 has already put back the eleven AHU Riyadh notes and the Eurovent / datasheet / manuals facts; check them there.
 
-Check that the database is up to date: `SELECT name FROM d1_migrations ORDER BY id;` ends with `0008_project_codes.sql`.
+Check that the database is up to date: `SELECT name FROM d1_migrations ORDER BY id;` ends with `0009_po_groups_rules_only.sql`.
 
 ---
 
@@ -67,7 +68,7 @@ Code: `public/tools/projects/index.html` (list, new project), `project.html` (`n
 3. Each row gets its **key** (`group|sub|component`, e.g. `unit data||panel`) used everywhere after this.
 4. The row mapping (`dn_rules` / `dn_add_rows`, `worker/src/api/dn.ts`): rows new to the product are added to the mapping with the **starter keywords and Remove text** (`dn_starter_keywords`; e.g. the power supply's "+ PE" is removed).
 5. **Saved in the project:** `pr_note_save` stores the table in R2 (`notes/<project>/<note>.json`) and a row in `pr_notes` with the columns and the **factory** read from the datasheet (Material Name ...9 = Riyadh). A table read again **replaces** the earlier table of the same units.
-6. **Product Options:** `po_collect` (`worker/src/api/po.ts`) records every value per factory and row. A value the factory has not shown before is saved as **"to approve"** (`approved = 0`): users, the Excel and the AI do not see it until the super user or a General-tile admin approves it (`po_admin_approve`).
+6. **Product Options:** `po_collect` (`worker/src/api/po.ts`) records every value per factory and row. A value the factory has not shown before is saved as **"to approve"** (`approved = 0`): users, the Excel and the AI do not see it until the super user or a General-tile admin approves it (`po_admin_approve`). Values that belong together are saved as a **group** (`groupsOf` in `datasheet-notes.js`, `po_values.grp`): Filter 1 = *Filter Class: ISO Coarse 60%(G4)* with its name Chevronet, material Synthetic, sizes 592x592x48 and 287x592x48 (a set "2x(592x592x48) 2x(287x592x48)" is saved as its sizes), pressure drops 44 / 69 / 94 Pa; Filter 2 = *Filter Class: ePM1 65%(F7)* with its own rows; the EN 1886 classes under *Profile: Aluminium Natural*.
 
 **Example result:** 15 units, 313 mapped rows. *Panel 62 mm*, *Insulation Foam*, *Casing Leakage L1(M)/L1(M)*, *Filter 1: ISO Coarse 60% (G4)*, *Filter 2: ePM1 65% (F7)*, *Motor Efficiency Class IE5* ... Reading the same PDF again shows "in place of the earlier table of the same units".
 
@@ -122,7 +123,7 @@ The whole-specification AI review is **switched off** (button says "coming soon"
 | 3 | The same clause answered earlier **in this record** | |
 | 4 | A **rule** of the rule book that answers by itself (site works -> In Contractor's Scope, "By Contractor / others. Daikin scope is supply of equipment.") | Part 3 "Rigging and hoisting ..." |
 | 5 | The same clause answered in **another project** (not yet approved) | |
-| 6 | The **model**, with the sources it may cite: datasheet rows [D], Product Options [O], knowledge maps [K], rules [R], corrections people made [M], library answers [L] ... Without a source on file, a Part 2 clause is left for a person | |
+| 6 | The **model**, with the sources it may cite: datasheet rows [D], Product Options [O], AI notes [N], rules [R], corrections people made [M], library answers [L] ... Without a source on file, a Part 2 clause is left for a person | |
 
 Then **code checks every draft** (`ai/guard.ts`, `lockRemarks`): a clean Comply has no remark; Comply with Remarks needs one; Not Comply / Not Applicable need a reason; banned wording (an internal source named, "please verify", TBC, a promise of a later document, hedging) makes it low confidence. Each draft gets a **priority**: GREEN (rule, earlier answer, datasheet Comply, identical library answer), AMBER (check), RED (low confidence, Not Comply, contradicts the datasheet or the precedent).
 
@@ -163,10 +164,10 @@ Skip step 3: *Add a specification without a datasheet*. The add-spec page says w
 **What changes:**
 - **Record page:** under the clauses about a datasheet row, **dashed chips** say what to select in the selection software, from the factory's **approved** Product Options values:
   - one value seen: *Panel: select 62 mm*;
-  - the clause asks a figure and a value meets it: the closest one (an exact match first, then the nearest figure, then the most seen): *Panel: select 50 mm*;
+  - the clause asks a figure and a value meets it: the exact one, else the **closest higher** (0.9 mm GI asked, 0.8 / 1.0 / 1.2 mm seen -> *select 1.0 mm*); a lower value never meets;
   - several values, nothing to compare: *Insulation: choose: Foam (60×), Mineral wool (1×)*;
   - values seen but none meets: *none seen meets it: ask the factory*.
-- **Focus mode:** a clause whose figures are all met by Product Options values gets **Comply, medium confidence, AMBER** (never green: the units are not selected yet), reason "No datasheet in this project. From the approved Product Options of Riyadh: Panel: 50 mm (seen 3×) meets 50 mm. Select it in the selection software."
+- **Focus mode:** a clause whose figures are all met by Product Options values gets **Comply** (exact) or **Comply with Remarks** naming the higher value ("1.0 mm"), **medium confidence, AMBER** (never green: the units are not selected yet), reason "No datasheet in this project. From the approved Product Options of Riyadh: Panel: 50 mm (seen 3×) meets 50 mm. Select it in the selection software."
 - **Working Excel, sheet 2 = Selection list:** Section | Component | what the spec asks (with the Sr and the clause) | **Select in the software** | Options seen (Riyadh) with how often. This is the list the engineer selects from.
 - Once the units are selected, read the datasheet into the project: everything switches to the datasheet (step 5 on).
 
@@ -182,6 +183,9 @@ Code: `worker/src/ai/evidence.ts` (`optionPicks`, `compareOptions`, `picksFor`),
 - [ ] Project created with code `P-<year>-0001`-style; renaming keeps the code; the list search finds it by code
 - [ ] Project page leads with "Step 1 of 2 (optional): Read the datasheet first"
 - [ ] Datasheet: 15 units, rows as expected; read again replaces; factory Riyadh; Product Options shows new values *to approve*; approve them
+- [ ] Product Options > Filter Supply: one framed block per filter (G4: Chevronet, Synthetic, 592x592x48 and 287x592x48, 44 / 69 / 94 Pa; F7: its own); EN 1886 classes framed under the profile
+- [ ] Product Options as admin: the AI notes show in read and edit; *+ AI note* adds one; as a plain user or editor: no AI notes
+- [ ] AI rules: one picker (rule book), no knowledge map; the line to Product Options AI notes
 - [ ] Spec: factory pre-selected; warning on Dubai; 404 clauses
 - [ ] Record: code at the top; blue chips on the right clauses (Filter 1 / Filter 2 both shown)
 - [ ] AI review button: "coming soon" sheet
@@ -199,7 +203,7 @@ For developers (laptop): `npm install`, `npm test` (Vitest + parity), `npm run t
 ## 11. Known limits (honest list)
 
 - Clause-to-row linking is by keywords plus the topic gate; good but not by meaning. A cross-scale clause (NEMA Premium vs IE5, MERV 13 vs F7) is not compared by code yet: it goes to the model. The vocabulary map (`docs/Vocabulary-Experiment-2026-10-19.md`, steps A to E) is the fix.
-- Product facts that are on no datasheet (bearing life, access door width, coil certification) are answered only when a knowledge-map branch or the library says so.
+- Product facts that are on no datasheet (bearing life, access door width, coil certification) are answered only when an AI note in Product Options or the library says so.
 - The datasheet reader is proven on AHU (Riyadh / Dubai format). FCU works; Chiller is not built.
 - The AI's agreement with people has not been measured on real data yet (Compliance review > AI rules > *Check the AI*).
 
