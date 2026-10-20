@@ -1,7 +1,7 @@
 /* What the AI learns, written into its map. From ai_feedback (every save over a proposal or a draft), last 30 days:
      - the answer people put instead of the AI's, the same way 3 times or more in a section  -> a rule with Answer
      - the remark people wrote instead of the AI's, the same way 3 times or more              -> a rule with Remark
-   Each becomes a branch under "Learned" of the factory's map (or the map for all factories), marked "to verify":
+   Each becomes a branch under "Learned" of the factory's own rule book, marked "to verify":
    it does nothing until a person verifies it in Maps. Each pattern is written once (app_audit "ai_learn"), so a
    learned branch someone deleted does not come back. Runs every night (jobs.ts) and on "Write to the map". */
 import type { Env } from "../env";
@@ -38,10 +38,10 @@ export async function learnToMaps(env: Env, productId: string | null, userId: st
   for (const p of found) {
     const key = await sha256(["learn", p.product_id, p.factory_id || "", p.part, p.section, p.kind, p.final, p.kind === "remark" ? p.final_remarks : ""].join("|"));
     if (await env.DB.prepare("SELECT 1 FROM app_audit WHERE action = 'ai_learn' AND target = ?").bind(key).first()) continue;
-    // the factory's map, else the map for all factories of the product
+    // the factory's own rule book (every factory keeps its own; nothing is shared between factories)
     const link = await env.DB.prepare(
       `SELECT l.map_id, m.name FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id
-        WHERE l.role = 'rulebook' AND l.product_id = ? AND (l.factory_id = ? OR l.factory_id IS NULL) ORDER BY l.factory_id IS NULL LIMIT 1`).bind(p.product_id, p.factory_id || "").first<{ map_id: string; name: string }>();
+        WHERE l.role = 'rulebook' AND l.product_id = ? AND l.factory_id = ? LIMIT 1`).bind(p.product_id, p.factory_id || "").first<{ map_id: string; name: string }>();
     if (!link) continue;
     let parent = learnedOf.get(link.map_id);
     if (!parent) {

@@ -29,10 +29,12 @@ describe("The AHU rule book template", () => {
     expect(facts(seedTree("AHU", null)).map((f) => f.title)).toEqual(expect.arrayContaining(["Eurovent certification", "AHU datasheet", "Manuals", "Warranty period"]));
     expect(facts(seedTree("FCU", null))).toEqual([]);
     expect(seedTree("FCU", null).find((x) => x.title === "Part 2 Products")!.kids!.map((k) => k.title)).not.toContain("Fans");
-    const ksa = facts(seedTree("AHU", "Riyadh"));
+    // every factory's rule book is the whole template (20 Oct 2026); Riyadh's also gets the KSA defaults, to verify
+    const ksa = facts(seedTree("AHU", "Riyadh")).filter((f) => /\(Riyadh\)$/.test(f.title));
     expect(ksa.map((f) => f.title)).toEqual(["Panels (Riyadh)", "Filters (Riyadh)", "Fans (Riyadh)", "Controls (Riyadh)", "Filter bypass leakage (Riyadh)"]);
     expect(ksa.every((f) => f.off)).toBe(true);
-    expect(facts(seedTree("AHU", "Dubai"))).toEqual([]);
+    expect(facts(seedTree("AHU", "Riyadh")).map((f) => f.title)).toEqual(expect.arrayContaining(["Eurovent certification", "Warranty period"]));
+    expect(facts(seedTree("AHU", "Dubai")).filter((f) => /\(/.test(f.title))).toEqual([]);
     expect(ahu.problems).toEqual([]);
   });
 
@@ -106,16 +108,16 @@ describe("Create and Update from template", () => {
 
   it("an AHU rule book gets the AHU rules and facts; the Riyadh one gets the KSA facts to verify; nothing twice", async () => {
     const t = await login("teamAdmin");
-    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
+    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
     const titles = async (id: string, sql = "") => (await env.DB.prepare("SELECT title, verified FROM mp_nodes WHERE map_id = ? " + sql).bind(id).all<any>()).results;
     expect((await titles(made.id)).map((x: any) => x.title)).toEqual(expect.arrayContaining(["Facts", "Fans", "Submittals", "Eurovent certification", "Warranty period"]));
     expect((await titles(made.id, "AND title = 'Warranty period'"))[0].verified).toBe(0);
-    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added).toEqual([]);
     // an AHU rule book from before: no Facts, no AHU rules
     await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND (title IN ('Facts', 'Fans', 'Coils') OR parent_id IN (SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Facts'))").bind(made.id, made.id).run();
-    const up = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added;
+    const up = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added;
     expect(up).toEqual(expect.arrayContaining(["Facts", "Fans (added under Part 2 Products)", "Coils (added under Part 2 Products)"]));
-    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added).toEqual([]);
     // the Riyadh rule book
     const own = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     const ksa = await titles(own.id, "AND title LIKE '%(Riyadh)'");

@@ -107,6 +107,12 @@ function requireRulesEditor(s: Session): Session {
   return s;
 }
 
+/* Rule books and knowledge maps belong to one factory (owner, 20 Oct 2026: each factory's team keeps its own). */
+async function ownFactory(env: Env, productId: string, id: unknown): Promise<{ id: string; name: string }> {
+  const f = await factoryRow(env, productId, id);
+  if (!f) fail("Choose the factory: every factory has its own AI rule book and knowledge map, and the AI never reads another factory's.");
+  return f;
+}
 async function factoryRow(env: Env, productId: string, id: unknown): Promise<{ id: string; name: string } | null> {
   const fid = str(id, 60);
   if (!fid) return null;
@@ -333,13 +339,13 @@ export const routes: Routes = {
              similar: similar.map((x) => ({ text: x.spec_text.slice(0, 200), compliance: x.compliance, remarks: x.remarks, score: x.score })), notes: aiNotes, knowledge: know };
   },
 
-  /* The maps linked for a product (every factory) and for one factory, what in them the AI cannot use, and the
+  /* The maps linked for one factory (p_factory_id required), what in them the AI cannot use, and the
      maps this person may choose from (those he can see in Maps). */
   async ai_map_get(env, p) {
     const s = requireRulesEditor(await sessionUser(env, p.p_token));
     const prod = await productRow(env, p.p_product_id);
-    const fac = await factoryRow(env, prod.id, p.p_factory_id);
-    const maps = await aiMapFor(env, prod.id, fac ? fac.id : null);
+    const fac = await ownFactory(env, prod.id, p.p_factory_id);
+    const maps = await aiMapFor(env, prod.id, fac.id);
     const link = (scope: string | null, role: string) => maps.maps.find((m) => (m.scope || null) === scope && m.role === role) || null;
     const counts = (scope: string | null) => { const r = maps.rules.filter((x) => (x.factory_id || null) === scope); return { rules: r.length, direct: r.filter((x) => x.answer && x.remark).length }; };
     const branches = async (id: string) => (await env.DB.prepare("SELECT count(*) AS n FROM mp_nodes WHERE map_id = ? AND parent_id IS NOT NULL AND verified = 1").bind(id).first<{ n: number }>())?.n || 0;
@@ -352,22 +358,25 @@ export const routes: Routes = {
         linked: links.filter((l) => l.map_id === m.id).map((l) => ({ role: l.role, product_id: l.product_id, factory_id: l.factory_id, where: l.product + ", " + (l.factory ? l.factory + " only" : "all factories") })) })) : [];
     const rb = (scope: string | null) => { const l = link(scope, "rulebook"); return l ? { ...l, ...counts(scope) } : null; };
     const kn = async (scope: string | null) => { const l = link(scope, "knowledge"); return l ? { ...l, branches: await branches(l.id) } : null; };
-    return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_,
-             all: rb(null), own: fac ? rb(fac.id) : null, k_all: await kn(null), k_own: fac ? await kn(fac.id) : null,
+    // maps linked for "all factories" before 20 Oct 2026: no longer read; the page offers to move them to one factory
+    const legacy = await all<{ id: string; name: string; role: string }>(env.DB.prepare(
+      "SELECT m.id, m.name, l.role FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.product_id = ? AND l.factory_id IS NULL").bind(prod.id));
+    return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_, legacy,
+             own: rb(fac.id), k_own: await kn(fac.id),
              settings: maps.settings, problems: maps.problems, used_today: await neuronsToday(env),
              instructions: maps.instructions ? maps.instructions.map((x) => x.title).filter(Boolean) : null,
-             brief_length: instructionsText(maps.instructions, prod.name, fac ? fac.name : "").length };
+             brief_length: instructionsText(maps.instructions, prod.name, fac.name).length };
   },
 
-  /* Choose (p_map_id) or take off (null) a map for a product (p_factory_id null = every factory) or one factory.
+  /* Choose (p_map_id) or take off (null) the rule book or knowledge map of one factory (p_factory_id required).
      p_role: rulebook (default) | knowledge; the map must be of that kind (Maps > the map's settings). */
   async ai_map_link(env, p) {
     const s = requireRulesEditor(await sessionUser(env, p.p_token));
     const prod = await productRow(env, p.p_product_id);
-    const fac = await factoryRow(env, prod.id, p.p_factory_id);
+    const fac = await ownFactory(env, prod.id, p.p_factory_id);
     const role = p.p_role === "knowledge" ? "knowledge" : "rulebook";
     const mapId = str(p.p_map_id, 60);
-    const scope = fac ? fac.id : "";
+    const scope = fac.id;
     const del = env.DB.prepare("DELETE FROM ai_map_links WHERE product_id = ? AND ifnull(factory_id, '') = ? AND role = ?").bind(prod.id, scope, role);
     if (!mapId) {
       await del.run();
@@ -377,15 +386,16 @@ export const routes: Routes = {
     const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow & { kind: string }>();
     if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
     if ((m.kind || "knowledge") !== role) fail(role === "rulebook" ? "That map is a knowledge map. Choose an AI rule book, or change the map's type in Maps (the map's settings)." : "That map is an AI rule book. Choose a knowledge map, or change the map's type in Maps (the map's settings).");
-    // a rule book is linked once, anywhere; a knowledge map once per product (its facts would count twice)
+    // a map belongs to one factory: linked for another factory, it is refused; linked for "all factories" of this
+    // product (before 20 Oct 2026), it moves here
     const elsewhere = await env.DB.prepare(
       `SELECT l.product_id, l.factory_id, p.name AS product, f.name AS factory FROM ai_map_links l JOIN cm_products p ON p.id = l.product_id LEFT JOIN cm_factories f ON f.id = l.factory_id
-        WHERE l.map_id = ? AND l.role = ? AND NOT (l.product_id = ? AND ifnull(l.factory_id, '') = ?) ${role === "knowledge" ? "AND l.product_id = ?" : ""}`)
-      .bind(...(role === "knowledge" ? [m.id, role, prod.id, scope, prod.id] : [m.id, role, prod.id, scope])).first<{ product: string; factory: string | null }>();
-    if (elsewhere) fail(`"${m.name}" is already linked for ${elsewhere.product}, ${elsewhere.factory ? elsewhere.factory + " only" : "all factories"}. ` +
-      (role === "rulebook" ? "A rule book is linked once: take it off there first, or create a rule book for this scope from the template." : "A knowledge map is linked once per product: take it off there first."));
+        WHERE l.map_id = ? AND l.factory_id IS NOT NULL AND NOT (l.product_id = ? AND l.factory_id = ?)`)
+      .bind(m.id, prod.id, scope).first<{ product: string; factory: string | null }>();
+    if (elsewhere) fail(`"${m.name}" is already used for ${elsewhere.product}, ${elsewhere.factory}. Every factory keeps its own maps: take it off there first, or create one for ${fac.name}.`);
     await env.DB.batch([del,
-      env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, ?, ?)").bind(prod.id, fac ? fac.id : null, m.id, role, s.id)
+      env.DB.prepare("DELETE FROM ai_map_links WHERE map_id = ? AND factory_id IS NULL").bind(m.id),
+      env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, ?, ?)").bind(prod.id, fac.id, m.id, role, s.id)
     ]);
     await audit(env, s.id, "ai_map_link", prod.id + "|" + scope + "|" + role, "", { map: m.id, name: m.name });
     return { ok: true, map: { id: m.id, name: m.name } };
@@ -395,9 +405,9 @@ export const routes: Routes = {
   async ai_map_create(env, p) {
     const s = requireRulesEditor(await sessionUser(env, p.p_token));
     const prod = await productRow(env, p.p_product_id);
-    const fac = await factoryRow(env, prod.id, p.p_factory_id);
+    const fac = await ownFactory(env, prod.id, p.p_factory_id);
     const made = await createAiMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
-    await audit(env, s.id, "ai_map_create", made.id, "", { product: prod.id, factory: fac ? fac.id : null, name: made.name });
+    await audit(env, s.id, "ai_map_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
     return { ok: true, ...made };
   },
 
@@ -406,13 +416,13 @@ export const routes: Routes = {
   async ai_map_upgrade(env, p) {
     const s = requireRulesEditor(await sessionUser(env, p.p_token));
     const prod = await productRow(env, p.p_product_id);
-    const fac = await factoryRow(env, prod.id, p.p_factory_id);
-    const link = await env.DB.prepare("SELECT m.* FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.role = 'rulebook' AND l.product_id = ? AND ifnull(l.factory_id, '') = ?")
-      .bind(prod.id, fac ? fac.id : "").first<MapRow>();
+    const fac = await ownFactory(env, prod.id, p.p_factory_id);
+    const link = await env.DB.prepare("SELECT m.* FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.role = 'rulebook' AND l.product_id = ? AND l.factory_id = ?")
+      .bind(prod.id, fac.id).first<MapRow>();
     if (!link) fail("Link a map first.");
     const r = mpRights(s, link);
     if (r !== "own" && r !== "edit") fail("You cannot edit that map in Maps: ask its owner to share it with editing.");
-    const added = await upgradeAiMap(env, s.id, link.id, prod.name, fac ? fac.name : null);
+    const added = await upgradeAiMap(env, s.id, link.id, prod.name, fac.name);
     await audit(env, s.id, "ai_map_upgrade", link.id, "", { added });
     return { ok: true, added };
   },

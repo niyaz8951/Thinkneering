@@ -32,7 +32,7 @@ Rule of the house (standards A.13.8): **the model writes, code compares.** Every
    - Deleted: projects and records, datasheet tables, the compliance library, Product Options values and notes, all maps (rule books and knowledge maps), the row mapping, AI tables, sessions.
 3. **Cloudflare > R2 > hub-files:** delete the folders `notes/` and `maps/`.
 4. Sign in again as the super user.
-5. **Compliance review > AI rules:** for AHU, *Create from template* (all factories). This builds the rule book with the 19 Oct brief. Verify the branches you want switched on (only the super user and Maps admins can).
+5. **Compliance review > AI rules:** choose AHU and **the factory** (e.g. Riyadh), *Create from template*. Every factory has its own rule book and knowledge map, kept by its own team; the AI never reads another factory's (20 Oct 2026). Verify the branches you want switched on (only the super user and Maps admins can). Repeat for each factory. Then in Maps make the factory's knowledge map ("AHU Riyadh - product facts", kind Knowledge), import its facts, verify them, and pick it under *Knowledge map* for that factory.
 
 Check that the database is up to date: `SELECT name FROM d1_migrations ORDER BY id;` ends with `0008_project_codes.sql`.
 

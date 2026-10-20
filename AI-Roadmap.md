@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 20 Oct 2026 - every AI source per factory
+The AI for a record of one factory reads only that factory's rule book, knowledge map, Product Options, library, other projects, corrections and section kinds. Factory rule books are the whole template. The vocabulary map (plan) is per factory too.
+
 ### 19 Oct 2026, late night - no datasheet: Product Options as the source
 `optionPicks` / `compareOptions` (evidence.ts): with no datasheet in the project, approved Product Options values are compared with the clause one by one; a clause fully met gets Comply, medium, source `options` (AMBER). `pr_run_selection` feeds the record's dashed chips and the working Excel's Selection list. No model involved.
 

@@ -187,7 +187,7 @@
       <div class="card stack">
         <div>
           <h2 id="rulesTitle">AI rules</h2>
-          <p class="muted small" style="margin:4px 0 0">Two maps from Maps, for every factory of this product and, if needed, for this factory alone (read first). The <b>AI rule book</b> is what the AI follows: its instructions, decision steps and rules, and what it learned. The <b>knowledge map</b> (process or product understanding) gives it facts: product facts that are on no datasheet belong there (Product Options holds only datasheet values and editors' special options and notes). People who run the AI review or use focus mode do not need access to Maps.</p>
+          <p class="muted small" style="margin:4px 0 0">Two maps from Maps, for this factory only: every factory has its own, kept by its own team, and the AI never reads another factory's (nor its Product Options or library). The <b>AI rule book</b> is what the AI follows: its instructions, decision steps and rules, and what it learned. The <b>knowledge map</b> (process or product understanding) gives it facts: product facts that are on no datasheet belong there (Product Options holds only datasheet values and editors' special options and notes). People who run the AI review or use focus mode do not need access to Maps.</p>
         </div>
         <div id="mapLinks" class="map-links"></div>
         <div id="mapProblems" class="notice warn" hidden></div>
@@ -654,7 +654,7 @@
   function loadRules() {
     if (!rulesEditor || !factoryId()) return;
     var want = productId() + "|" + factoryId(), host = $("mapLinks");
-    $("rulesTitle").textContent = "AI rules for " + productName();
+    $("rulesTitle").textContent = "AI rules for " + productName() + ", " + factoryName() + " factory";
     if (loadRules.scope !== want) { host.textContent = ""; host.appendChild(Hub.skeleton(2, { label: "Loading the AI maps" })); }
     loadRules.scope = want;
     Api.aiMapGet(Hub.token(), { productId: productId(), factoryId: factoryId() }).then(function (res) {
@@ -669,12 +669,11 @@
     var KINDS = { rulebook: "AI rule book", knowledge: "Knowledge map" };
     function picker(scope, role, link, label) {
       var mine = res.maps.filter(function (m) { return m.kind === role; });
-      // a rule book is linked once; a knowledge map once per product: elsewhere = shown, not offered
+      // a map belongs to one factory: used for another factory = shown, not offered (one linked for "all factories"
+      // before 20 Oct 2026 is offered: choosing it moves it here)
       function taken(m) {
         return (m.linked || []).filter(function (l) {
-          if (l.role !== role) return false;
-          var here = l.product_id === productId() && (l.factory_id || null) === (scope || null);
-          return !here && (role === "rulebook" || l.product_id === productId());
+          return l.factory_id && !(l.product_id === productId() && l.factory_id === scope);
         })[0] || null;
       }
       var sel = el("select", { "class": "input", "aria-label": label + ": " + KINDS[role] }, [el("option", { value: "", text: link ? "None (take this map off)" : "None" })]
@@ -694,24 +693,34 @@
       var make = role === "rulebook" ? el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () { createMap(scope); } }) : null;
       var sum;
       if (role === "rulebook") sum = link ? link.rules + (link.rules === 1 ? " rule" : " rules") + ", " + link.direct + " of them answer by themselves · changed " + Hub.date(link.updated_at, true)
-                                          : scope ? "None: " + factoryName() + " uses the rule book for all factories." : "None: the AI uses its built-in instructions, the library, Product Options and the datasheet.";
+                                          : "None: for " + factoryName() + " the AI uses its built-in instructions, the datasheet, " + factoryName() + "'s Product Options and library.";
       else sum = link ? link.branches + " verified branches the AI may quote · changed " + Hub.date(link.updated_at, true)
                       : "None. A knowledge map (process or product understanding) gives the AI facts: its verified branches that match a clause.";
       return el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: KINDS[role] }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })]);
     }
-    [{ scope: null, label: "All " + productName() + " factories", rb: res.all, kn: res.k_all }, { scope: factoryId(), label: factoryName() + " only", rb: res.own, kn: res.k_own }].forEach(function (x) {
-      host.appendChild(el("div", { "class": "map-link" }, [el("b", { text: x.label }), picker(x.scope, "rulebook", x.rb, x.label), picker(x.scope, "knowledge", x.kn, x.label)]));
+    var label = factoryName() + " factory";
+    host.appendChild(el("div", { "class": "map-link" }, [el("b", { text: label }), picker(factoryId(), "rulebook", res.own, label), picker(factoryId(), "knowledge", res.k_own, label)]));
+    // maps linked for "all factories" before 20 Oct 2026 are no longer read: one press moves one to this factory
+    (res.legacy || []).forEach(function (m) {
+      host.appendChild(el("div", { "class": "notice warn" }, [
+        el("span", { text: "“" + m.name + "” (" + KINDS[m.role] + ") is linked for all " + productName() + " factories, which the AI no longer reads: every factory keeps its own. " }),
+        el("button", { type: "button", "class": "btn ghost sm", text: "Use it for " + factoryName() + " only", onclick: function (e) {
+          e.currentTarget.disabled = true;
+          Api.aiMapLink(Hub.token(), { productId: productId(), factoryId: factoryId(), mapId: m.id, role: m.role }).then(function () {
+            Hub.toast("“" + m.name + "” now belongs to " + factoryName() + "."); loadRules.scope = ""; loadRules();
+          }, fail);
+        } })]));
     });
-    if (res.all && !res.instructions) {
+    if (res.own && !res.instructions) {
       host.appendChild(el("div", { "class": "notice" }, [
-        el("span", { text: "“" + res.all.name + "” has no Instructions branch yet, so the AI uses its built-in brief. Add the new parts of the template (Instructions, Decision steps, Learned); your rules stay as they are. " }),
-        el("button", { type: "button", "class": "btn ghost sm", text: "Add the new parts", onclick: function () { upgrade(null); } })]));
-    } else if (res.all) {
+        el("span", { text: "“" + res.own.name + "” has no Instructions branch yet, so the AI uses its built-in brief. Add the parts of the template it does not have (Instructions, Decision steps, rules, Facts, Learned); what you wrote stays as it is. " }),
+        el("button", { type: "button", "class": "btn ghost sm", text: "Add the new parts", onclick: function () { upgrade(factoryId()); } })]));
+    } else if (res.own) {
       /* the template gets better (stricter rules, "Unless:" words): this brings a linked rule book up to date without
          touching a rule someone edited. The server checks the person may edit that map. */
       host.appendChild(el("div", { "class": "notice" }, [
-        el("span", { text: "Update “" + res.all.name + "” from the template: adds missing parts and updates the template rules nobody has edited. Rules you changed stay as they are. " }),
-        el("button", { type: "button", "class": "btn ghost sm", id: "btnUpgrade", text: "Update from template", onclick: function () { upgrade(null); } })]));
+        el("span", { text: "Update “" + res.own.name + "” from the template: adds missing parts and updates the template rules nobody has edited. Rules you changed stay as they are. " }),
+        el("button", { type: "button", "class": "btn ghost sm", id: "btnUpgrade", text: "Update from template", onclick: function () { upgrade(factoryId()); } })]));
     }
     if (!res.can_maps) host.appendChild(el("p", { "class": "small muted", text: "You cannot open Maps (it is on the SBU tile), so you can only choose maps already linked or create one from the template. Ask the super user for Maps to write rules." }));
     var pr = $("mapProblems");
@@ -733,7 +742,7 @@
   }
   function createMap(scope) {
     Hub.ask("Name of the new AI rule book", { title: "Create from template", ok: "Create", placeholder: "AI rules: " + productName() + (scope ? " " + factoryName() : ""),
-      hint: scope ? "It holds only what differs for " + factoryName() + " (Instructions, Settings, Parts, Learned). It is private to you; share it in Maps." : "It holds the AI's instructions, the decision steps, the settings and starter rules. It is private to you; share it in Maps." }).then(function (name) {
+      hint: "The rule book of " + factoryName() + " only: the AI's instructions, the decision steps, the settings, starter rules and facts. It is private to you; share it in Maps with the " + factoryName() + " team." }).then(function (name) {
       if (name === null) return;
       Api.aiMapCreate(Hub.token(), { productId: productId(), factoryId: scope, name: name.trim() }).then(function (res) {
         Hub.toast("“" + res.name + "” created and linked."); loadRules.scope = ""; loadRules();
@@ -748,7 +757,7 @@
     var btn = $("btnTry"); btn.disabled = true;
     Api.aiTry(Hub.token(), { productId: productId(), factoryId: factoryId(), clause: text, section: $("trySection").value.trim(), part: +$("tryPart").value }).then(function (res) {
       btn.disabled = false;
-      if (!res.map) out.appendChild(el("div", { "class": "notice", text: "No AI map is linked for " + productName() + ": only the library, Product Options and the datasheet are used." }));
+      if (!res.map) out.appendChild(el("div", { "class": "notice", text: "No AI rule book is linked for " + factoryName() + ": only its library, Product Options and the datasheet are used." }));
       out.appendChild(el("ol", { "class": "step-list" }, res.steps.map(function (st, k) {
         var hit = /copied|answers it by itself|match/.test(st.result) && !/^No /.test(st.result);
         return el("li", { "class": hit ? "hit" : "" }, [el("b", { text: (k + 1) + ". " + st.step }), st.result]);

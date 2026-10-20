@@ -29,7 +29,7 @@ async function relaxed(token: string) {
     env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES ('m-relaxed', 'Relaxed', 'private', 'rulebook', ?, ?, ?, ?)").bind(me, at, me, at),
     env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-root', 'm-relaxed', NULL, 'Relaxed', '', '[]', 0, 1)"),
     env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-set', 'm-relaxed', 'r-root', 'Settings', '', ?, 1, 1)").bind(JSON.stringify(["Answer without a source: yes"])),
-    env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES ('ahu', NULL, 'm-relaxed', 'rulebook', ?)").bind(me)
+    env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES ('ahu', 'ahu-dubai', 'm-relaxed', 'rulebook', ?)").bind(me)
   ]);
   void token;
 }

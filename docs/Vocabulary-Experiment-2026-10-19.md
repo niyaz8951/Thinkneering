@@ -48,7 +48,7 @@ Ten clauses of the Qiddiya AHU spec (23 73 13), chosen to cover every kind of re
 Keeps: Instructions (the brief), Decision steps, Settings, the Parts' if / then rules (When / Unless / Answer / Remark), Learned. Loses: the **Facts** branch and any product statement; those move to the vocabulary map. The template is changed accordingly; "Update from template" moves an unedited Facts branch over, an edited one is listed for the admin to move.
 
 ### Vocabulary map (kind `vocabulary`, new) - the product
-One per product (all factories) plus one per factory for its capabilities, linked in Compliance review > AI rules like the others. Its tree, as Maps shows it (so it is edited, verified, imported and exported with the tools the team already uses):
+One per factory (owner, 20 Oct 2026: nothing shared between factories; each factory's team keeps its own), linked in Compliance review > AI rules like the others. Its tree, as Maps shows it (so it is edited, verified, imported and exported with the tools the team already uses):
 
 ```
 AHU vocabulary

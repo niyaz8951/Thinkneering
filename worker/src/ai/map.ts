@@ -1,14 +1,13 @@
 /* The AI maps: maps in Maps, chosen by name in Compliance review > AI rules (ai_map_links). A map is of one of two
    kinds (mp_maps.kind, chosen when it is made): an AI rule book (below) or knowledge (process or product
-   understanding: its verified branches are facts for the model, knowledgeOf). One of each for every factory of a
-   product, and one of each per factory. A record of AHU / Riyadh reads the Riyadh map first, then the
-   map for all AHU factories. The server reads them itself: people who run the review or use focus mode never
+   understanding: its verified branches are facts for the model, knowledgeOf). One of each per factory, kept by
+   that factory's team (owner, 20 Oct 2026): a record of AHU / Riyadh reads only Riyadh's maps, as it reads only
+   Riyadh's Product Options and library. The server reads them itself: people who run the review or use focus mode never
    need access to Maps; only the people who write the rules do.
 
      <any name, e.g. "AHU-Riyadh-AI notes">
      |-- Instructions           the AI's brief: every section (branch) is read by the model, in order, before it
-     |                          answers; {product} and {factory} are filled in. A factory map's section with the same
-     |                          title replaces the product map's; its other sections are added after.
+     |                          answers; {product} and {factory} are filled in.
      |-- Decision steps         the steps the AI goes through, in their fixed order; a step marked "to verify" is
      |                          skipped. Its special notes are settings ("Copy from library at: 0.90").
      |-- Settings               special notes "Name: value" (SETTINGS below); a factory map overrides the product map
@@ -244,9 +243,11 @@ export interface AiMaps {
 const cache = new Map<string, { at: number; stamp: string; v: AiMaps }>();
 
 export async function aiMapFor(env: Env, productId: string, factoryId: string | null): Promise<AiMaps> {
+  // every factory has its own maps, kept by its own team (owner, 20 Oct 2026): a map linked for "all factories"
+  // before that is not read for any factory (AI rules shows it, to be moved to one factory)
   const links = await all<{ factory_id: string | null; role: "rulebook" | "knowledge"; id: string; name: string; updated_at: string }>(env.DB.prepare(
     `SELECT l.factory_id, l.role, m.id, m.name, m.updated_at FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id
-      WHERE l.product_id = ? AND (l.factory_id IS NULL OR l.factory_id = ?)`).bind(productId, factoryId || ""));
+      WHERE l.product_id = ? AND l.factory_id = ?`).bind(productId, factoryId || ""));
   if (!links.length) return { rules: [], settings: { ...DEFAULT_SETTINGS }, problems: [], instructions: null, knowledge: [], maps: [] };
   // a map linked in both scopes (possible before 0005) is read once, at its widest scope
   links.sort((a, b) => (a.factory_id ? 1 : 0) - (b.factory_id ? 1 : 0));
@@ -288,7 +289,7 @@ const STEP_SEEDS: Seed = { title: "Decision steps", notes: "What the AI goes thr
   { title: "1. Project datasheet (compared by code)", notes: "The rows of the Datasheet Notes table saved in the project: the same rows as the blue chips under the clause (Product Options > Row mapping finds them). IF the clause states a number (\"minimum 50 mm\", \"not exceeding 2.5 m/s\") AND a chip near that number has a value in the same unit, code compares them:\n- requirement met -> Comply\n- a value asked without minimum or maximum, and the offer differs -> Comply with Remarks, stating the offer\n- a minimum or maximum not met -> Not Comply\nThe remark is the datasheet value (the row's Response template filled in). No model call. IF the library answers the clause with a different value, the datasheet wins and the draft names both values." },
   { title: "2. Library (Compliance review)", notes: "IF a library clause of this factory is at least as similar as the threshold below AND it is answered AND it has no # rules -> its answer and wording are copied, no model call. Below the threshold, the 3 most similar answered clauses go to the model as a style reference.", special: ["Copy from library at: 0.90", "Datasheet wins over the library: yes"] },
   { title: "3. Earlier answers in this record", notes: "IF a person answered the same clause earlier in this specification -> proposed again (\"same as your answer to 1.04 H\"). The answers given earlier in the same section also go to the model, so it stays consistent." },
-  { title: "4. Map rules that answer by themselves", notes: "IF a rule of this map (Part branches, Learned) has an Answer and a Remark AND its When / Section match the clause -> applied as written, no model call. Rules without an Answer are instructions for the model. The factory's map is read before the map for all factories." },
+  { title: "4. Map rules that answer by themselves", notes: "IF a rule of this map (Part branches, Learned) has an Answer and a Remark AND its When / Section match the clause -> applied as written, no model call. Rules without an Answer are instructions for the model. Only this factory's rule book is read." },
   { title: "5. Other projects", notes: "IF the same clause was answered in another project of this factory -> proposed, marked \"not yet approved\" (below the library)." },
   { title: "6. Product Options and AI notes", notes: "Values seen on this factory's datasheets, and the special options and notes the editors wrote, for the rows of the clause. They go to the model as facts it may quote. Facts about the product that are not datasheet values belong in a knowledge map (step 7)." },
   { title: "7. Knowledge maps", notes: "The verified branches of the knowledge maps linked in Compliance review > AI rules (process or product understanding) that share telling words with the clause. They go to the model as facts it may quote. A branch \"to verify\" is not a fact yet and is left out." },
@@ -297,25 +298,20 @@ const STEP_SEEDS: Seed = { title: "Decision steps", notes: "What the AI goes thr
   { title: "How to write a rule", notes: "Add a branch under a Part. Title = a name. Notes = what the AI should do, in a plain sentence. Special notes, one per line:\n  When: words or phrases, commas between (the clause mentions one; \"install\" also finds installation)\n  Unless: words or phrases (the rule stays off a clause that mentions one; passes to the branches under it)\n  Section: words or phrases (the section title mentions one)\n  Answer: one of the six answers\n  Remark: the exact remark\nWith Answer and Remark the rule answers by itself. When and Section pass to the branches under it. Mark a branch \"to verify\" to switch it off. Compliance review > AI rules > Try a clause shows what applies and the exact text the AI reads." }
 ] };
 
-const INSTRUCTION_SEEDS = (): Seed => ({ title: "Instructions", notes: "The AI's brief. The model reads every section below, in this order, before it answers a clause ({product} and {factory} are filled in). Edit a section to change how it answers; mark one \"to verify\" to leave it out. In a factory's map, a section with the same title replaces this one. The reply format and the six answers are fixed in the site.",
+const INSTRUCTION_SEEDS = (): Seed => ({ title: "Instructions", notes: "The AI's brief. The model reads every section below, in this order, before it answers a clause ({product} and {factory} are filled in). Edit a section to change how it answers; mark one \"to verify\" to leave it out. The reply format and the six answers are fixed in the site.",
   kids: DEFAULT_INSTRUCTIONS.map((x) => ({ title: x.title, notes: x.text })) });
 
 const LEARNED_SEED: Seed = { title: "Learned", notes: "Rules the AI writes here when people change its answer the same way 3 times or more (every night, or AI rules > How the AI did > Write to the map). They are \"to verify\": check one, edit it if needed and mark it verified to switch it on; delete the ones that are wrong (they are not written again)." };
 
+/* The whole template. Since 20 Oct 2026 every rule book belongs to one factory (its team keeps it): the factory's own
+   facts come with the product's. */
 export function seedTree(product: string, factory: string | null): Seed[] {
-  if (factory) return [
-    { title: "Instructions", notes: `Only what should differ for ${factory}: add a section with the same title as one in the map for all ${product} factories to replace it, or a new title to add to it.` },
-    { title: "Settings", notes: `Only what should differ for ${factory} from the map for all ${product} factories. Copy a line from that map's Decision steps and change the value.` },
-    { title: "Part 1 General" }, { title: "Part 2 Products" }, { title: "Part 3 Execution" }, { title: "Any Part" },
-    { title: "Facts", notes: `Facts that hold for ${factory} only. ` + FACTS_NOTES, kids: factoryFacts(product, factory) },
-    LEARNED_SEED
-  ];
   const ahu = isAhu(product);
   return [
     INSTRUCTION_SEEDS(),
     STEP_SEEDS,
     { title: "Settings", notes: "Change a value after the colon. The AI reads it within a minute.", special: ["Suggest in focus mode: yes", "Use answers from other projects: yes"] },
-    { title: "Facts", notes: FACTS_NOTES, kids: ahu ? AHU_FACTS : [] },
+    { title: "Facts", notes: FACTS_NOTES, kids: [...(ahu ? AHU_FACTS : []), ...(factory ? factoryFacts(product, factory) : [])] },
     { title: "Part 1 General", kids: [
       { title: "Reference standards", notes: "A line that only names a standard or a code is Noted. A standard the units are certified or tested to (a fact, an AI note or the library says so: Eurovent / EN 1886 / EN 13053, AHRI 410 coils) is Comply, with that fact as the remark. Codes for the building and its installation (SASO installation codes, NFPA 90A, IBC, IMC, local codes) are Noted. A standard the units are not certified to, with an equivalent a fact names: Comply with Remarks, 'Comply as equivalent: <the offered standard>'. Never claim an equivalence no fact names.", special: ["Section: references, reference standards, codes and standards, applicable standards"] },
       { title: "Scope statements", notes: "Statements of what the section covers or how it relates to other sections. A clause in these sections that asks for something (shall, provide, select, a standard, a limit) is not a scope statement: the Unless line keeps the rule off it.", special: ["Section: section includes, related sections, related documents, summary, description of work", "Unless: shall, provide, select, must, submit, comply, standard, standards, equivalent, minimum, maximum, limit, limits, deviation", "Answer: Noted", "Remark: Noted."] },
@@ -406,7 +402,7 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
   // the brief (19 Oct 2026): Instructions sections that still hold the old template words get the new ones; a section
   // the old brief had and the new one has not is switched off ("to verify"); new sections are added; edited ones stay
   const instTop = [...topId.entries()].find(([t]) => /^(instructions|prompt|rule ?book|brief)\b/.test(t));
-  if (instTop && !factory) {
+  if (instTop) {
     const kids = nodes.filter((x) => x.parent_id === instTop[1]);
     const tidyText = (t: string) => t.replace(/\r/g, "").trim();
     for (const old of OLD_INSTRUCTIONS) {
@@ -424,8 +420,9 @@ export async function upgradeAiMap(env: Env, userId: string, mapId: string, prod
     });
   }
 
-  // template rules: only in a map for every factory of the product (a factory's map starts with empty Parts)
-  if (!factory) {
+  // template rules (every factory's rule book holds the whole template since 20 Oct 2026; an older factory map that
+  // started with empty Parts gets them here)
+  {
     const index = templateIndex(product);
     const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, k) => x.trim() === b[k].trim());
     for (const old of OLD_TEMPLATE) {
@@ -474,7 +471,7 @@ export async function createAiMap(env: Env, userId: string, product: { id: strin
     env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES (?, ?, 'private', 'rulebook', ?, ?, ?, ?)").bind(mapId, title, userId, at, userId, at),
     env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
                     VALUES (?, ?, NULL, ?, ?, '[]', 0, 1, ?, ?, ?, ?, ?, ?)`)
-      .bind(rootId, mapId, title, `The rules and settings the AI uses for ${product.name}${factory ? " made in " + factory.name : " (every factory)"}. It is linked in Compliance review > AI rules. Instructions = what the AI reads before every answer; Decision steps = the order it goes through; the Parts hold the rules; Learned = what it learned, to verify.`, userId, at, userId, at, userId, at)
+      .bind(rootId, mapId, title, `The rules and settings the AI uses for ${product.name}${factory ? " made in " + factory.name + " (this factory only)" : ""}. It is linked in Compliance review > AI rules. Instructions = what the AI reads before every answer; Decision steps = the order it goes through; the Parts hold the rules; Learned = what it learned, to verify.`, userId, at, userId, at, userId, at)
   ];
   const parts = new Map<number, string>();
   seedTree(product.name, factory ? factory.name : null).forEach((s, i) => {

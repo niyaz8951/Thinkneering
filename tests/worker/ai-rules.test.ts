@@ -207,17 +207,20 @@ describe("AI rules: routes", () => {
   beforeEach(async () => { await resetLogins(); });
   afterEach(() => { delete (env as any).AI; });
 
-  it("AI maps are chosen per product and factory by admins; others are refused; the tab shows what a map gets wrong", async () => {
+  it("AI maps are kept per factory by admins (nothing shared between factories); others are refused; the tab shows what a map gets wrong", async () => {
     const t = await login("teamAdmin");
-    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
-    expect(made.name).toBe("AI rules: AHU");
-    let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
-    expect(got.all).toMatchObject({ id: made.id, name: "AI rules: AHU" });
-    expect(got.all.rules).toBe(39);                                    // 9 for every product + 27 AHU rules + 3 verified AHU facts (template-ahu.ts)                                              // the template's starter rules (with "Coordination by the contractor")
-    expect(got.all.direct).toBeGreaterThanOrEqual(4);
-    expect(got.own).toBeNull();
+    expect(await refused("ai_map_create", { p_token: t, p_product_id: "ahu" })).toMatch(/Choose the factory/);     // no map for "all factories" (owner, 20 Oct 2026)
+    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    expect(made.name).toBe("AI rules: AHU Dubai");
+    let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    expect(got.own).toMatchObject({ id: made.id, name: "AI rules: AHU Dubai" });
+    expect(got.own.rules).toBe(39);                                    // 9 for every product + 27 AHU rules + 3 verified AHU facts (template-ahu.ts)
+    expect(got.own.direct).toBeGreaterThanOrEqual(4);
     expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
     expect(got.problems).toEqual([]);
+    got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(got.own).toBeNull();                                        // Dubai's rule book is not Riyadh's
+    expect(got.maps.find((m: any) => m.id === made.id).linked[0].where).toMatch(/Dubai only/);
     // a factory map of his own, named as he likes, linked by name
     const own = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_name: "AHU-Riyadh-AI notes" });
     const part3 = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Part 3 Execution'").bind(own.id).first<any>();
@@ -229,11 +232,11 @@ describe("AI rules: routes", () => {
     const settings = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND title = 'Settings'").bind(own.id).first<any>();
     await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(["Copy from library at: 0.85", "Speed: fast"]), settings.id).run();
     got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
-    expect(got.own).toMatchObject({ name: "AHU-Riyadh-AI notes", direct: 1 });
-    expect(got.settings.copyAt).toBe(0.85);                                     // the factory's map overrides the product's
+    expect(got.own).toMatchObject({ name: "AHU-Riyadh-AI notes" });     // the whole template, its own copy for Riyadh
+    expect(got.settings.copyAt).toBe(0.85);
     expect(got.problems.join("\n")).toMatch(/Answer "By others please" is not one of the six answers/);
     expect(got.problems.join("\n")).toMatch(/"Speed" is not a setting the AI knows/);
-    expect(got.maps.map((m: any) => m.name)).toEqual(expect.arrayContaining(["AI rules: AHU", "AHU-Riyadh-AI notes"]));
+    expect(got.maps.map((m: any) => m.name)).toEqual(expect.arrayContaining(["AI rules: AHU Dubai", "AHU-Riyadh-AI notes"]));
     // try a clause: the factory's rule answers it, from its branch
     const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "Crating of the sections for the sea voyage.", p_part: 3 });
     expect(tried.direct).toMatchObject({ title: "Crating 2", answer: "In Contractor's Scope" });
@@ -255,8 +258,20 @@ describe("AI rules: routes", () => {
     const sales = await login("sales");
     for (const r of ["ai_map_get", "ai_map_create", "ai_map_link", "ai_try", "ai_quality"])
       expect(await refused(r, { p_token: sales, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: "x y z" })).toMatch(/Only an admin or the super user/);
-    expect(await refused("ai_map_get", { p_token: (await login("sbu")), p_product_id: "ahu" })).toMatch(/Only an admin/);
-    expect(await refused("ai_map_get", { p_token: "nope", p_product_id: "ahu" })).toBe("SESSION_EXPIRED");
+    expect(await refused("ai_map_get", { p_token: (await login("sbu")), p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toMatch(/Only an admin/);
+    expect(await refused("ai_map_get", { p_token: "nope", p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toBe("SESSION_EXPIRED");
+    // a map linked for "all factories" before 20 Oct 2026: read for no factory, listed, and moved to one factory on choice
+    await env.DB.prepare("DELETE FROM ai_map_links WHERE map_id = ?").bind(made.id).run();
+    await env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role) VALUES ('ahu', NULL, ?, 'rulebook')").bind(made.id).run();
+    const old = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    expect(old.own).toBeNull();
+    expect(old.legacy).toEqual([{ id: made.id, name: "AI rules: AHU Dubai", role: "rulebook" }]);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: made.id });
+    const moved = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    expect(moved.own).toMatchObject({ id: made.id });
+    expect(moved.legacy).toEqual([]);
+    // used by Dubai: Riyadh cannot take it as well
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: made.id })).toMatch(/already used for AHU, Dubai/);
   });
 
   it("no datasheet: the closest approved Product Options value is proposed (never green) and the selection list says what to select (19 Oct 2026)", async () => {
@@ -300,7 +315,7 @@ describe("AI rules: routes", () => {
       env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||panel', 'Unit Data', 'Panel', 1, 'double wall; double skin; panel thick', 1)"),
       env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||insulation', 'Unit Data', 'Insulation', 1, 'insulation; injected foam; polyurethane', 2)")
     ]);
-    await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
+    await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
     const p = await ok("pr_save", { p_token: t, p_name: "Tower B", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
     const lines = [...SPEC_LINES, { type: "part", sr: "", spec: "PART 3 - EXECUTION" }, { type: "section", sr: "3.01", spec: "INSTALLATION" },
       { type: "letter", sr: "A.", spec: "Unloading of the units at site shall be coordinated with the contractor." }];
@@ -366,7 +381,7 @@ describe("AI rules: routes", () => {
     const q = await ok("ai_quality", { p_token: t, p_product_id: "ahu" });
     expect(q.sources).toEqual(expect.arrayContaining([expect.objectContaining({ source: "record", n: 1, kept: 1 }), expect.objectContaining({ source: "model", n: 1, replaced: 1 })]));
     // with the model switched off in the map, free sources still answer and the model is never called
-    const mapId = (await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).all.id;
+    const mapId = (await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).own.id;
     await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE map_id = ? AND title = 'Settings'").bind(JSON.stringify(["Use the AI model: no"]), mapId).run();
     await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 5000).toISOString(), mapId).run();
     await ok("ai_review_clear", { p_token: t, p_run_id: run.run_id });
@@ -421,7 +436,7 @@ describe("AI review: connection and allowance", () => {
       env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_at, updated_at) VALUES ('m-relaxed', 'Relaxed', 'private', 'rulebook', ?, ?)").bind(at, at),
       env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-root', 'm-relaxed', NULL, 'Relaxed', '', '[]', 0, 1)"),
       env.DB.prepare("INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified) VALUES ('r-set', 'm-relaxed', 'r-root', 'Settings', '', ?, 1, 1)").bind(JSON.stringify(["Answer without a source: yes"])),
-      env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role) VALUES ('ahu', NULL, 'm-relaxed', 'rulebook')")
+      env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role) VALUES ('ahu', 'ahu-dubai', 'm-relaxed', 'rulebook')")
     ]);
     const p = await ok("pr_save", { p_token: t, p_name: "Tower C", p_client_type: "Consultant", p_client_name: "ACME", p_region: "UAE" });
     const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "pdf", p_file_name: "spec.pdf", p_lines: SPEC_LINES, p_project_id: p.id });
@@ -465,17 +480,18 @@ describe("AI rule book and knowledge maps", () => {
     expect(await tops(kn.id)).toEqual([]);
     expect((await ok("mp_list", { p_token: t })).maps.find((m: any) => m.id === rb.id).kind).toBe("rulebook");
     // each picker takes only its kind
-    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "rulebook" })).toMatch(/is a knowledge map/);
-    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "knowledge" })).toMatch(/is an AI rule book/);
-    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });
-    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "knowledge" });
-    // a rule book is linked once, anywhere; a knowledge map once per product (19 Oct 2026)
-    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/already linked for AHU, all factories/);
-    expect(await refused("ai_map_link", { p_token: t, p_product_id: "fcu", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/A rule book is linked once/);
-    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: kn.id, p_role: "knowledge" })).toMatch(/once per product/);
-    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: rb.id, p_role: "rulebook" });                 // linking it again where it is: fine
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: kn.id, p_role: "rulebook" })).toMatch(/is a knowledge map/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "knowledge" })).toMatch(/is an AI rule book/);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "rulebook" });
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: kn.id, p_role: "knowledge" });
+    // a map belongs to one factory (20 Oct 2026): another factory or product cannot take it as well
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/already used for AHU, Riyadh/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "fcu", p_factory_id: "fcu-shenzhen", p_map_id: rb.id, p_role: "rulebook" })).toMatch(/already used for AHU, Riyadh/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_map_id: kn.id, p_role: "knowledge" })).toMatch(/already used for AHU, Riyadh/);
+    expect(await refused("ai_map_link", { p_token: t, p_product_id: "ahu", p_map_id: kn.id, p_role: "knowledge" })).toMatch(/Choose the factory/);
+    await ok("ai_map_link", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_map_id: rb.id, p_role: "rulebook" });                 // linking it again where it is: fine
     const picker = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
-    expect(picker.maps.find((m: any) => m.id === rb.id).linked).toEqual([{ role: "rulebook", product_id: "ahu", factory_id: null, where: "AHU, all factories" }]);
+    expect(picker.maps.find((m: any) => m.id === rb.id).linked).toEqual([{ role: "rulebook", product_id: "ahu", factory_id: "ahu-riyadh", where: "AHU, Riyadh only" }]);
     // knowledge: a verified branch the AI may quote; one "to verify" is not a fact yet
     const kroot = await env.DB.prepare("SELECT id FROM mp_nodes WHERE map_id = ? AND parent_id IS NULL").bind(kn.id).first<any>();
     await env.DB.batch([
@@ -504,17 +520,18 @@ describe("AI rule book and knowledge maps", () => {
     expect(tried.steps.find((x: any) => x.step === "Knowledge maps").result).toMatch(/Switched off/);
     const got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     expect(got.settings.useKnowledge).toBe(false);
-    expect(got.k_all).toMatchObject({ id: kn.id, branches: 1 });
+    expect(got.k_own).toMatchObject({ id: kn.id, branches: 1 });
     expect(got.instructions).toEqual(expect.arrayContaining(["Role", "Scope of supply"]));
 
     // an older rule book (no Instructions) gets the new parts with one press, its rules untouched
     await env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND title IN ('Instructions', 'Decision steps', 'Learned')").bind(rb.id).run();
-    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).instructions).toBeNull();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 1500).toISOString(), rb.id).run();
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).instructions).toBeNull();
     // (a rule book made in Maps has no product yet: the AHU rules and facts come with the first update for AHU)
-    const firstUp = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added;
+    const firstUp = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).added;
     expect(firstUp.slice(0, 3)).toEqual(["Instructions", "Decision steps", "Learned"]);
     expect(firstUp).toEqual(expect.arrayContaining(["Fans (added under Part 2 Products)", "Eurovent certification (fact added)", "Warranty period (fact added, to verify)"]));
-    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).added).toEqual([]);
     expect(await tops(rb.id)).toEqual(expect.arrayContaining(["Part 3 Execution", "Instructions", "Learned"]));
 
     // learning: 3 people answered the same way instead of the AI -> one branch under Learned, to verify, written once
@@ -537,10 +554,10 @@ describe("AI rule book and knowledge maps", () => {
 
     // changing a map's type in Maps takes it off the links of the other type
     await ok("mp_map_save", { p_token: t, p_map_id: kn.id, p_kind: "rulebook" });
-    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu" })).k_all).toBeNull();
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).k_own).toBeNull();
     // refused: not an admin; another person's map he cannot edit
-    expect(await refused("ai_map_upgrade", { p_token: await login("sales"), p_product_id: "ahu" })).toMatch(/Only an admin/);
+    expect(await refused("ai_map_upgrade", { p_token: await login("sales"), p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toMatch(/Only an admin/);
     expect(await refused("ai_learn", { p_token: await login("sales"), p_product_id: "ahu" })).toMatch(/Only an admin/);
-    expect(await refused("ai_map_upgrade", { p_token: await login("admin"), p_product_id: "ahu" })).toMatch(/cannot edit that map/);
+    expect(await refused("ai_map_upgrade", { p_token: await login("admin"), p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toMatch(/cannot edit that map/);
   });
 });

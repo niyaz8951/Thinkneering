@@ -212,7 +212,7 @@ describe("Routes: strict review, learning loop, template update", () => {
 
   it("Update from template brings untouched template rules up to date and leaves edited ones alone", async () => {
     const t = await login("teamAdmin");
-    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu" });
+    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     // make it look like a map created from the earlier template: old Scope statements, Concrete bases under Any Part, no Coordination rule
     const node = (title: string) => env.DB.prepare("SELECT id, parent_id FROM mp_nodes WHERE map_id = ? AND title = ?").bind(made.id, title).first<any>();
     const anyPart = await node("Any Part"), scope = await node("Scope statements"), concrete = await node("Concrete bases"), site = await node("Site works");
@@ -222,7 +222,7 @@ describe("Routes: strict review, learning loop, template update", () => {
       env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(["When: rigging", "Answer: In Contractor's Scope", "Remark: Our own wording."]), site.id),
       env.DB.prepare("DELETE FROM mp_nodes WHERE map_id = ? AND title = 'Coordination by the contractor'").bind(made.id)
     ]);
-    const up = await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" });
+    const up = await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
     expect(up.added).toEqual(expect.arrayContaining(["Scope statements (updated)", "Concrete bases (updated, moved to Part 3 Execution)", "Coordination by the contractor (added under Part 1 General)"]));
     expect(up.added.join(" ")).not.toMatch(/Site works/);                        // edited by a person: left alone
     const sc = await node("Scope statements");
@@ -230,7 +230,7 @@ describe("Routes: strict review, learning loop, template update", () => {
     expect((await node("Concrete bases")).parent_id).toBe((await node("Part 3 Execution")).id);
     expect(JSON.parse((await env.DB.prepare("SELECT special FROM mp_nodes WHERE id = ?").bind(site.id).first<any>()).special)).toContain("Remark: Our own wording.");
     // pressing it again changes nothing
-    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu" })).added).toEqual([]);
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).added).toEqual([]);
     // the corrected rules on the Riyadh Metro clauses
     const tr = (clause: string, section: string, part: number) => ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: clause, p_section: section, p_part: part });
     expect((await tr("Provide fans and motors capable of stable operation at design conditions.", "SUMMARY", 1)).direct).toBeNull();
