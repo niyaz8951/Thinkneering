@@ -470,6 +470,35 @@ describe("AI review: connection and allowance", () => {
 describe("AI rule book and knowledge maps", () => {
   beforeEach(async () => { await resetLogins(); });
 
+  it("a knowledge map from the template, per factory: product facts and the vocabulary; the AI quotes only verified facts and offers (20 Oct 2026)", async () => {
+    const t = await login("teamAdmin");
+    expect(await refused("ai_knowledge_create", { p_token: t, p_product_id: "ahu" })).toMatch(/Choose the factory/);
+    expect(await refused("ai_knowledge_create", { p_token: await login("sales"), p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toMatch(/Only an admin/);
+    const k = await ok("ai_knowledge_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(k.name).toBe("AHU Riyadh - knowledge");
+    const got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    expect(got.k_own).toMatchObject({ id: k.id });
+    expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).k_own).toBeNull();   // Riyadh's only
+    const node = (title: string) => env.DB.prepare("SELECT id, verified, notes, special FROM mp_nodes WHERE map_id = ? AND title = ?").bind(k.id, title).first<any>();
+    expect((await node("Warranty")).verified).toBe(0);                                      // the Riyadh facts come to verify
+    expect(JSON.parse((await node("Final filter class")).special)).toEqual(expect.arrayContaining(["Kind: class", "Scale: M5, M6, F7, F8, F9, E10, E11, E12, H13, H14"]));
+    const leak = await env.DB.prepare("SELECT n.id FROM mp_nodes n JOIN mp_nodes p ON p.id = n.parent_id WHERE n.map_id = ? AND p.title = 'Damper leakage' AND n.title = 'Offered (Riyadh)'").bind(k.id).first<any>();
+    const clause = "Dampers shall have leakage to EN 1751 class 2 with aluminium blades.";
+    const tryIt = () => ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh", p_clause: clause, p_part: 2 });
+    expect((await tryIt()).knowledge).toEqual([]);                                          // terms and scales are not facts; nothing verified yet
+    // the Riyadh team fills in what it offers and verifies it: the AI may quote it, found by the type's terms
+    await env.DB.prepare("UPDATE mp_nodes SET notes = 'Leakage class 2 to EN 1751, standard; source: damper supplier certificate.', verified = 1 WHERE id = ?").bind(leak.id).run();
+    await env.DB.prepare("UPDATE mp_maps SET updated_at = ? WHERE id = ?").bind(new Date(Date.now() + 1000).toISOString(), k.id).run();
+    expect((await tryIt()).knowledge.join(" ")).toMatch(/Vocabulary › Dampers › Damper leakage › Offered \(Riyadh\): Leakage class 2 to EN 1751/);
+    // FCU and chiller templates have their own vocabulary
+    const f = await ok("ai_knowledge_create", { p_token: t, p_product_id: "fcu", p_factory_id: "fcu-shenzhen" });
+    const c = await ok("ai_knowledge_create", { p_token: t, p_product_id: "chiller", p_factory_id: "chiller-jeddah" });
+    const has = async (id: string, title: string) => !!(await env.DB.prepare("SELECT 1 FROM mp_nodes WHERE map_id = ? AND title = ?").bind(id, title).first());
+    expect(await has(f.id, "Water pressure drop")).toBe(true);
+    expect(await has(c.id, "Part-load efficiency")).toBe(true);
+    expect(await has(c.id, "Offered (Jeddah)")).toBe(true);
+  });
+
   it("a map is a rule book or knowledge; the brief, the steps and the facts come from the maps; old maps get the new parts; the AI writes what it learned, to verify", async () => {
     const t = await login("teamAdmin");
     // made in Maps: an AI rule book starts from the template, a knowledge map is empty as always

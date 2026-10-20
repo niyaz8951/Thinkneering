@@ -243,8 +243,8 @@ export function notesMatching(notes: { section: string; body: string }[], clause
 /* Branches of the knowledge maps for a clause: the k sharing the most telling words (2 at least). The words of
    every branch are worked out once per record (prepareKnowledge). */
 export interface KnowledgeIndexed { t: string; words: Set<string> }
-export function prepareKnowledge(items: { map: string; path: string; text: string }[]): KnowledgeIndexed[] {
-  return items.map((k) => ({ t: `${k.path}: ${k.text}`, words: tellingWords(k.path + " " + k.text) }));
+export function prepareKnowledge(items: { map: string; path: string; text: string; keys?: string }[]): KnowledgeIndexed[] {
+  return items.map((k) => ({ t: `${k.path}: ${k.text}`, words: tellingWords(k.path + " " + k.text + " " + (k.keys || "")) }));
 }
 export function knowledgeMatching(items: KnowledgeIndexed[], clause: string, section: string, k = 4): string[] {
   if (!items.length) return [];

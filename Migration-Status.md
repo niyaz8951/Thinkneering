@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 20 Oct 2026: the Shazam-like vocabulary lives in each factory's knowledge map (no third map); knowledge maps have a template (AHU, FCU, Chiller) with Product facts and the Vocabulary, factory offers to verify.
 - 20 Oct 2026: everything per factory, nothing shared between factories (rule book, knowledge map, Product Options, library), each kept by its factory's team. Maps linked for "all factories" are no longer read; AI rules offers to move each to one factory. The row mapping stays per product (to decide if it should split).
 - 19 Oct 2026 (late night): project page leads with the datasheet (optional) then the specification; without a datasheet the clauses get the closest approved Product Options values (AMBER proposals, dashed chips) and the working Excel a Selection list sheet; reset script and the end-to-end walkthrough (`docs/End-to-End-Walkthrough.md`) for the owner's from-scratch test.
 - 19 Oct 2026 (night): unique project codes (migration 0008) and the library filter / download by code. Two maps, two jobs: the rule book holds only instructions and if / then rules; a new vocabulary map holds the product (types, terms, equivalences, capabilities). Source order: datasheet, Product Options, library, vocabulary map; the vocabulary also identifies each clause first. 10-line experiment and roadmap: `docs/Vocabulary-Experiment-2026-10-19.md`.

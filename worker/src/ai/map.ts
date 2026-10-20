@@ -30,6 +30,7 @@ import { all, now, uuid } from "../lib/sql";
 import { CHOICES, choiceOf } from "../lib/cm";
 import type { AiRule } from "./rules";
 import { isAhu, AHU_PART1, AHU_PART2, AHU_PART3, AHU_FACTS, FACTS_NOTES, factoryFacts } from "./template-ahu";
+import { knowledgeSeed, FILL_IN } from "./knowledge-template";
 
 export interface AiSettings {
   copyAt: number; useModel: boolean; budget: number; suggest: boolean; datasheetWins: boolean; projectAnswers: boolean;
@@ -216,7 +217,10 @@ export function parseMap(nodes: MapNode[], scope: string | null, label = "map"):
 
 /* A branch of a knowledge map, for the AI: where it is ("Fans › EC fans"), and what it says (title, notes,
    special notes). Branches "to verify" are not facts yet and are left out, with everything under them. */
-export interface KnowledgeItem { map: string; path: string; text: string }
+export interface KnowledgeItem { map: string; path: string; text: string; keys?: string }
+/* The verified branches of a knowledge map, as facts the model may quote. Under "Vocabulary" (the requirement types,
+   knowledge-template.ts) only the verified "Offered (...)" and "Equivalences" branches are facts; the engineering lines
+   (Terms, Kind, Scale ...) are for code, and their words help find the clauses a fact is about (keys). */
 export function knowledgeOf(nodes: MapNode[], mapName: string): KnowledgeItem[] {
   const kids = new Map<string | null, MapNode[]>();
   for (const n of nodes) { const l = kids.get(n.parent_id) || []; l.push(n); kids.set(n.parent_id, l); }
@@ -224,15 +228,27 @@ export function knowledgeOf(nodes: MapNode[], mapName: string): KnowledgeItem[] 
   const root = (kids.get(null) || [])[0];
   const out: KnowledgeItem[] = [];
   if (!root) return out;
-  (function walk(n: MapNode, path: string[]) {
+  const termsOf = (n: MapNode | undefined) => (n ? specials(n).filter((x) => /^terms\s*:/i.test(x)).map((x) => x.replace(/^terms\s*:\s*/i, "")).join(", ") : "");
+  (function walk(n: MapNode, path: string[], vocab: boolean, chain: MapNode[]) {
     for (const c of kids.get(n.id) || []) {
       if (!c.verified) continue;
       const here = [...path, c.title.trim()];
+      const isVocab = vocab || (path.length === 0 && /^vocabulary\b/i.test(c.title.trim()));
+      if (isVocab) {
+        const offered = /^offered\b/i.test(c.title.trim()), eq = /^equivalen/i.test(c.title.trim());
+        if (offered && c.notes.trim() && !c.notes.trim().startsWith(FILL_IN)) {
+          out.push({ map: mapName, path: here.join(" \u203a "), text: [c.notes.trim(), ...specials(c)].filter(Boolean).join(" · ").slice(0, 1200), keys: chain.map(termsOf).join(", ") });
+        } else if (eq && specials(c).length) {
+          out.push({ map: mapName, path: here.join(" \u203a "), text: specials(c).join(" · ").slice(0, 1200), keys: chain.map(termsOf).join(", ") });
+        }
+        if (out.length < 3000) walk(c, here, true, [...chain, c]);
+        continue;
+      }
       const body = [c.notes.trim(), ...specials(c)].filter(Boolean).join(" · ");
-      if (body) out.push({ map: mapName, path: here.join(" › "), text: body.slice(0, 1200) });
-      if (out.length < 3000) walk(c, here);
+      if (body) out.push({ map: mapName, path: here.join(" \u203a "), text: body.slice(0, 1200) });
+      if (out.length < 3000) walk(c, here, false, []);
     }
-  })(root, []);
+  })(root, [], false, []);
   return out;
 }
 
@@ -488,6 +504,26 @@ export async function createAiMap(env: Env, userId: string, product: { id: strin
   });
   stmts.push(env.DB.prepare("DELETE FROM ai_map_links WHERE product_id = ? AND ifnull(factory_id, '') = ? AND role = 'rulebook'").bind(product.id, factory ? factory.id : ""));
   stmts.push(env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, 'rulebook', ?)").bind(product.id, factory ? factory.id : null, mapId, userId));
+  for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
+  return { id: mapId, name: title };
+}
+
+/* A new knowledge map for one factory from the template (knowledge-template.ts): Product facts and the Vocabulary,
+   private to its maker, linked at once as the factory's knowledge map. */
+export async function createKnowledgeMap(env: Env, userId: string, product: { id: string; name: string }, factory: { id: string; name: string }, name?: string): Promise<{ id: string; name: string }> {
+  const mapId = uuid(), at = now(), rootId = uuid();
+  let title = (name || `${product.name} ${factory.name} - knowledge`).slice(0, 120);
+  const clash = await env.DB.prepare("SELECT 1 FROM mp_maps WHERE created_by = ? AND lower(name) = lower(?)").bind(userId, title).first();
+  if (clash) title = (title + " " + at.slice(0, 10)).slice(0, 120);
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, created_by, created_at, updated_by, updated_at) VALUES (?, ?, 'private', 'knowledge', ?, ?, ?, ?)").bind(mapId, title, userId, at, userId, at),
+    env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, special, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
+                    VALUES (?, ?, NULL, ?, ?, '[]', 0, 1, ?, ?, ?, ?, ?, ?)`)
+      .bind(rootId, mapId, title, `What ${product.name} units made in ${factory.name} are: the facts the AI may quote, and the vocabulary of the requirements specifications ask. Kept by the ${factory.name} team; the AI never reads it for another factory. Linked in Compliance review > AI rules.`, userId, at, userId, at, userId, at)
+  ];
+  knowledgeSeed(product.name, factory.name).forEach((s, i) => addSeed(env, stmts, mapId, rootId, s, i, userId, at));
+  stmts.push(env.DB.prepare("DELETE FROM ai_map_links WHERE product_id = ? AND factory_id = ? AND role = 'knowledge'").bind(product.id, factory.id));
+  stmts.push(env.DB.prepare("INSERT INTO ai_map_links (product_id, factory_id, map_id, role, created_by) VALUES (?, ?, ?, 'knowledge', ?)").bind(product.id, factory.id, mapId, userId));
   for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
   return { id: mapId, name: title };
 }

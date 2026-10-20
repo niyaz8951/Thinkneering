@@ -35,7 +35,7 @@ import { aiAvailable, aiErrorText, complete, MODELS, NOT_AVAILABLE, wholeReview,
 import { ClauseSearch } from "../ai/search";
 import { loadContext, compareDatasheet, libraryConflict, picksFor, type Context, type RunRowFull } from "../ai/evidence";
 import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai/decide";
-import { aiMapFor, createAiMap, upgradeAiMap, instructionsText } from "../ai/map";
+import { aiMapFor, createAiMap, createKnowledgeMap, upgradeAiMap, instructionsText } from "../ai/map";
 import { learnToMaps } from "../ai/learn";
 import { mpRights, type MapRow } from "./mp";
 import { pickRules, directRule, splitComments, notesMatching, prepareKnowledge, knowledgeMatching } from "../ai/rules";
@@ -408,6 +408,17 @@ export const routes: Routes = {
     const fac = await ownFactory(env, prod.id, p.p_factory_id);
     const made = await createAiMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
     await audit(env, s.id, "ai_map_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
+    return { ok: true, ...made };
+  },
+
+  /* A new knowledge map for one factory from the template (Product facts and the Vocabulary of requirement types),
+     private to its maker, linked at once. */
+  async ai_knowledge_create(env, p) {
+    const s = requireRulesEditor(await sessionUser(env, p.p_token));
+    const prod = await productRow(env, p.p_product_id);
+    const fac = await ownFactory(env, prod.id, p.p_factory_id);
+    const made = await createKnowledgeMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
+    await audit(env, s.id, "ai_knowledge_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
     return { ok: true, ...made };
   },
 

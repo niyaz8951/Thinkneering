@@ -690,12 +690,12 @@
         }, function (err) { sel.disabled = false; fail(err); });
       });
       var open = link && res.can_maps ? el("a", { "class": "btn ghost", href: mapUrl(link.id), text: "Open in Maps" }) : null;
-      var make = role === "rulebook" ? el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () { createMap(scope); } }) : null;
+      var make = el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () { role === "rulebook" ? createMap(scope) : createKnowledge(scope); } });
       var sum;
       if (role === "rulebook") sum = link ? link.rules + (link.rules === 1 ? " rule" : " rules") + ", " + link.direct + " of them answer by themselves · changed " + Hub.date(link.updated_at, true)
                                           : "None: for " + factoryName() + " the AI uses its built-in instructions, the datasheet, " + factoryName() + "'s Product Options and library.";
-      else sum = link ? link.branches + " verified branches the AI may quote · changed " + Hub.date(link.updated_at, true)
-                      : "None. A knowledge map (process or product understanding) gives the AI facts: its verified branches that match a clause.";
+      else sum = link ? link.branches + " verified branches · changed " + Hub.date(link.updated_at, true)
+                      : "None. The knowledge map holds " + factoryName() + "'s product facts and the vocabulary of requirement types (what each clause asks, and what " + factoryName() + " offers): the AI quotes its verified facts and offers.";
       return el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: KINDS[role] }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })]);
     }
     var label = factoryName() + " factory";
@@ -739,6 +739,15 @@
     Api.aiMapUpgrade(Hub.token(), { productId: productId(), factoryId: scope }).then(function (r) {
       Hub.toast(r.added.length ? "Done: " + r.added.join(", ") + "." : "The rule book is up to date."); loadRules.scope = ""; loadRules();
     }, fail);
+  }
+  function createKnowledge(scope) {
+    Hub.ask("Name of the new knowledge map", { title: "Create from template", ok: "Create", placeholder: productName() + " " + factoryName() + " - knowledge",
+      hint: "The knowledge map of " + factoryName() + " only: Product facts, and the Vocabulary of " + productName() + " requirement types with an \"Offered (" + factoryName() + ")\" branch under each to fill in and verify. Everything about the factory comes in \"to verify\". It is private to you; share it in Maps with the " + factoryName() + " team." }).then(function (name) {
+      if (name === null) return;
+      Api.aiKnowledgeCreate(Hub.token(), { productId: productId(), factoryId: scope, name: name.trim() }).then(function (res) {
+        Hub.toast("“" + res.name + "” created and linked. Open it in Maps to fill in and verify."); loadRules.scope = ""; loadRules();
+      }, fail);
+    });
   }
   function createMap(scope) {
     Hub.ask("Name of the new AI rule book", { title: "Create from template", ok: "Create", placeholder: "AI rules: " + productName() + (scope ? " " + factoryName() : ""),

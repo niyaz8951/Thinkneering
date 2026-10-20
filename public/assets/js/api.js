@@ -116,6 +116,7 @@
     aiMapGet: function (t, d) { return rpc("ai_map_get", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },
     aiMapLink: function (t, d) { return rpc("ai_map_link", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_map_id: d.mapId || null, p_role: d.role || "rulebook" }); },
     aiMapCreate: function (t, d) { return rpc("ai_map_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
+    aiKnowledgeCreate: function (t, d) { return rpc("ai_knowledge_create", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_name: d.name || "" }); },
     aiEval: function (t, d) { return rpc("ai_eval", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId, p_check: d.check, p_n: d.n, p_seen: d.seen || [] }); },
     aiEvalHistory: function (t, d) { return rpc("ai_eval_history", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId }); },
     aiMapUpgrade: function (t, d) { return rpc("ai_map_upgrade", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null }); },

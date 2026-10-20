@@ -47,7 +47,9 @@ Ten clauses of the Qiddiya AHU spec (23 73 13), chosen to cover every kind of re
 ### Rule book (kind `rulebook`) - instructions only
 Keeps: Instructions (the brief), Decision steps, Settings, the Parts' if / then rules (When / Unless / Answer / Remark), Learned. Loses: the **Facts** branch and any product statement; those move to the vocabulary map. The template is changed accordingly; "Update from template" moves an unedited Facts branch over, an edited one is listed for the admin to move.
 
-### Vocabulary map (kind `vocabulary`, new) - the product
+### Vocabulary map - the product
+
+> **Update, 20 Oct 2026:** the vocabulary lives in the factory's **knowledge map** (no third map, no new map kind): Compliance review > AI rules > Knowledge map > *Create from template* makes it with two branches, *Product facts* and *Vocabulary* (components > requirement types with Terms / Kind / Unit / Direction / Scale / Tolerance, and under each type "Offered (<factory>)" and "Equivalences", to verify). Templates exist for AHU, FCU and Chiller (`worker/src/ai/knowledge-template.ts`). The AI already quotes verified Offered and Equivalences branches; the fingerprint engine (step A) will read the vocabulary lines. The tree below is the idea; the template is the current form.
 One per factory (owner, 20 Oct 2026: nothing shared between factories; each factory's team keeps its own), linked in Compliance review > AI rules like the others. Its tree, as Maps shows it (so it is edited, verified, imported and exported with the tools the team already uses):
 
 ```

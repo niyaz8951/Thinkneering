@@ -60,6 +60,9 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 20 Oct 2026 - knowledge map template: facts + vocabulary (step A started)
+`ai_knowledge_create` makes a factory's knowledge map from `knowledge-template.ts` (AHU 13 components / 35 types, FCU 7 / 17, Chiller 6 / 17), with "Offered (<factory>)" and "Equivalences" under each type, to verify. The AI quotes verified offers now (found by the type's terms); step A's reader of the vocabulary lines (identification by fingerprint) is next.
+
 ### 20 Oct 2026 - every AI source per factory
 The AI for a record of one factory reads only that factory's rule book, knowledge map, Product Options, library, other projects, corrections and section kinds. Factory rule books are the whole template. The vocabulary map (plan) is per factory too.
 
