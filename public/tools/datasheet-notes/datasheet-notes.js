@@ -168,9 +168,8 @@
   /* Values that belong together are saved as one group of Product Options (owner, 20 Oct 2026):
      - a numbered item of a section ("Filter 1", "Filter 2" ...): its rows are grouped under its class row (else its
        first row), "Filter Class: ISO Coarse 60%(G4)", so a filter's name, material, dimensions and pressure drops stay with its class;
-     - a section whose values depend on a row of another section: the EN 1886 classes depend on the casing profile, so
-       they are grouped under "Profile: Aluminium Natural Thermal Break". Add a line here for another such pair. */
-  var LINKED = { 'mechanical characteristic (en1886)': 'unit data||profile' };
+     - rows whose values depend on another row (DSParse.LINKED): the EN 1886 classes under the profile ("Profile:
+       Aluminium Natural Thermal Break"), the panel and insulation under the model box ("Model Box Ref.: Energy F2"). */
   function groupsOf(rows, strip) {
     var out = [], lead = {}, byKey = {};
     var item = function (r) { return r.sub && /\s\d+$/.test(r.sub) && r.key.split('|')[1] === '' ? r.group + '|' + r.nth + '|' + r.sub : ''; };
@@ -185,8 +184,9 @@
       var g = '', bk = item(r);
       if (bk) g = lead[bk] ? lead[bk].text : r.sub;
       else {
-        var sec = r.key.split('|')[0], from = LINKED[sec] && byKey[LINKED[sec]];
-        if (from && strip(from)) g = from.component + ': ' + strip(from);
+        var L = window.DSParse.linkOf(r.key), from = null;
+        if (L) for (var k in byKey) if (L.lead.test(k)) { from = byKey[k]; break; }
+        if (from && strip(from) && strip(from) !== '-') g = from.component + ': ' + strip(from);
       }
       out[i] = g;
     });
@@ -377,7 +377,7 @@
   window.Hub.requireLogin({ tool: 'datasheet-notes' }).then(function (profile) {
     // a table belongs to the project it was read for: changing the project clears it
     var first = true;
-    window.PRPick.attach({ select: $('dn-project'), hint: $('dn-project-hint'), profile: profile,
+    window.PRPick.attach({ select: $('dn-project'), hint: $('dn-project-hint'), profile: profile, fixed: window.Hub.param('from') === 'project',
       onChange: function () { if (!first) { if (busy) stop(); clearResult(); } first = false; applyGate(); } });
     return window.Api.cmOptions(window.Hub.token());
   }).then(function (res) {

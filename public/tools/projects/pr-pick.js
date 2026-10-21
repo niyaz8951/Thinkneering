@@ -10,6 +10,9 @@
      one last used in this tab, and
      keeps the address in step so a reload stays in the project.
    - With a project chosen, the Back button leads to the project page.
+   - o.fixed: the tool was opened from a project page (?project=<id>&from=project): that project is the one, and
+     the choice is locked, so work is never saved in another project by mistake (owner, 21 Oct 2026). To work
+     for another project, open it from that project's page (or open the tool from the dashboard).
    - PRPick.current() -> { id, name } or null
    - PRPick.required() -> false when the Projects tool is not on for
      this account; the tool then works without a project, as before.
@@ -17,7 +20,7 @@
 (function () {
   'use strict';
   var KEEP = 'dame_pr_project';
-  var Hub = window.Hub, sel = null, list = [], on = false, picked = null;
+  var Hub = window.Hub, sel = null, list = [], on = false, picked = null, locked = false;
 
   function hasProjects(profile) {
     return (profile.categories || []).some(function (c) { return c.allowed && c.tools.some(function (t) { return t.id === 'projects' && t.status === 'live'; }); });
@@ -47,7 +50,8 @@
       try { if (p) sessionStorage.setItem(KEEP, p.id); } catch (e2) { /* not kept */ }
       if (p) Hub.setBack(p.name, pageUrl(p.id));
       else Hub.setBack('Projects', Hub.url('tools/projects/'));
-      say(p ? 'Everything you make here is saved in ' + p.name + '.' : (list.length ? 'Choose the project this work belongs to.' : 'You have no project yet. Add one first.'));
+      say(p ? (locked ? 'Everything you make here is saved in ' + p.name + ', the project you came from.' : 'Everything you make here is saved in ' + p.name + '.')
+            : (list.length ? 'Choose the project this work belongs to.' : 'You have no project yet. Add one first.'));
       if (o.onChange) o.onChange(p);
     }
 
@@ -62,6 +66,12 @@
       // back from the tool's edit screen: the address has lost the project, this tab remembers it
       try { want = want || sessionStorage.getItem(KEEP) || ''; } catch (e) { /* not kept */ }
       if (want) { sel.value = want; if (sel.value !== want) sel.value = ''; }
+      // opened from a project page: that project, locked
+      locked = !!o.fixed && !!Hub.param('project') && sel.value === Hub.param('project');
+      if (locked) {
+        sel.disabled = true; sel.title = 'Opened from this project. To work for another project, open it from that project\'s page.';
+        [].forEach.call(document.querySelectorAll('[data-project-new]'), function (a) { a.hidden = true; });
+      }
       sel.addEventListener('change', changed);
       picked = { id: '?' }; changed();
       return current();
@@ -73,5 +83,5 @@
     });
   }
 
-  window.PRPick = { attach: attach, current: current, required: function () { return on; } };
+  window.PRPick = { attach: attach, current: current, required: function () { return on; }, locked: function () { return locked; } };
 })();

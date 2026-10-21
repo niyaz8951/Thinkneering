@@ -109,7 +109,8 @@
       var vals = (r.values || []).filter(function (v) { return !waitOnly || v.wait; });
       if (waitOnly && !vals.length) return;
       var row = { key: r.key, sub: r.sub || '', name: opt ? 'From the options list' : r.component, off: !!r.hidden, values: vals, extras: [] };
-      rowBy[r.key] = row; sec(r.section || 'General').rows.push(row);
+      // the power supply has its own section, above Unit Data (owner, 21 Oct 2026)
+      rowBy[r.key] = row; sec(/^general\|\|power supply$/.test(r.key) ? 'Power Supply' : (r.section || 'General')).rows.push(row);
     });
     if (!waitOnly) tree.extras.forEach(function (x) {
       if (x.key && rowBy[x.key]) rowBy[x.key].extras.push(x); else sec(x.section).extras.push(x);
@@ -307,21 +308,67 @@
 
   /* The sections of one group. model = '' : the plain tree (AHU) or, with extrasOnly, the
      special options and notes block of an FCU tree; model = 'FWW600VA' : that model's values only. */
+  /* Rows whose values belong to another row's value (DSParse.LINKED, owner 21 Oct 2026): one tile per lead value,
+     shown right under the lead row: under Profile a tile per profile with its EN 1886 classes; under Model Box Ref. a
+     tile per model box with its panel and insulation. Their values leave their own section. */
+  function linkOf(key) { return window.DSParse && window.DSParse.linkOf ? window.DSParse.linkOf(key) : null; }
+  function leadOf(key) { return window.DSParse && window.DSParse.leadOf ? window.DSParse.leadOf(key) : null; }
+  function leadTiles(secs, edit) {
+    var out = {};
+    secs.forEach(function (s) {
+      s.rows.forEach(function (r) {
+        if (!edit && r.off) return;
+        var L = linkOf(r.key); if (!L) return;
+        r.values.forEach(function (v) {
+          if (!v.g || (!edit && v.hidden)) return;
+          var T = out[L.id] || (out[L.id] = { L: L, order: [], by: {}, home: s.name, placed: false });
+          if (!T.by[v.g]) { T.by[v.g] = []; T.order.push(v.g); }
+          var line = T.by[v.g].filter(function (x) { return x.r.key === r.key; })[0];
+          if (line) line.vals.push(v); else T.by[v.g].push({ s: s, r: r, vals: [v] });
+        });
+      });
+    });
+    return out;
+  }
+  function tileNodes(T, q, edit) {
+    return T.order.map(function (g) {
+      var cut = g.indexOf(': '), label = cut > 0 ? g.slice(0, cut) : '', head = cut > 0 ? g.slice(cut + 2) : g;
+      var lines = T.by[g];
+      if (q && !lines.some(function (x) { return matches(q, x.s, { sub: x.r.sub, name: x.r.name, values: x.vals, extras: [] }); }) &&
+          !q.split(/\s+/).every(function (w) { return low(g).indexOf(w) >= 0; })) return null;
+      var box = el('div', { 'class': 'po-group po-lead' }, [el('div', { 'class': 'po-group-name' }, [label ? el('small', { text: label }) : null, el('span', { text: head })])]);
+      lines.forEach(function (x) { box.appendChild(rowNode(x.s, Object.assign({}, x.r, { values: x.vals, extras: [], grp: g, noTools: true }), edit)); });
+      return box;
+    }).filter(Boolean);
+  }
   function drawSections(secs, q, edit, model, extrasOnly) {
     var wrap = el('div', { 'class': 'po-tree' }), drawn = 0, nRows = 0, nVals = 0, keys = {};
+    var tiles = model || extrasOnly ? {} : leadTiles(secs, edit);
+    // a lead row that is not in the tree (left out of the mapping): its tiles stay in the section of their rows
+    Object.keys(tiles).forEach(function (id) {
+      var T = tiles[id];
+      T.leadShown = secs.some(function (s) { return s.rows.some(function (r) { return T.L.lead.test(r.key) && (edit || !r.off); }); });
+      T.order.forEach(function (g) { T.by[g].forEach(function (x) { nVals += x.vals.filter(function (v) { return !v.hidden; }).length; }); });
+    });
     secs.forEach(function (s) {
       var live = s.rows.filter(function (r) { return edit || !r.off; }).map(function (r) {
         // with Edit off an editor sees what users see: no values that were taken out
         var values = extrasOnly ? [] : r.values.filter(function (v) { return (edit || !v.hidden) && (model ? v.model === model : true); });
-        return { key: r.key, sub: r.sub, name: r.name, off: r.off, values: values, extras: model ? [] : r.extras, model: model };
+        var L = !model && !extrasOnly ? linkOf(r.key) : null, moved = 0;
+        if (L && tiles[L.id]) { moved = values.filter(function (v) { return v.g; }).length; values = values.filter(function (v) { return !v.g; }); }
+        return { key: r.key, sub: r.sub, name: r.name, off: r.off, values: values, extras: model ? [] : r.extras, model: model, moved: moved };
       }).filter(function (r) {
+        if (r.moved && !r.values.length && !r.extras.length) return false;     // all its values are in the tiles
         return r.values.length || r.extras.length || (!model && !extrasOnly && edit);
       });
+      var hereTiles = Object.keys(tiles).filter(function (id) { return !tiles[id].leadShown && tiles[id].home === s.name; });
+      var leadHere = live.some(function (r) { var L = leadOf(r.key); return L && tiles[L.id]; });
       live.forEach(function (r) { if (!r.off) { nRows++; keys[r.key] = 1; nVals += r.values.filter(function (v) { return !v.hidden; }).length; } });
       var secHit = q && q.split(/\s+/).every(function (w) { return low(s.name).indexOf(w) >= 0; });
       var rows = live.filter(function (r) { return secHit || matches(q, s, r); });
       var extras = model ? [] : s.extras.filter(function (x) { return secHit || !q || matches(q, { name: s.name, extras: [x] }); });
-      if (!rows.length && !extras.length && !(edit && !q && !model)) return;
+      var keepForTiles = hereTiles.length || (leadHere && !rows.length);
+      if (!rows.length && !extras.length && !keepForTiles && !(edit && !q && !model)) return;
       drawn++;
 
       var body = el('div', { 'class': 'po-body' }), ck = (model ? 'm:' + low(model) + ':' : '') + low(s.name);
@@ -347,6 +394,7 @@
       // values read before the groups (20 Oct 2026) in rows that now have groups: admins can remove them
       var stale = 0;
       if (groups.length) rows.forEach(function (r) { if (r.values.some(function (v) { return v.g; })) stale += r.values.filter(function (v) { return !v.g; }).length; });
+      rows.forEach(function (r) { if (r.moved) stale += r.values.length; });
       if (stale && tree.can_approve) body.appendChild(el('div', { 'class': 'notice warn po-stale' }, [
         el('span', { text: stale + (stale === 1 ? ' value' : ' values') + ' of this section were saved before values were grouped (20 Oct 2026), so they belong to no filter or profile. Read the datasheets again to have them grouped, then remove the old ones. ' }),
         el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove values without a group', onclick: function (e) {
@@ -362,7 +410,10 @@
         if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('div', { 'class': 'po-sub', text: sub })); }
         tooled[r.key] = 1;
         body.appendChild(rowNode(s, groups.length ? Object.assign({}, r, { values: plain }) : r, edit));
+        var L = leadOf(r.key);
+        if (L && tiles[L.id]) tileNodes(tiles[L.id], q, edit).forEach(function (t) { body.appendChild(t); });
       });
+      hereTiles.forEach(function (id) { tileNodes(tiles[id], q, edit).forEach(function (t) { body.appendChild(t); }); });
       groups.forEach(function (g) {
         var box = el('div', { 'class': 'po-group' }, [el('div', { 'class': 'po-group-name', text: g })]);
         rows.forEach(function (r) {

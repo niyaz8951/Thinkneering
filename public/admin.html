@@ -22,12 +22,21 @@
   .ad-who td { vertical-align: top; }
   .ad-tile { display: flex; align-items: center; justify-content: space-between; gap: 10px; white-space: nowrap; font-size: 14px; }
   .ad-tile + .ad-tile { margin-top: 6px; }
+  /* Users: the super user's row and the actions keep their shape on a laptop screen */
+  .ad-users .user-cell { min-width: 130px; }
+  .ad-users .badge { white-space: nowrap; }
+  .ad-users .ad-role { min-width: 110px; }
+  .ad-users .ad-acts { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 128px; }
+  .ad-users .ad-acts .small { text-align: right; white-space: nowrap; }
+  .ad-users th, .ad-users td { padding-left: 9px; padding-right: 9px; }
+  .ad-users .ad-tile select.input { width: 106px; }
+  .ad-users .check { font-size: 13.5px; }
   .ad-tile select.input { min-height: 32px; padding: 3px 8px; width: 118px; font-size: 14px; }
 </style>
 </head>
 <body>
 <header id="topbar"></header>
-<main class="page">
+<main class="page wide">
   <div class="page-head">
     <p class="small"><a href="dashboard.html">&larr; Dashboard</a></p>
     <h1>Admin</h1>
@@ -49,7 +58,7 @@
   <!-- USERS -->
   <section id="tab-users" class="stack">
     <div class="table-wrap">
-      <table class="table">
+      <table class="table ad-users">
         <thead><tr><th>User</th><th style="white-space:normal">Team (as requested)</th><th>Status</th><th>Role</th><th>Access to each tile</th><th>Can edit</th><th></th></tr></thead>
         <tbody id="userRows"></tbody>
       </table>
@@ -242,7 +251,7 @@
         adminCategories: sup ? tiles.filter(function (x) { return x.sel.value === "admin"; }).map(function (x) { return x.c.id; }) : null,
         editTools: editBoxes.filter(function (b) { return b.cb.checked && !b.cb.disabled; }).map(function (b) { return b.t.id; }) };
     }
-    var actions = el("div", { "class": "row", style: "justify-content:flex-end;flex-wrap:nowrap" }), saveBtn;
+    var actions = el("div", { "class": "ad-acts" }), saveBtn;
     if (!editable) {
       actions.appendChild(el("span", { "class": "small muted", text: isSuperRow ? "Site owner" : "Managed by the super user" }));
     } else if (pending) {
@@ -270,7 +279,7 @@
       el("td", { "class": "user-cell" }, [el("b", { text: u.full_name }), el("div", { "class": "small muted", text: u.username })]),
       el("td", { text: u.team_note || "-" }),
       el("td", {}, pending ? [el("span", { "class": "badge warn", text: "Pending" })] : [statusSel]),
-      el("td", {}, isSuperRow ? [el("span", { "class": "badge brand", text: "Super user" })] : [roleText]),
+      el("td", { "class": "ad-role" }, isSuperRow ? [el("span", { "class": "badge brand", text: "Super user" })] : [roleText]),
       el("td", {}, isSuperRow ? [el("span", { "class": "small muted", text: "Every tile, as admin" })] : tiles.map(function (x) { return x.row; })),
       el("td", {}, isSuperRow ? [el("span", { "class": "small muted", text: "All tools" })] : (editBoxes.length ? editBoxes.map(function (b) { return b.row; }) : [el("span", { "class": "small muted", text: "-" })])),
       el("td", {}, [actions])

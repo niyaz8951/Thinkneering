@@ -198,7 +198,7 @@
     var open = runs.filter(function (r) { return (r.clauses || 0) > (r.filled || 0); }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); })[0];
     var title, sub, acts = [], eyebrow = "Next step";
     function act(text, href, ghost) { acts.push(el("a", { "class": "btn" + (ghost ? " ghost" : ""), href: href, text: text })); }
-    var addSpec = "add-spec.html?project=" + encodeURIComponent(id), addSheet = "../datasheet-notes/index.html?project=" + encodeURIComponent(id);
+    var addSpec = "add-spec.html?project=" + encodeURIComponent(id), addSheet = "../datasheet-notes/index.html?from=project&project=" + encodeURIComponent(id);
     // datasheet first (optional), then the specification: its clauses are then filled from the units' values
     if (!runs.length && !data.notes.length) {
       eyebrow = "Step 1 of 2 (optional)";
@@ -336,7 +336,7 @@
     data.notes.forEach(function (n) { nb.appendChild(noteRow(n)); });
     $("pj-notes-wrap").hidden = !data.notes.length; $("pj-notes-empty").hidden = !!data.notes.length;
     if (!data.notes.length) Hub.emptyState($("pj-notes-empty"), { title: "No datasheet yet", text: "Read the selection datasheet: one column per unit, and its values show beside the clauses that ask about them.",
-      action: hasTool("datasheet-notes") ? { label: "Read a datasheet", href: "../datasheet-notes/index.html?project=" + encodeURIComponent(id), ghost: true } : null });
+      action: hasTool("datasheet-notes") ? { label: "Read a datasheet", href: "../datasheet-notes/index.html?from=project&project=" + encodeURIComponent(id), ghost: true } : null });
 
     var log = $("pj-log"); log.textContent = "";
     data.log.forEach(function (g) {

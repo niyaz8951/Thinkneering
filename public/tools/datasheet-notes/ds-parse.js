@@ -466,6 +466,17 @@
     return { columns: tags(units), rows: out };
   }
 
+  /* Rows whose values belong to the value of another row (owner, 20-21 Oct 2026): saved as one group of Product Options
+     (Datasheet Notes) and shown there as one tile under the lead row (Product Options). Add an entry for another pair.
+       - the EN 1886 classes depend on the casing profile: one tile per profile ("Aluminium Natural Thermal Break")
+       - the panel and its insulation make a model box: one tile per model box ("Energy ThermiC° S2": 62 mm, Foam) */
+  var LINKED = [
+    { id: 'profile', lead: /^unit data\|\|profile$/, member: function (key) { return /^mechanical characteristic \(en ?1886\)\|/.test(key); } },
+    { id: 'model box', lead: /^unit data\|\|model box ref\.?$/, member: function (key) { return /^unit data\|\|(panel|insulation)$/.test(key); } }
+  ];
+  function linkOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].member(key)) return LINKED[i]; return null; }
+  function leadOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].lead.test(key)) return LINKED[i]; return null; }
+
   window.DSParse = { readers: readers, detect: detect, clean: clean, lines: lines, parse: parse, parseAll: parseAll,
-                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey };
+                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey, LINKED: LINKED, linkOf: linkOf, leadOf: leadOf };
 })();
