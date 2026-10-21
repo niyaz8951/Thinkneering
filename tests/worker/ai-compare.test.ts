@@ -126,10 +126,19 @@ describe("compareDatasheet: every part of a clause, ranges, metrics, rows that d
 
 /* ---------- the remark lock and the review priority (guard.ts) ---------- */
 import { lockRemarks, priorityOf, SCOPE_REMARK } from "../../worker/src/ai/guard";
+import { DEFAULT_INSTRUCTIONS, OLD_INSTRUCTIONS } from "../../worker/src/ai/map";
 import { valuesNotOnSheet } from "../../worker/src/ai/draft";
 describe("remark lock and review priority", () => {
   it("blanks a confirming remark, keeps a real one, fills the scope line, flags wording", () => {
+    expect(DEFAULT_INSTRUCTIONS.find((x) => x.title === "Remarks")!.text).toMatch(/Never name the make or manufacturer/);
+    expect(OLD_INSTRUCTIONS.some((x) => x.title === "Remarks" && !/make or manufacturer/.test(x.text) && /Daikin submits/.test(x.text))).toBe(true);   // an unedited Remarks gets the new line
     expect(lockRemarks("Comply", "Complies.", "high")).toMatchObject({ compliance: "Comply", remarks: "", confidence: "high" });
+    // makes are internal (owner, 21 Oct 2026): a remark naming one goes low with a note; a word that only contains it does not
+    const named = lockRemarks("Comply with Remarks", "Direct-driven EC plug fans by EBM-Papst are offered.", "high", ["ebm-papst", "Nicotra Gebhardt"]);
+    expect(named.confidence).toBe("low");
+    expect(named.notes.join(" ")).toMatch(/names a make \(ebm-papst\)/);
+    expect(lockRemarks("Comply with Remarks", "Direct-driven EC plug fans are offered.", "high", ["ebm-papst"]).confidence).toBe("high");
+    expect(lockRemarks("Comply with Remarks", "Hydronic coils are offered.", "high", ["Hydro"]).confidence).toBe("high");
     expect(lockRemarks("Comply with Remarks", "As specified", "medium")).toMatchObject({ compliance: "Comply", remarks: "" });
     expect(lockRemarks("In Contractor's Scope", "", "high")).toMatchObject({ remarks: SCOPE_REMARK });
     expect(lockRemarks("Not Comply", "", "high")).toMatchObject({ confidence: "low" });

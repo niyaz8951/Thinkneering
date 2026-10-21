@@ -57,6 +57,7 @@ export interface Context {
   hasSheet: boolean;                         // the project has a datasheet of this product and factory
   optRows: Map<number, OptRow[]>;            // the mapping rows each clause is about (the same match as the chips)
   poValues: Map<string, PoValue[]>;          // approved Product Options values of the factory, per mapping row, most seen first
+  makes: string[];                           // the makes kept in Product Options: internal, a remark naming one is checked
 }
 export interface OptRow { key: string; section: string; component: string; entries: string[][] }
 export interface PoValue { value: string; times: number; group?: string }
@@ -176,8 +177,8 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
       return { key: m.key, section: m.section, component, label: `${m.section} • ${component}`, cells: e.cells, value: unitValues(e.cells, look.columns), entries: m.entries, group: list.length > 1 ? m.key : "" };
     });
     const cells = hits.length ? hits.flatMap((h) => h.cells) : [];
-    // a make kept per fan family ("family:EC Fans") is about the whole section, as a section note is
-    const ex = extras.filter((x) => (x.row_key === m.key) || ((x.row_key === "" || x.row_key.startsWith("family:")) && x.section.toLowerCase() === m.section.toLowerCase()));
+    // makes (the manufacturers the factory buys from) are internal: never given to the model (owner, 21 Oct 2026)
+    const ex = extras.filter((x) => x.kind !== "make" && ((x.row_key === m.key) || (x.row_key === "" && x.section.toLowerCase() === m.section.toLowerCase())));
     const missing = tables.length > 0 && present.size > 0 && !present.has(sectionName(m.section));
     for (const seq of m.seqs) {
       if (hasValue(cells)) { const l = sheet.get(seq) || []; l.push(...hits.filter((h) => hasValue(h.cells))); sheet.set(seq, l); }
@@ -189,10 +190,9 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
       const vals = valuesByRow.get(m.key) || [];
       if (vals.length) o.values.push(`${m.component}: ${vals.join(" | ")}`);
       for (const x of ex) {
-        const where = x.row_key.startsWith("family:") ? x.row_key.slice(7) : x.row_key ? m.component : m.section;
+        const where = x.row_key ? m.component : m.section;
         if (x.kind === "option") o.specials.push(`${where}: ${x.body}`);
         else if (x.kind === "note") o.notes.push(`${where}: ${x.body}`);
-        else if (x.kind === "make") o.notes.push(`${where}: made by ${x.body}`);      // a manufacturer the factory buys from
         else o.ai.push(`${where}: ${x.body}`);
       }
       options.set(seq, o);
@@ -213,6 +213,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions,
            search: new ClauseSearch(env, usage), project, names, kinds, absent, hasSheet: tables.length > 0, optRows, poValues,
+           makes: [...new Set(extras.filter((x) => x.kind === "make").map((x) => x.body.trim()).filter((b) => b.length >= 3))],
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
 
