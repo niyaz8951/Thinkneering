@@ -517,7 +517,12 @@
     var c = el('span', { 'class': 'po-chip' + (hidden ? ' off' : '') }, [el('span', { text: ch.text }),
       el('small', { text: times(ch.n), title: 'Seen ' + ch.n + (ch.n === 1 ? ' time' : ' times') + ' on the datasheets run so far. A datasheet run again is counted again.' })]);
     if (wait.length) waitTagItems(ch.text, wait.map(function (x) { return item(x.key, x.v); }), c);
-    else if (edit) c.appendChild(xbtn(hidden ? 'Bring back' : 'Take out', function (e) {
+    else {
+      // a value of a left-out row nobody approved yet: kept for reference, not counted, approved once the row is back
+      if (ch.list.some(function (x) { return x.v.held; })) c.appendChild(el('b', { 'class': 'po-held-tag', text: 'not approved',
+        title: 'Kept for reference while the row is left out. It waits for approval again when the row is brought back.' }));
+    }
+    if (!wait.length && edit) c.appendChild(xbtn(hidden ? 'Bring back' : 'Take out', function (e) {
       busy(e.currentTarget, hideMany(ch.list, !hidden), hidden ? 'Value is back in the tree.' : 'Value taken out.');
     }));
     return c;

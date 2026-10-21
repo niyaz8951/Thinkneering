@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 21 Oct 2026 (18:30): Product Options: values of a left-out row are not counted as waiting and have no Approve / Reject; they show "not approved" and wait again when the row is brought back. No migration.
 - 21 Oct 2026 (late): Datasheet Notes Excel: a row with the same value for every unit shows it once in the first unit column, the other unit cells empty (no merge), the row's unit cells framed by one green line (`ds-xlsx.js`); also in the project note download. No migration.
 - 21 Oct 2026 (16:53): makes are internal: never given to the AI, a remark naming one is flagged low, Remarks brief updated (owner: Compliance review > AI rules > Update from template on each rule book). Make shown as a dark yellow box.
 - 21 Oct 2026 (evening, later): Product Options: move rows between General and the columns (migration **0012**, `dn_map.place`), Make per component card (po_extras kind `make`, admins), EC / DIDW fan tables fold separately, heat recovery and humidifiers in General, three coil types, General notes card always there for editors. Owner: deploy applies 0012; read the datasheets again so moved rows fill.

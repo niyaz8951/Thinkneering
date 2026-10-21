@@ -294,7 +294,7 @@ describe("po_* routes", () => {
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
     expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", place: "", values: [
-      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false }
+      { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false, held: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false, held: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
     expect(u.models).toEqual([
@@ -318,7 +318,7 @@ describe("po_* routes", () => {
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
     await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", place: "", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", place: "", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false, held: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -461,6 +461,13 @@ describe("po_* routes", () => {
     const pe = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
     expect(pe).toMatchObject({ can_approve: false, waiting: 2 });
     expect(pe.rows.flatMap((r: any) => r.values.map((v: any) => [v.v, v.wait]))).toEqual([["62 mm", true], ["Foam", true]]);
+    // a row left out keeps its values for reference: not waiting, not counted, marked held; back in, it waits again
+    await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "", p_row_keys: ["unit data||insulation"], p_value_key: "", p_hidden: true });
+    const off = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
+    expect(off.waiting).toBe(1);
+    expect(off.rows.flatMap((r: any) => r.values.map((v: any) => [v.v, v.wait, v.held]))).toEqual([["62 mm", true, false], ["Foam", false, true]]);
+    await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "", p_row_keys: ["unit data||insulation"], p_value_key: "", p_hidden: false });
+    expect((await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" })).waiting).toBe(2);
     const item = { key: "unit data||panel", model: "", value_key: "62 mm" };
     expect(await refused("po_admin_approve", { p_token: e, p_factory_id: "ahu-dubai", p_items: [item], p_approve: true })).toMatch(/super user or an admin/);
     expect(await refused("po_admin_approve", { p_token: plain, p_factory_id: "ahu-dubai", p_all: true, p_approve: true })).toMatch(/super user or an admin/);
@@ -519,7 +526,7 @@ describe("po_* routes", () => {
     await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow", kind: "option" }, { key: "unit data||location", section: "Unit data", component: "Location", kind: "option" }] });
     const pe2 = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
     expect(pe2.waiting).toBe(3);
-    expect(pe2.rows.find((r: any) => r.key === "unit data||supply air flow")).toMatchObject({ kind: "option", values: [{ wait: true }] });
+    expect(pe2.rows.find((r: any) => r.key === "unit data||supply air flow")).toMatchObject({ kind: "option", values: [{ wait: true, held: false }] });
     // a rule saved without kind keeps the stored one
     await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow" }] });
     expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((r: any) => r.key === "unit data||supply air flow").kind).toBe("option");
