@@ -58,7 +58,7 @@ export async function decideClause(env: Env, ctx: Context, x: RunRowFull, allowM
     const input = inputFor(ctx, x, ev, allowModel);
     const d = await draftAnswer(env, input, usage);
     // the remark lock and the review priority: code, once, whatever made the draft
-    const l = lockRemarks(d.compliance, d.remarks, d.confidence);
+    const l = lockRemarks(d.compliance, d.remarks, d.confidence, ctx.makes || []);
     const out: Draft = { ...d, compliance: l.compliance, remarks: l.remarks, confidence: l.confidence,
       reason: (d.reason + (l.notes.length ? " Check: " + l.notes.join("; ") + "." : "")).slice(0, 800) };
     out.priority = priorityOf(out, !!input.conflict);

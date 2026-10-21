@@ -125,7 +125,13 @@ export function bannedIn(remarks: string): string[] {
 }
 export type Priority = "green" | "amber" | "red";
 export interface Locked { compliance: string; remarks: string; confidence: "high" | "medium" | "low"; notes: string[] }
-export function lockRemarks(compliance: string, remarks: string, confidence: "high" | "medium" | "low"): Locked {
+/* the makes of Product Options (the manufacturers the factory buys from) are internal: a remark naming one goes low
+   confidence (owner, 21 Oct 2026). Matched as whole words, ignoring case. */
+export function makesIn(remarks: string, makes: string[]): string[] {
+  const t = " " + remarks.toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+  return makes.filter((m) => { const k = m.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return k.length >= 3 && t.includes(" " + k + " "); });
+}
+export function lockRemarks(compliance: string, remarks: string, confidence: "high" | "medium" | "low", makes: string[] = []): Locked {
   let c = compliance, r = String(remarks || "").replace(/\s*\n+\s*/g, " ").trim(), conf = confidence;
   const notes: string[] = [];
   if (ECHO.test(r)) r = "";
@@ -134,6 +140,8 @@ export function lockRemarks(compliance: string, remarks: string, confidence: "hi
   if (c === "In Contractor's Scope" && !r) r = SCOPE_REMARK;
   const banned = r ? bannedIn(r) : [];
   if (banned.length) { conf = "low"; notes.push("the remark " + banned.join(", ")); }
+  const named = r ? makesIn(r, makes) : [];
+  if (named.length) { conf = "low"; notes.push("the remark names a make (" + named.join(", ") + "): makes are internal, never in the answer"); }
   return { compliance: c, remarks: r, confidence: conf, notes };
 }
 /* Where the reviewer looks: GREEN = settled by a rule, the same clause answered before, or the datasheet meeting

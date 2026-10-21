@@ -299,7 +299,7 @@
     var form = el('div', { 'class': 'po-form' }, [
       el('strong', { 'class': 'small', text: (d.id ? 'Change ' : 'New ') + what + ' for ' + d.where }),
       d.kind === 'ai' ? el('p', { 'class': 'hint', text: 'A fact for the AI about this factory\'s product (what is standard, what is offered). Only admins see AI notes; the AI reads them with the datasheet and the options.' }) : null,
-      d.kind === 'make' ? el('p', { 'class': 'hint', text: 'A manufacturer the factory buys this component from, e.g. ebm-papst. Add one make at a time; everyone sees them.' }) : null,
+      d.kind === 'make' ? el('p', { 'class': 'hint', text: 'A manufacturer the factory buys this component from, e.g. ebm-papst. Add one make at a time. For internal use: everyone on the site sees it, the AI never puts it in a compliance answer.' }) : null,
       box, msg,
       el('div', { 'class': 'row' }, [save, el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Cancel', onclick: function () { form.remove(); } })])
     ]);
@@ -690,7 +690,7 @@
       vals.appendChild(chip);
     });
     if (!makes.length) vals.appendChild(el('span', { 'class': 'muted', text: 'None yet' }));
-    row.appendChild(el('div', { 'class': 'po-name', text: 'Make', title: 'The manufacturers the factory buys ' + (family || 'this component') + ' from' }));
+    row.appendChild(el('div', { 'class': 'po-name', text: 'Make', title: 'The manufacturers the factory buys ' + (family || 'this component') + ' from. For internal use: never named in a compliance answer.' }));
     row.appendChild(vals);
     if (edit && tree.can_approve) row.appendChild(el('div', { 'class': 'po-tools' }, [
       xbtn('+ Make', function () { openForm(row, { kind: 'make', section: c.sections[0] || c.name, key: family ? 'family:' + family : '', where: family || c.name }); })]));

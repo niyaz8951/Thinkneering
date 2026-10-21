@@ -148,7 +148,10 @@
   .po-fam[open] > summary::before { transform: rotate(45deg); }
   .po-fam > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
   .po-fam > summary .count { font-weight: 400; }
-  .po-chip.make { background: var(--surface); border-color: var(--brand); }
+  /* Make: a dark yellow box that stands out (owner, 21 Oct 2026); internal, never in a compliance answer */
+  .po-chip.make { background: var(--warn); border-color: var(--warn); color: var(--surface); border-radius: 6px; font-weight: 650; padding: 4px 10px; }
+  .po-chip.make .po-x { color: var(--surface); }
+  .po-chip.make .po-x.danger { color: var(--surface); }
   .po-fam-make { margin: 2px 0 8px; }
   /* filters: a grade heading (F7, F9 ...) over its classes */
   .po-cols .po-matrix thead tr.grades th { position: static; padding: 6px 12px 4px; text-align: center; font-size: 13px; font-weight: 700; color: var(--brand-strong);
