@@ -70,8 +70,12 @@
         return { s: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0,
                  h: Math.abs(it.transform[3]) || it.height || 10, f: it.fontName || '' };
       });
-    list = superscripts(list)
-      .filter(function (it) { return it.h >= 6; })          // tiny print inside the energy label picture
+    list = superscripts(list);
+    // tiny print inside the energy label picture: the country and the site the unit was selected for ("Saudi Arabia",
+    // "JEDDAH KING ABDULAZIZ INTL"), kept apart (21 Oct 2026) and read as the unit's Location
+    var tiny = list.filter(function (it) { return it.h < 6 && /[A-Za-z]{2}/.test(it.s); })
+      .sort(function (a, b) { return b.y - a.y || a.x - b.x; }).map(function (it) { return { x: it.x, y: it.y, s: clean(it.s) }; });
+    list = list.filter(function (it) { return it.h >= 6; })
       .sort(function (a, b) { return b.y - a.y || a.x - b.x; });
 
     var rows = [];
@@ -81,7 +85,7 @@
       else rows.push({ y: it.y, items: [it] });
     });
 
-    return rows.map(function (r) {
+    var out = rows.map(function (r) {
       r.items.sort(function (a, b) { return a.x - b.x; });
       var cells = [], end = null, h = 0;
       r.items.forEach(function (it) {
@@ -96,6 +100,8 @@
                text: cells.map(function (c) { return c.s; }).join(' '),
                items: r.items.map(function (it) { return { x: it.x, w: it.w, h: it.h, s: clean(it.s), f: it.f }; }) };
     });
+    out.tiny = tiny;
+    return out;
   }
 
   /* ---- most common text height = body text; anything taller is a heading ---- */
@@ -248,6 +254,20 @@
     });
 
     sections.forEach(splitFilters);
+
+    // Location = the country and the site printed small in the energy label of the unit's first page, site first
+    // ("JEDDAH KING ABDULAZIZ INTL, Saudi Arabia"); it sits before Air Density, which it decides (with Altitude)
+    var first = pages.filter(function (pg) { return pg.tiny && pg.tiny.length; })[0];
+    var at = -1;
+    unit.rows.forEach(function (r, i) { if (at < 0 && /^(Air Density|Altitude)\b/i.test(r.param)) at = i; });
+    if (first && at >= 0) {
+      // only the label's own column (same left edge as the country), at most country + site
+      var x0 = first.tiny[0].x, parts = first.tiny.filter(function (t) { return Math.abs(t.x - x0) < 2; }).slice(0, 2)
+        .map(function (t) { return t.s; });
+      var place = parts.length > 1 ? parts[1] + ', ' + parts[0] : parts[0];
+      unit.rows.splice(at, 0, { sub: '', param: 'Location', value: place, page: first.length ? first[0].page : 1 });
+      hdr.location = place;
+    }
 
     // Power supply = the Electrical Connection printed for Fan Supply in "Electrical Power Inputs Data".
     var fan = elec.filter(function (e) { return /^Fan Supply$/i.test(e.component); })[0] ||
@@ -469,10 +489,12 @@
   /* Rows whose values belong to the value of another row (owner, 20-21 Oct 2026): saved as one group of Product Options
      (Datasheet Notes) and shown there as one tile under the lead row (Product Options). Add an entry for another pair.
        - the EN 1886 classes depend on the casing profile: one tile per profile ("Aluminium Natural Thermal Break")
-       - the panel and its insulation make a model box: one tile per model box ("Energy ThermiC° S2": 62 mm, Foam) */
+       - the panel and its insulation make a model box: one tile per model box ("Energy ThermiC° S2": 62 mm, Foam)
+       - the air density and the altitude belong to the location ("JEDDAH KING ABDULAZIZ INTL, Saudi Arabia") */
   var LINKED = [
     { id: 'profile', lead: /^unit data\|\|profile$/, member: function (key) { return /^mechanical characteristic \(en ?1886\)\|/.test(key); } },
-    { id: 'model box', lead: /^unit data\|\|model box ref\.?$/, member: function (key) { return /^unit data\|\|(panel|insulation)$/.test(key); } }
+    { id: 'model box', lead: /^unit data\|\|model box ref\.?$/, member: function (key) { return /^unit data\|\|(panel|insulation)$/.test(key); } },
+    { id: 'location', lead: /^unit data\|\|location$/, member: function (key) { return /^unit data\|\|(air density|altitude)$/.test(key); } }
   ];
   function linkOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].member(key)) return LINKED[i]; return null; }
   function leadOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].lead.test(key)) return LINKED[i]; return null; }
