@@ -149,6 +149,9 @@
   // The page scrolls both ways; press and hold (drag) moves it; Ctrl + wheel zooms; Full screen fills the
   // screen. A branch opens in the note (focus mode): double-click it, press Enter, or click its notes icon.
   // The note is where it is read and written; reading goes branch by branch with Previous / Next.
+  // One click on a branch (21 Oct 2026, owner: "like Power BI, double-click is ours"): it shows the branches
+  // that grow from it and closes every other one, so only the way to it and its next level stay open.
+  // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
   var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false };
@@ -241,11 +244,11 @@
     head();
   }
   function setView(v) { st.view = v; seen = {}; store("localStorage", userKey("view"), v); wantScroll = true; renderView(); }
-  function setEdit(on) {
+  function setEdit(on, quiet) {
     if (!canEdit()) return;
     flush();
     st.edit = on; head(); render();
-    if (on) Hub.toast(COARSE.matches ? "Edit is on. Tap a branch to change it." : "Edit is on. Double-click a branch to write in it; Tab adds a branch under the chosen one.");
+    if (on && !quiet) Hub.toast(COARSE.matches ? "Edit is on. Tap a branch to change it." : "Edit is on. Double-click a branch to write in it; Tab adds a branch under the chosen one.");
   }
   function hashOf() { var h = ""; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) { h = ""; } return h; }
   function applyHash(first) {
@@ -289,6 +292,38 @@
     refocus(n.id);
   }
   function toggle(n) { if (!n.kids.length) return; n.open = !n.open; if (n.open) { st.sel = n.id; wantScroll = true; } renderView(); refocus(n.id); }
+  // one click: open the way to the branch and its next level, close everything else under the centre
+  function drill(n) {
+    if (st.sel !== n.id) flush();
+    var closing = st.sel === n.id && n.open && n.id !== st.focus && n.kids.length > 0, keep = {};
+    pathOf(n.id).forEach(function (a) { keep[a] = 1; });
+    each(st.focus, function (x) { if (!keep[x.id]) x.open = false; });
+    pathOf(n.id).forEach(function (a) { if (a !== n.id) N(a).open = true; });
+    n.open = n.id === st.focus || (!closing && n.kids.length > 0);
+    st.sel = n.id;
+    redrawAt(n.id);
+    return closing;
+  }
+  // Ctrl + click and the count button: one branch opens or closes, the others stay as they are
+  function toggleOne(n) {
+    if (!n.kids.length || n.id === st.focus) { pick(n); return; }
+    if (st.sel !== n.id) flush();
+    n.open = !n.open; st.sel = n.id;
+    redrawAt(n.id);
+  }
+  // redraw with the clicked branch staying where it was on the screen (so a second click lands on it),
+  // then bring the branches it just grew into view
+  function redrawAt(id) {
+    var map = st.view === "map", box = map ? $("mpCanvas") : $("mpOutline");
+    var x0 = box.querySelector('[data-node="' + id + '"]'), r0 = x0 ? x0.getBoundingClientRect() : null;
+    wantScroll = false;
+    renderView();
+    var x1 = box.querySelector('[data-node="' + id + '"]');
+    if (r0 && x1) { var r1 = x1.getBoundingClientRect(); box.scrollLeft += r1.left - r0.left; box.scrollTop += r1.top - r0.top; }
+    if (map) keepInView(N(id), st.zoom);
+    else if (x1 && N(id).open) { var last = box.querySelector('[data-node="' + N(id).kids[N(id).kids.length - 1] + '"]'); if (last && last.scrollIntoView) last.scrollIntoView({ block: "nearest" }); if (x1.scrollIntoView) x1.scrollIntoView({ block: "nearest" }); }
+    refocus(id);
+  }
   function matches(n) { return !!st.q && (n.title + "\n" + n.notes + "\n" + n.special.join("\n")).toLowerCase().indexOf(st.q) >= 0; }
   function search(text) {
     st.q = text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -380,7 +415,14 @@
       canvas.scrollTop = Math.max(0, (r._y + r._h / 2) * z - canvas.clientHeight / 2);
       firstDraw = false;
     }
-    if (s && wantScroll) {                        // keep the chosen branch, and the branches it just grew, in view
+    if (s && wantScroll) keepInView(s, z);
+    wantScroll = false;
+    $("mpZoomPct").textContent = Math.round(z * 100) + "%";
+  }
+  function keepInView(s, z) {                     // keep the chosen branch, and the branches it just grew, in view
+    var canvas = $("mpCanvas");
+    if (!s || s._x === undefined) return;
+    {
       var right = (s._x + s._w + (s.open && s.kids.length ? 260 : 0) + 30) * z, left = (s._x - 30) * z;
       if (right > canvas.scrollLeft + canvas.clientWidth) canvas.scrollLeft = Math.min(left, right - canvas.clientWidth);
       if (left < canvas.scrollLeft) canvas.scrollLeft = Math.max(0, left);
@@ -390,8 +432,6 @@
       if (top < canvas.scrollTop) canvas.scrollTop = Math.max(0, top);
       else if (bottom > canvas.scrollTop + canvas.clientHeight) canvas.scrollTop = bottom - canvas.clientHeight;
     }
-    wantScroll = false;
-    $("mpZoomPct").textContent = Math.round(z * 100) + "%";
   }
 
   // ---------- zoom, fit, full screen ----------
@@ -460,28 +500,42 @@
       var r = c.getBoundingClientRect();
       zoomBy(Math.exp(-e.deltaY * 0.0022), e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
-    c.addEventListener("click", function (e) {
-      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-      if (!nodeE) { if (st.sel) { st.sel = null; renderView(); } return; }
-      var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
-      if (!n) return;
-      if (act && act.getAttribute("data-act") === "toggle") { toggle(n); return; }
-      if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
-      // a finger has no double-click: a tap on the chosen branch opens it, as a second click would
-      if ((COARSE.matches || e.pointerType === "touch") && st.sel === n.id) { openNote(n.id); return; }
-      pick(n);
-    });
-    c.addEventListener("dblclick", function (e) {
-      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-      if (!nodeE || (e.target.closest && e.target.closest("[data-act]"))) return;
-      e.preventDefault();
-      openNote(nodeE.getAttribute("data-node"));
-    });
+    c.addEventListener("click", function (e) { branchClick(e, true); });
+    c.addEventListener("dblclick", branchDblClick);
     c.addEventListener("keydown", function (e) {
       var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
       if (!nodeE || e.target !== nodeE) return;
       nodeKey(e, N(nodeE.getAttribute("data-node")));
     });
+  }
+  // a click on a branch, on the map or in the outline. The second click of a double-click does nothing here:
+  // the double-click opens the branch that the first click chose (the drawing may have moved under the mouse).
+  var lastClick = { id: null, t: 0, closed: false };
+  function branchClick(e, onMap) {
+    if (e.detail > 1) return;
+    var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+    if (!nodeE) { if (onMap && st.sel) { st.sel = null; renderView(); } return; }
+    var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
+    if (!n) return;
+    lastClick = { id: null, t: 0, closed: false };
+    if (act && act.getAttribute("data-act") === "toggle") { toggleOne(n); return; }
+    if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
+    // a finger has no double-click: a tap on the chosen branch reads it, as a second click would
+    if ((COARSE.matches || e.pointerType === "touch") && st.sel === n.id) { openNote(n.id); return; }
+    if (e.ctrlKey || e.metaKey) { toggleOne(n); return; }
+    lastClick = { id: n.id, t: Date.now(), closed: false };
+    lastClick.closed = drill(n);
+  }
+  function branchDblClick(e) {
+    var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+    if (e.target.closest && e.target.closest("[data-act]")) return;
+    var id = lastClick.id && Date.now() - lastClick.t < 900 && N(lastClick.id) ? lastClick.id : nodeE ? nodeE.getAttribute("data-node") : null;
+    if (!id) return;
+    e.preventDefault();
+    if (lastClick.id === id && lastClick.closed) N(id).open = true;    // the first click closed it: reading does not close it
+    lastClick = { id: null, t: 0, closed: false };
+    if (window.getSelection) { try { window.getSelection().removeAllRanges(); } catch (x) { /* ignore */ } }
+    openNote(id);
   }
   function nodeKey(e, n) {
     if (!n) return;
@@ -523,19 +577,8 @@
   }
   function outlineMouse() {
     var o = $("mpOutline");
-    o.addEventListener("click", function (e) {
-      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null; if (!nodeE) return;
-      var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
-      if (act && act.getAttribute("data-act") === "toggle") { toggle(n); return; }
-      if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
-      if (COARSE.matches || e.pointerType === "touch") { openNote(n.id); return; }   // a tap reads the branch
-      pick(n);
-    });
-    o.addEventListener("dblclick", function (e) {
-      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-      if (!nodeE || (e.target.closest && e.target.closest("[data-act]"))) return;
-      openNote(nodeE.getAttribute("data-node"));
-    });
+    o.addEventListener("click", function (e) { branchClick(e, false); });
+    o.addEventListener("dblclick", branchDblClick);
     o.addEventListener("keydown", function (e) {
       var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
       if (nodeE && e.target === nodeE) nodeKey(e, N(nodeE.getAttribute("data-node")));
@@ -569,8 +612,8 @@
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", map ? "false" : "true");
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
     $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
-    $("mpHint").textContent = COARSE.matches ? "Tap a branch twice to read it · two fingers to scroll"
-      : (map ? "Drag to move · Ctrl + wheel to zoom · double-click a branch to read it" : "Double-click a branch or press Enter to read it") + (st.edit ? " · Tab adds a branch" : "");
+    $("mpHint").textContent = COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
+      : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
     if (map) renderMap(); else renderOutline();
     var open = []; Object.keys(M.nodes).forEach(function (id) { if (N(id).open) open.push(id); });
     store("sessionStorage", userKey("open") + ":" + M.map.id, JSON.stringify(open.slice(0, 600)));
@@ -685,7 +728,9 @@
         at >= 0 ? el("span", { "class": "small muted", text: (at + 1) + " of " + o.length }) : null,
         el("button", { type: "button", "class": "btn ghost sm", text: "‹ Previous", title: "Previous branch (Alt + ←)", disabled: at <= 0, onclick: function () { stepNote(-1); } }),
         el("button", { type: "button", "class": "btn ghost sm", text: "Next ›", title: "Next branch (Alt + →)", disabled: at < 0 || at >= o.length - 1, onclick: function () { stepNote(1); } }),
-        el("button", { type: "button", "class": "btn sm", text: "Close", title: "Close (Esc)", onclick: closeNote })
+        canEdit() ? el("button", { type: "button", "class": "btn " + (E ? "" : "ghost ") + "sm", id: "mpNoteEdit", "aria-pressed": E ? "true" : "false",
+          text: E ? "Done" : "Edit", title: E ? "Stop editing (E)" : "Edit this branch (E)", onclick: noteEdit }) : null,
+        el("button", { type: "button", "class": "btn " + (E ? "ghost " : "") + "sm", text: "Close", title: "Close (Esc)", onclick: closeNote })
       ])
     ]));
     // the name
@@ -784,6 +829,13 @@
     else if (noteFor && !box.contains(document.activeElement)) box.focus({ preventScroll: true });
     noteWant = "";
   }
+  // Edit / Done in the note: the same switch as Read / Edit above the map, without leaving the branch
+  function noteEdit() {
+    var on = !st.edit;
+    setEdit(on, true);
+    var f = on ? $("mpNotes") || $("mpName") : $("mpNoteEdit");
+    if (f) { f.focus({ preventScroll: true }); if (on && f.tagName === "TEXTAREA") { try { f.setSelectionRange(f.value.length, f.value.length); } catch (x) { /* ignore */ } } }
+  }
   function grow(t) { t.style.height = "auto"; t.style.height = Math.max(160, t.scrollHeight + 2) + "px"; }
   function noteWire() {
     var back = $("mpNoteBack"), downOn = null;
@@ -797,6 +849,7 @@
       else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); stepNote(-1); }
       else if (!typing && (e.key === "ArrowRight" || e.key === "j")) { e.preventDefault(); stepNote(1); }
       else if (!typing && (e.key === "ArrowLeft" || e.key === "k")) { e.preventDefault(); stepNote(-1); }
+      else if (!typing && (e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey && canEdit()) { e.preventDefault(); noteEdit(); }
     });
   }
   // special notes and links: the whole list is saved at once; a refusal puts the list back
