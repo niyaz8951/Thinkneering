@@ -149,6 +149,11 @@
   .po-fam > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
   .po-fam > summary .count { font-weight: 400; }
   .po-chip.make { background: var(--surface); border-color: var(--brand); }
+  /* filters: a grade heading (F7, F9 ...) over its classes */
+  .po-cols .po-matrix thead tr.grades th { position: static; padding: 6px 12px 4px; text-align: center; font-size: 13px; font-weight: 700; color: var(--brand-strong);
+                                           border-bottom: 2px solid var(--brand); border-left: 1px solid var(--border); background: var(--surface-2); }
+  .po-cols .po-matrix thead tr.grades th.grade-lead { border-bottom: 0; border-left: 0; }
+  .po-cols .po-matrix thead tr.grades th.grade-lead { position: sticky; left: 0; z-index: 3; }
   .po-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
   .po-jump { font: inherit; font-size: 13px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
   .po-jump:hover { border-color: var(--brand); color: var(--brand-strong); }

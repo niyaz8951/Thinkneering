@@ -461,7 +461,11 @@
       });
     });
     cols.forEach(function (cc) { cc.head = Object.keys(cc.spell).sort(function (a, b) { return cc.spell[b] - cc.spell[a]; })[0]; });
-    cols.sort(function (a, b) { return a.family.localeCompare(b.family) || a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true }); });
+    cols.forEach(function (cc) { cc.grade = C.id === 'filters' ? filterGrade(cc.head) : null; });
+    cols.sort(function (a, b) {
+      return a.family.localeCompare(b.family) || (a.grade && b.grade ? a.grade.rank - b.grade.rank : 0) ||
+        a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true });
+    });
     c.cols = cols; c.sides = Object.keys(sides);
     c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.drop = [];
     var dropped = {};
@@ -486,6 +490,16 @@
       }
     });
     c.stale = c.drop.length;
+  }
+
+  /* Filters are grouped by their grade (owner, 21 Oct 2026): the EN 779 / EN 1822 grade printed in brackets,
+     "ePM1 65%(F7)" -> F7, or the class itself, "E10". Groups run coarse to fine: G, M, F, E, H, U. */
+  var GRADE_ORDER = 'GMFEHU';
+  function filterGrade(head) {
+    var m = /\(\s*([GMFEHU])\s*(\d{1,2})\s*\)\s*$/i.exec(head || '') || /^\s*([GMFEHU])\s*(\d{1,2})\s*$/i.exec(head || '');
+    if (!m) return { name: 'Other', rank: 9999 };
+    var L = m[1].toUpperCase();
+    return { name: L + Number(m[2]), rank: GRADE_ORDER.indexOf(L) * 100 + Number(m[2]) };
   }
 
   /* chips of one cell: the same value under two spellings or two rows (supply / return) is one chip */
@@ -678,6 +692,19 @@
     return row;
   }
 
+  /* filters: one heading over the columns of each grade (F7 over ePM1 50%, 55% and 65%) */
+  function gradeRow(cols) {
+    if (!cols.length || !cols[0].grade) return [];
+    var cells = [el('th', { 'class': 'grade-lead', 'aria-hidden': 'true' })], i = 0;
+    while (i < cols.length) {
+      var g = cols[i].grade.name, n = 0;
+      while (i + n < cols.length && cols[i + n].grade.name === g) n++;
+      cells.push(el('th', { 'class': 'grade', colspan: String(n), scope: 'colgroup', text: g }));
+      i += n;
+    }
+    return [el('tr', { 'class': 'grades' }, cells)];
+  }
+
   /* the columns of one card: the options that differ, then the duty figures seen with each column */
   function modelTable(c, cols, model, duty, edit) {
     var narrow = window.matchMedia('(max-width: 560px)').matches, first = narrow ? 140 : 210, w = cols.length > 6 ? 170 : 200;
@@ -722,7 +749,7 @@
     }
     var table = el('table', { 'class': 'table po-matrix', style: 'width:' + (first + w * cols.length) + 'px' }, [
       el('colgroup', {}, [first].concat(cols.map(function () { return w; })).map(function (x) { return el('col', { style: 'width:' + x + 'px' }); })),
-      el('thead', {}, [head]), body]);
+      el('thead', {}, gradeRow(cols).concat([head])), body]);
     return el('div', { 'class': 'po-cols' }, [el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': c.name + ', one column per ' + ((UNIT[c.id] || ['column'])[0]) }, [table])]);
   }
 
