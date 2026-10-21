@@ -66,7 +66,7 @@ export function poApprover(s: Session): boolean {
   return s.isSuper || (!!t && s.isTileAdmin(t.category_id));
 }
 
-interface MapRow { row_key: string; section: string; sub: string; component: string; label: string; show: number; in_tree: number; sort: number; kind?: string }
+interface MapRow { row_key: string; section: string; sub: string; component: string; label: string; show: number; in_tree: number; sort: number; kind?: string; place?: string }
 interface ValueRow { rid?: number; row_key: string; model: string; grp: string; value_key: string; value: string; times: number; hidden: number; approved: number; last_at: string }
 interface ExtraRow { id: string; section: string; row_key: string; kind: string; body: string; created_at: string; updated_at: string; created_by: string | null; updated_by: string | null; by: string | null }
 
@@ -193,7 +193,7 @@ export const routes: Routes = {
       const list = (byRow.get(m.row_key) || []).slice()
         .sort((a, b) => a.model.localeCompare(b.model) || gOrder(a.grp, b.grp) || (b.times - a.times) || a.value_key.localeCompare(b.value_key));
       if (!list.length && !extraKeys.has(m.row_key)) continue;
-      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind,
+      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind, place: m.place || "",
         values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved && !duty(v.row_key) })) });
     }
     // models: per model, the most units any one row counted (sum of times per row, max over rows)
@@ -231,8 +231,11 @@ export const routes: Routes = {
     const f = await cmFactory(env, p.p_factory_id);
     const kind = str(p.p_kind), section = tidy(p.p_section), body = trimmed(p.p_body);
     // AI notes: product facts for the AI, written and seen by the admins only (owner, 20 Oct 2026; maps hold rules only)
-    if (kind !== "option" && kind !== "note" && kind !== "ai") fail("Choose special option, note or AI note.");
+    // Make: a manufacturer the factory buys the component from, kept by the admins (owner, 21 Oct 2026, migration 0012)
+    if (kind !== "option" && kind !== "note" && kind !== "ai" && kind !== "make") fail("Choose special option, note, AI note or make.");
     if (kind === "ai" && !poApprover(s)) fail("Only the super user or an admin of the tile Product Options sits on writes AI notes.");
+    if (kind === "make" && !poApprover(s)) fail("Only the super user or an admin of the tile Product Options keeps the makes.");
+    if (kind === "make" && body.length > 120) fail("A make is a manufacturer's name of up to 120 characters.");
     if (section.length < 1 || section.length > 120) fail("Give the section a name of up to 120 characters.");
     if (body.length === 0) fail("Type the text first.");
     if (body.length > 1000) fail("The text is longer than 1000 characters.");
@@ -244,7 +247,7 @@ export const routes: Routes = {
       return { ok: true, id };
     }
     const id = str(p.p_id);
-    const r = await env.DB.prepare("UPDATE po_extras SET kind = ?, body = ?, updated_by = ?, updated_at = ? WHERE id = ? AND factory_id = ? AND (kind <> 'ai' OR ? = 1)").bind(kind, body, s.id, at, id, f.id, poApprover(s) ? 1 : 0).run();
+    const r = await env.DB.prepare("UPDATE po_extras SET kind = ?, body = ?, updated_by = ?, updated_at = ? WHERE id = ? AND factory_id = ? AND (kind NOT IN ('ai', 'make') OR ? = 1)").bind(kind, body, s.id, at, id, f.id, poApprover(s) ? 1 : 0).run();
     if (!r.meta.changes) fail("That entry no longer exists. Refresh the page.");
     return { ok: true, id };
   },
@@ -252,7 +255,7 @@ export const routes: Routes = {
   async po_admin_delete_extra(env, p) {
     const s = (await sessionUser(env, p.p_token)).requireEditor("product-options");
     const x = await env.DB.prepare("SELECT kind FROM po_extras WHERE id = ?").bind(str(p.p_id)).first<{ kind: string }>();
-    if (x && x.kind === "ai" && !poApprover(s)) fail("Only the super user or an admin of the tile Product Options removes AI notes.");
+    if (x && (x.kind === "ai" || x.kind === "make") && !poApprover(s)) fail("Only the super user or an admin of the tile Product Options removes AI notes and makes.");
     await env.DB.prepare("DELETE FROM po_extras WHERE id = ?").bind(str(p.p_id)).run();
     return { ok: true };
   },
@@ -283,6 +286,26 @@ export const routes: Routes = {
       : await env.DB.prepare("UPDATE po_values SET hidden = ? WHERE factory_id = ? AND row_key = ? AND model = ? AND grp = ? AND value_key = ?").bind(hidden, f.id, rowKey, str(p.p_model), str(p.p_grp), valueKey).run();
     if (!r.meta.changes) fail("That row no longer exists. Refresh the page.");
     return { ok: true };
+  },
+
+  /* Where option rows are shown (owner, 21 Oct 2026, migration 0012): 'general' (one list for the card, unique values),
+     'model' (a column per model) or '' (the card's rule), for every factory of the product. Editors of Product Options.
+       p_row_keys: the rows (up to 500); p_place: '' | 'general' | 'model'. */
+  async po_admin_set_place(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    s.requireEditor("product-options");
+    const f = await cmFactory(env, p.p_factory_id);
+    const place = str(p.p_place);
+    if (!["", "general", "model"].includes(place)) fail("Choose general or per model.");
+    if (!isArray(p.p_row_keys)) fail("The rows could not be read. Refresh the page.");
+    const keys = [...new Set(p.p_row_keys.map((k) => str(k)).filter(Boolean))];
+    if (!keys.length) fail("Tick the rows first.");
+    if (keys.length > 500) fail("Move up to 500 rows at a time.");
+    const res = await env.DB.batch(keys.map((k) => env.DB.prepare("UPDATE dn_map SET place = ? WHERE product_id = ? AND row_key = ?").bind(place, f.product_id, k)));
+    const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+    if (!n) fail("Those rows no longer exist. Refresh the page.");
+    await audit(env, s.id, "po_set_place", f.id, "", { rows: keys, place });
+    return { ok: true, changed: n };
   },
 
   /* Approve values read from datasheets (they become facts for the factory: users, the Excel download and the AI see
@@ -374,7 +397,7 @@ export const routes: Routes = {
     const withExtras = bool(p.p_with_extras), withAi = bool(p.p_with_ai);
     const res = await env.DB.batch([
       env.DB.prepare(`DELETE FROM po_values WHERE factory_id IN (${inF})`).bind(...ids),
-      env.DB.prepare(`DELETE FROM po_extras WHERE factory_id IN (${inF}) AND kind IN ('option', 'note') AND ? = 1`).bind(...ids, withExtras ? 1 : 0),
+      env.DB.prepare(`DELETE FROM po_extras WHERE factory_id IN (${inF}) AND kind IN ('option', 'note', 'make') AND ? = 1`).bind(...ids, withExtras ? 1 : 0),
       env.DB.prepare(`DELETE FROM po_extras WHERE factory_id IN (${inF}) AND kind = 'ai' AND ? = 1`).bind(...ids, withAi ? 1 : 0)
     ]);
     const [values, extras, ai] = res.map((r) => r.meta.changes || 0);
