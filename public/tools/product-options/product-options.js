@@ -418,13 +418,15 @@
   /* values -> columns, cells, common / model-specific / duty / accessories */
   function shapeCard(c, edit) {
     var C = c.C, cols = [], colBy = {}, sides = {};
+    // cards with members (casing): only those rows have columns; the others are general, whatever group they were read in
+    var member = function (key) { return !C.members || C.members.test(key); };
     c.lines.forEach(function (ln) {
       ln.cells = {}; ln.loose = [];
       ln.rows.forEach(function (r) {
         r.values.forEach(function (v) {
           if (!edit && v.hidden) return;
           if (onlyWait && ln.kind !== 'duty' && !v.wait) return;
-          var col = ln.kind === 'accessory' ? null : columnOf(C, r, v);
+          var col = ln.kind === 'accessory' || !member(r.key) ? null : columnOf(C, r, v);
           var x = { key: r.key, v: v, section: r.section };
           if (!col) { ln.loose.push(x); return; }
           var cc = colBy[col.key];
@@ -439,7 +441,9 @@
     cols.forEach(function (cc) { cc.head = Object.keys(cc.spell).sort(function (a, b) { return cc.spell[b] - cc.spell[a]; })[0]; });
     cols.sort(function (a, b) { return a.family.localeCompare(b.family) || a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true }); });
     c.cols = cols; c.sides = Object.keys(sides);
-    c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.stale = 0; c.staleGroups = {};
+    c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.drop = [];
+    var dropped = {};
+    function drop(x) { var k = x.key + '\u0001' + (x.v.g || ''); if (!dropped[k]) { dropped[k] = 1; c.drop.push({ key: x.key, grp: x.v.g || '' }); } }
     c.lines.forEach(function (ln) {
       if (!lineAll(ln).length && !ln.extras.length && !(edit && !onlyWait)) return;
       var inCols = cols.filter(function (cc) { return (ln.cells[cc.key] || []).length; });
@@ -448,16 +452,20 @@
       if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); return; }
       // an option: common when it is the same in every column (or has no column at all), else model-specific
       var sig = function (list) { return list.filter(function (x) { return !x.v.hidden; }).map(function (x) { return tidy(x.v.k); }).filter(function (k, i, a) { return a.indexOf(k) === i; }).sort().join('\u0001'); };
-      var same = inCols.length === 0 || (cols.length > 1 && inCols.length === cols.length &&
+      var same = inCols.length === 0 || (!(C.keepInColumns && member(ln.keys[0])) && cols.length > 1 && inCols.length === cols.length &&
         inCols.every(function (cc) { return sig(ln.cells[cc.key]) === sig(ln.cells[inCols[0].key]); }) &&
         (!ln.loose.length || sig(ln.loose) === sig(ln.cells[inCols[0].key])));
-      if (same) c.common.push(ln);
-      else {
+      if (same) {
+        c.common.push(ln);
+        // a general row read earlier inside a column, and read again since without one: the old copies can go
+        if (!member(ln.keys[0]) && ln.loose.some(function (x) { return !x.v.g; })) ln.loose.forEach(function (x) { if (x.v.g) drop(x); });
+      } else {
         c.model.push(ln);
         // values read before the columns existed (no group, or another kind of group): admins can remove them
-        ln.loose.forEach(function (x) { c.stale++; if (x.v.g) c.staleGroups[x.v.g] = 1; });
+        ln.loose.forEach(drop);
       }
     });
+    c.stale = c.drop.length;
     c.colOld = c.model.some(function (ln) { return ln.loose.length; });
   }
 
@@ -545,7 +553,7 @@
 
     // common to every unit seen
     if (lines.common.length) {
-      body.appendChild(el('p', { 'class': 'po-part', text: cols.length > 1 ? 'Common to every ' + (u ? u[0] : 'column') : (cols.length ? 'Common' : 'Options seen') }));
+      body.appendChild(el('p', { 'class': 'po-part', text: c.C.members ? 'General' : cols.length > 1 ? 'Common to every ' + (u ? u[0] : 'column') : (cols.length ? 'Common' : 'Options seen') }));
       var grid = el('div', { 'class': 'po-grid' });
       lines.common.forEach(function (ln) {
         var vals = el('div', { 'class': 'po-vals' }), row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
@@ -653,18 +661,19 @@
 
   /* values saved before the columns of this card existed (21 Oct 2026): read the datasheets again, then remove them */
   function staleNotice(c) {
-    var groups = Object.keys(c.staleGroups);
     return el('div', { 'class': 'notice warn po-stale' }, [
-      el('span', { text: plural(c.stale, 'value', 'values') + ' of ' + c.name + ' were read before the values were kept per ' + ((UNIT[c.id] || ['model'])[0]) +
-        ', so they belong to no column. Read the datasheets again to have them placed, then remove the old ones. ' }),
+      el('span', { text: plural(c.stale, 'old reading', 'old readings') + ' in ' + c.name + ': values read before this layout, kept next to the same rows read again. ' +
+        'Read the datasheets again if you have not, then remove the old ones. ' }),
       el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove old readings', onclick: function (e) {
         var btn = e.currentTarget;
-        window.Hub.confirm('Remove the values of ' + c.name + ' (' + tree.factory.name + ') that belong to no column? The values in columns stay. A datasheet read again brings them back in their column.',
+        window.Hub.confirm('Remove the old readings of ' + c.name + ' (' + tree.factory.name + ')? The values in their right place stay; a datasheet read again brings anything missing back.',
           { title: 'Remove old readings', ok: 'Remove', danger: true }).then(function (yes) {
           if (!yes) return;
           var chain = Promise.resolve();
-          c.sections.forEach(function (sec) { chain = chain.then(function () { return Api.poAdminClearUngrouped(window.Hub.token(), { factoryId: tree.factory.id, section: sec, groups: groups }).then(null, function () { /* nothing there */ }); }); });
-          busy(btn, chain, 'Removed.');
+          for (var i = 0; i < c.drop.length; i += 500) (function (part) {
+            chain = chain.then(function () { return Api.poAdminClearUngrouped(window.Hub.token(), { factoryId: tree.factory.id, section: c.sections[0] || c.name, drop: part }); });
+          })(c.drop.slice(i, i + 500));
+          busy(btn, chain, 'Old readings removed.');
         });
       } })]);
   }

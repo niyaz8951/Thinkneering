@@ -539,6 +539,25 @@ describe("po_* routes", () => {
     expect(left).toEqual([{ row_key: "unit data||insulation", grp: "" }, { row_key: "unit data||panel", grp: MB }]);   // a row without any group keeps its value
   });
 
+  it("casing rows leaving their column (21 Oct 2026): an approved value keeps its approval in another group; p_drop removes exactly the old copies", async () => {
+    const t = await login("sbu");
+    await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [{ key: "unit data||panel outer skin", section: "Unit Data", sub: "", component: "Panel Outer Skin" }, { key: "unit data||panel", section: "Unit Data", sub: "", component: "Panel" }] });
+    const MB = "Model Box Ref.: Energy F2";
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel outer skin", value: "Precoated 0.7 mm", model: "", grp: MB }, { factory: "Dubai", key: "unit data||panel", value: "42 mm", model: "", grp: MB }] });
+    const ta = await login("teamAdmin");
+    await ok("po_admin_approve", { p_token: ta, p_factory_id: "ahu-dubai", p_all: true, p_approve: true });
+    // read again: the skin is general now (no group), the panel stays in its column
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel outer skin", value: "Precoated 0.7 mm", model: "", grp: "" }, { factory: "Dubai", key: "unit data||panel", value: "42 mm", model: "", grp: MB }] });
+    const rows = (await env.DB.prepare("SELECT row_key, grp, approved FROM po_values WHERE factory_id = 'ahu-dubai' ORDER BY row_key, grp").all<any>()).results;
+    expect(rows).toEqual([{ row_key: "unit data||panel", grp: MB, approved: 1 }, { row_key: "unit data||panel outer skin", grp: "", approved: 1 }, { row_key: "unit data||panel outer skin", grp: MB, approved: 1 }]);
+    const drop = [{ key: "unit data||panel outer skin", grp: MB }];
+    expect(await refused("po_admin_clear_ungrouped", { p_token: t, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: drop })).toMatch(/super user or an admin/);
+    expect(await refused("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: [] })).toMatch(/Nothing to remove/);
+    expect((await ok("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: drop })).removed).toBe(1);
+    expect(await refused("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: drop })).toMatch(/Nothing to remove there any more/);
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM po_values WHERE factory_id = 'ahu-dubai'").first<any>()).n).toBe(2);
+  });
+
   it("po_admin_set_hidden with p_row_keys (21 Oct 2026): several rows left out or brought back at once; editors only; audited", async () => {
     const e = await poEditor();
     await mapping(e);

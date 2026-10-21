@@ -111,7 +111,8 @@ export const routes: Routes = {
     if (groups.size === 0) return { ok: true, saved: 0 };
     // what is already there for the rows touched: existing keys and the count per row and model
     const have = new Set<string>(), count = new Map<string, number>();
-    // a value approved before it had a group (saved before 20 Oct 2026) keeps its approval when it comes back grouped
+    // a value already approved for the row (in any group, or none) keeps its approval when it comes back in another
+    // group: values saved before groups (20 Oct 2026), casing rows that left their column (21 Oct 2026)
     const plainOk = new Map<string, string | null>();
     const byFactory = new Map<string, Set<string>>();
     for (const g of groups.values()) (byFactory.get(g.factory_id) || byFactory.set(g.factory_id, new Set()).get(g.factory_id)!).add(g.row_key);
@@ -121,7 +122,7 @@ export const routes: Routes = {
           `SELECT row_key, model, grp, value_key, approved, approved_by FROM po_values WHERE factory_id = ? AND row_key IN (${marks(part.length)})`).bind(fid, ...part));
         for (const r of rows) {
           have.add([fid, r.row_key, r.model, r.grp, r.value_key].join("\u0001"));
-          if (r.grp === "" && r.approved) plainOk.set([fid, r.row_key, r.model, r.value_key].join("\u0001"), r.approved_by);
+          if (r.approved) plainOk.set([fid, r.row_key, r.model, r.value_key].join("\u0001"), r.approved_by);
           const ck = [fid, r.row_key, r.model].join("\u0001");
           count.set(ck, (count.get(ck) || 0) + 1);
         }
@@ -136,7 +137,7 @@ export const routes: Routes = {
           .bind(g.n, at, g.factory_id, g.row_key, g.model, g.grp, g.value_key));
       } else if ((count.get(ck) || 0) < MAX_VALUES) {
         count.set(ck, (count.get(ck) || 0) + 1);
-        const pk = [g.factory_id, g.row_key, g.model, g.value_key].join("\u0001"), inherit = g.grp !== "" && plainOk.has(pk);
+        const pk = [g.factory_id, g.row_key, g.model, g.value_key].join("\u0001"), inherit = plainOk.has(pk);
         stmts.push(env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, grp, value_key, value, times, first_at, last_at, approved, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .bind(g.factory_id, g.row_key, g.model, g.grp, g.value_key, g.value, g.n, at, at, inherit ? 1 : 0, inherit ? plainOk.get(pk) ?? null : null, inherit ? at : null));
       }
@@ -327,6 +328,19 @@ export const routes: Routes = {
     const f = await cmFactory(env, p.p_factory_id);
     const section = tidy(p.p_section);
     if (!section) fail("Choose the section.");
+    /* p_drop: [{ key, grp }] exactly the values to remove, named by the page (21 Oct 2026): readings of an older layout
+       next to the new ones. Only rows of this product's mapping. */
+    if (p.p_drop !== undefined && p.p_drop !== null) {
+      if (!isArray(p.p_drop) || !p.p_drop.length) fail("Nothing to remove there.");
+      if (p.p_drop.length > 500) fail("Remove up to 500 groups at a time.");
+      const drop = p.p_drop.map((raw) => { const o = isObject(raw) ? raw : {}; return { key: str(o.key), grp: str(o.grp) }; }).filter((d) => d.key !== "");
+      const res = await env.DB.batch(drop.map((d) => env.DB.prepare(`DELETE FROM po_values WHERE factory_id = ? AND row_key = ? AND grp = ?
+          AND row_key IN (SELECT m.row_key FROM dn_map m WHERE m.product_id = ?)`).bind(f.id, d.key, d.grp, f.product_id)));
+      const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+      if (!n) fail("Nothing to remove there any more. Refresh the page.");
+      await audit(env, s.id, "po_clear_ungrouped", f.id, "", { section, values: n, drop });
+      return { ok: true, removed: n };
+    }
     const r = await env.DB.prepare(`DELETE FROM po_values WHERE factory_id = ? AND grp = ''
         AND row_key IN (SELECT m.row_key FROM dn_map m WHERE m.product_id = ? AND lower(m.section) = lower(?))
         AND row_key IN (SELECT g.row_key FROM po_values g WHERE g.factory_id = ? AND g.grp <> '')`).bind(f.id, f.product_id, section, f.id).run();
