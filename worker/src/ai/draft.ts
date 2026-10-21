@@ -28,7 +28,7 @@ import { groundRemarks, trimAnswerEcho, hedges, measurements } from "./guard";
 import { instructionsText, type Section } from "./map";
 import { SECTION_GUIDANCE, type SectionKind } from "./sections";
 
-export const PROMPT_VERSION = "draft-2026-10-19a";
+export const PROMPT_VERSION = "draft-2026-10-21a";
 export const RULE_VERSION = "rule-2026-10-16";
 
 export interface PastAnswerIn { spec: string; compliance: string; remarks: string; by: string; score: number; where: string; pending: boolean }

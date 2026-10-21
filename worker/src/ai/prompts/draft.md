@@ -1,10 +1,18 @@
-# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-16f
+# Prompt: draft a compliance answer (worker/src/ai/draft.ts) - version draft-2026-10-21a
 
 Used by `ai_review_run` for a clause that is neither copied from a >= 0.90 library match nor answered by a site
 rule with a fixed answer. The text below is a copy of `systemPrompt()` / `userPrompt()`; the code is the source
 of truth and stores `PROMPT_VERSION` on every draft. A change here = a new version string. Tested in
 `tests/worker/ai.test.ts` and `tests/worker/ai-rules.test.ts`; after the model, `guard.ts` checks the reply
 (numbers need a source, no answer echo, no hedging; Not Comply needs a source; one retry on an unusable reply).
+
+## The brief (draft-2026-10-21a, 21 Oct 2026)
+The brief is the rule book's Instructions branch (`map.ts DEFAULT_INSTRUCTIONS` when a map has none): Role, Sources,
+Which answer, Scope of supply, Remarks. Rewritten to match how the tool works: the model is told it is asked only
+after code (datasheet, library, fixed rules, earlier answers) did not settle the clause; what each source id is
+([O] = what the factory can supply, not what the project selected; [L] / [P] give the treatment and wording, never
+figures; [R] / [C] are instructions, not facts); and that a document Daikin submits (technical data sheet, Eurovent
+certificate, IOM manual) may be named in a remark while an internal source may not.
 
 ## System
 Senior application engineer at the {FACTORY} {PRODUCT} factory. Accuracy first; a false "Comply" is the worst

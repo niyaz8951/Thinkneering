@@ -3,7 +3,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { env } from "cloudflare:test";
 import { ok, login, resetLogins } from "./helpers";
-import { seedTree, parseMap, type MapNode, type Seed } from "../../worker/src/ai/map";
+import { seedTree, parseMap, BRIEF_2026_10_19, DEFAULT_INSTRUCTIONS, type MapNode, type Seed } from "../../worker/src/ai/map";
+import { TEMPLATE_2026_10_20 } from "../../worker/src/ai/template-history";
+import { measurements } from "../../worker/src/ai/guard";
 import { pickRules, directRule } from "../../worker/src/ai/rules";
 import { draftAnswer, NeedsSource } from "../../worker/src/ai/draft";
 
@@ -124,5 +126,50 @@ describe("Create and Update from template", () => {
     expect(tried.notes.join(" ")).toMatch(/Eurovent certification/);
     expect(tried.prompt.user).toMatch(/\[N1\][^\n]*Eurovent certification/);
     expect((await ok("ai_try", { ...clause, p_factory_id: "ahu-dubai" })).notes).toEqual([]);
+  });
+});
+
+describe("The rule book as rewritten on 21 Oct 2026 (how the tool really works)", () => {
+  beforeEach(async () => { await resetLogins(); });
+  const advice = ahu.rules.filter((r) => !r.answer);
+
+  it("advice rules name the sources the model sees, never the retired facts, and carry no figures", () => {
+    for (const r of ahu.rules) expect(r.instruction).not.toMatch(/\bfact '/i);
+    // a figure in a cited rule would pass the number check into a remark
+    for (const r of advice) expect(measurements(r.instruction).map((m) => m.raw)).toEqual([]);
+    // no product truths stated as a rule: what the fan is comes from the datasheet or Product Options
+    expect(ahu.rules.find((r) => r.title === "Fans")!.instruction).not.toMatch(/are the standard/);
+  });
+
+  it("a standard's number is not a figure: NFPA 90A in a remark is not 90 amperes", () => {
+    expect(measurements("Units comply with NFPA 90A and UL 181A.")).toEqual([]);
+    expect(measurements("Fan motor full load 90A at 400 V.").map((m) => m.raw)).toEqual(["90A", "400 V"]);
+  });
+
+  it("speed control has one answer: Belt drives and VFDs; the controls rule no longer claims variable speed", () => {
+    const vfd = pick("Provide a variable frequency drive for each supply fan motor.", "FANS", 2).rules.map((h) => h.rule);
+    expect(vfd.map((r) => r.title)).toContain("Belt drives and VFDs");
+    expect(vfd.find((r) => r.title === "Belt drives and VFDs")!.instruction).toMatch(/Comply with Remarks, 'Speed control is integrated in the EC motors\.'/);
+    expect(vfd.map((r) => r.title)).not.toContain("Controls and speed control");
+  });
+
+  it("Update from template brings unedited branches and the 19 Oct brief up to date, and leaves edited ones", async () => {
+    const t = await login("teamAdmin");
+    const made = await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    const old = (title: string) => TEMPLATE_2026_10_20.find((x) => x.title === title)!;
+    const set = (title: string, notes: string, special?: string[]) => env.DB.prepare("UPDATE mp_nodes SET notes = ?" + (special ? ", special = ?" : "") + " WHERE map_id = ? AND title = ?")
+      .bind(...(special ? [notes, JSON.stringify(special)] : [notes]), made.id, title).run();
+    await set("Fans", old("Fans").notes, old("Fans").special);
+    await set("1. Project datasheet (compared by code)", old("1. Project datasheet (compared by code)").notes, old("1. Project datasheet (compared by code)").special);
+    await set("Coils", "Our own coil rule.");
+    await set("Role", BRIEF_2026_10_19[0].text);
+    const up = (await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added;
+    expect(up).toEqual(expect.arrayContaining(["Fans (updated)", "1. Project datasheet (compared by code) (updated)", "Role (brief updated)"]));
+    expect(up.join(" ")).not.toMatch(/Coils/);
+    const notes = async (title: string) => (await env.DB.prepare("SELECT notes FROM mp_nodes WHERE map_id = ? AND title = ?").bind(made.id, title).first<{ notes: string }>())!.notes;
+    expect(await notes("Fans")).toBe(seedTree("AHU", null).find((x) => x.title === "Part 2 Products")!.kids!.find((k) => k.title === "Fans")!.notes);
+    expect(await notes("Role")).toBe(DEFAULT_INSTRUCTIONS[0].text);
+    expect(await notes("Coils")).toBe("Our own coil rule.");
+    expect((await ok("ai_map_upgrade", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" })).added).toEqual([]);
   });
 });

@@ -28,6 +28,7 @@ const UNIT_RE = UNIT_LIST.slice().sort((a, b) => b.replace(/\\/g, "").length - a
 const MEASURE = new RegExp(`(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?(?!\\d)|\\d+(?:[.,]\\d+)?)\\s*-?\\s*(${UNIT_RE})(?![a-z0-9])`, "gi");
 
 export interface Measure { n: number; unit: string; raw: string }
+const STANDARD_BEFORE = /\b(NFPA|UL|ASHRAE|AHRI|ARI|AMCA|ASTM|SMACNA|ANSI|ISO|IEC|EN|BS|DIN|SASO)[\s-]*$/i;
 
 function unitKey(u: string): string {
   const s = u.toLowerCase().replace(/\s+/g, "").replace(/³/g, "3").replace(/²/g, "2").replace(/°/g, "");
@@ -57,6 +58,8 @@ export function measurements(text: unknown): Measure[] {
     // "1.5 m" fine; skip a bare "c" / "f" / "a" / "h" / "t" / "g" unless glued to the number ("40C", "3h")
     const unit = m[2];
     if (/^[cfahtg]$/i.test(unit) && /\s/.test(m[0])) continue;
+    // "NFPA 90A", "UL 181A": a standard's number, not 90 amperes (a remark naming the code is not a figure)
+    if (/^[a-z]$/i.test(unit) && STANDARD_BEFORE.test(s.slice(Math.max(0, m.index - 12), m.index))) continue;
     const num = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(m[1]) ? m[1].replace(/,/g, "") : m[1].replace(",", ".");
     out.push({ n: parseFloat(num), unit: unitKey(unit), raw: m[0].trim() });
   }
