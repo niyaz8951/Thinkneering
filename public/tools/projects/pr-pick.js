@@ -69,7 +69,13 @@
       // opened from a project page: that project, locked
       locked = !!o.fixed && !!Hub.param('project') && sel.value === Hub.param('project');
       if (locked) {
-        sel.disabled = true; sel.title = 'Opened from this project. To work for another project, open it from that project\'s page.';
+        // no choice to make: the project is shown as text, not as a list
+        sel.disabled = true; sel.hidden = true;
+        var shown = list.filter(function (x) { return x.id === sel.value; })[0];
+        sel.parentNode.insertBefore(Hub.el('div', { 'class': 'input pr-fixed', role: 'note', 'aria-label': 'Project',
+          style: 'display:flex;align-items:center;background:var(--surface-2);cursor:default;font-weight:600;overflow-wrap:anywhere',
+          title: 'Opened from this project. To work for another project, open it from that project\'s page.',
+          text: shown ? shown.name + (shown.client_name ? ' - ' + shown.client_name : '') : '' }), sel.nextSibling);
         [].forEach.call(document.querySelectorAll('[data-project-new]'), function (a) { a.hidden = true; });
       }
       sel.addEventListener('change', changed);

@@ -185,7 +185,7 @@
   function share(r, n) { return r.clauses ? Math.round(100 * n / r.clauses) : 0; }
   function tile(toolId, name, text, icon, n, one, many, href) {
     if (!hasTool(toolId)) return null;
-    return el("a", { "class": "tile pj-tile " + (n ? "has" : "none"), href: href || "../" + toolId + "/index.html?project=" + encodeURIComponent(id) }, [
+    return el("a", { "class": "tile pj-tile " + (n ? "has" : "none"), href: href || "../" + toolId + "/index.html?from=project&project=" + encodeURIComponent(id) }, [
       el("div", { "class": "tile-icon", html: icon }), el("h3", { text: name }), el("p", { text: text }),
       el("div", { "class": "meta", text: n ? plural(n, one, many) + " saved" : "Nothing saved yet" })
     ]);

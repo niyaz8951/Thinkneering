@@ -58,7 +58,7 @@
     if (window.Hub.canEdit(profile, 'compliance-maker')) $('lib-manage').hidden = false;
     // The project this work is saved in (tools/projects/pr-pick.js). A result belongs to its project too.
     var first = true;
-    window.PRPick.attach({ select: $('cm-project'), hint: $('cm-project-hint'), profile: profile,
+    window.PRPick.attach({ select: $('cm-project'), hint: $('cm-project-hint'), profile: profile, fixed: window.Hub.param('from') === 'project',
       onChange: function () { if (!first) resetResult(); first = false; applyGate(); } });
     return window.Api.cmOptions(window.Hub.token());
   }).then(function (res) {
