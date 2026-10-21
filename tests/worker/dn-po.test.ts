@@ -99,7 +99,7 @@ describe("dn_* routes", () => {
     const rules = (await ok("dn_get_rules", { p_token: t, p_product_id: "ahu" })).rules;
     expect(rules.map((x: any) => x.key)).toEqual(["general||project", "general||power supply", "unit data||panel"]);
     expect(rules[1]).toEqual({ key: "general||power supply", section: "General", sub: "", component: "Power supply", show: true, label: "", strip: "+ PE", response: "",
-      keywords: "power supply; electrical characteristic; electrical supply; supply voltage; main power; electrical power", new: true, in_tree: true, kind: "", auto_kind: "option" });
+      keywords: "power supply; electrical characteristic; electrical supply; supply voltage; main power; electrical power", new: true, in_tree: true, kind: "", auto_kind: "option", place: "" });
     expect(rules[2].keywords).toMatch(/double skin/);
     // a row new to the mapping has had no decision yet: it gets its starter keywords even when other rows have keywords (19 Oct 2026)
     const r2 = await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: AHU_ROWS });
@@ -155,7 +155,7 @@ describe("dn_* routes", () => {
     expect(g.rules.length).toBe(6);
     expect(g.rules.map((x: any) => x.key)).toEqual(["unit data||panel", "general||power supply", "unit data||supply air flow", "new||row", "unit data||insulation", "casing|options|option"]);   // sort then key, as before
     expect(g.rules[0]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", show: true, label: "Panel thickness", strip: "+ PE",
-      response: "Panel thickness is $", keywords: "panel thick", new: false, in_tree: true, kind: "", auto_kind: "option" });
+      response: "Panel thickness is $", keywords: "panel thick", new: false, in_tree: true, kind: "", auto_kind: "option", place: "" });
     expect(g.rules[2]).toMatchObject({ show: false, new: false, in_tree: false, component: "Supply air flow" });   // in_tree kept
     expect(g.rules[3]).toMatchObject({ new: false, section: "New" });
     expect(g.rules[1]).toMatchObject({ new: true });                                  // rows not in the list are kept as they are
@@ -293,7 +293,7 @@ describe("po_* routes", () => {
     expect(typeof u.updated).toBe("string");
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
-    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", values: [
+    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", place: "", values: [
       { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
@@ -318,7 +318,7 @@ describe("po_* routes", () => {
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
     await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", place: "", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -328,7 +328,7 @@ describe("po_* routes", () => {
     const plain = await login("sbu");
     expect(await refused("po_admin_save_extra", { p_token: plain, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/Edit access/);
     const ta = await login("teamAdmin");                       // admin of the General tile = editor of Product Options
-    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option, note or AI note/);
+    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "thing", p_body: "x" })).toMatch(/special option, note, AI note or make/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: " ", p_row_key: "", p_kind: "option", p_body: "x" })).toMatch(/section a name/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "  " })).toMatch(/Type the text/);
     expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_id: null, p_section: "Casing", p_row_key: "", p_kind: "option", p_body: "x".repeat(1001) })).toMatch(/longer than 1000/);
@@ -556,6 +556,44 @@ describe("po_* routes", () => {
     expect((await ok("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: drop })).removed).toBe(1);
     expect(await refused("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_drop: drop })).toMatch(/Nothing to remove there any more/);
     expect((await env.DB.prepare("SELECT count(*) AS n FROM po_values WHERE factory_id = 'ahu-dubai'").first<any>()).n).toBe(2);
+  });
+
+  it("po_admin_set_place (0012): editors move rows between General and the columns, for every factory; validated, audited", async () => {
+    const e = await poEditor();
+    await mapping(e);
+    await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
+    const plain = await login("sales");
+    const keys = ["unit data||panel", "unit data||insulation"];
+    expect(await refused("po_admin_set_place", { p_token: plain, p_factory_id: "ahu-dubai", p_row_keys: keys, p_place: "general" })).toMatch(/Edit access/);
+    expect(await refused("po_admin_set_place", { p_token: "nope", p_factory_id: "ahu-dubai", p_row_keys: keys, p_place: "general" })).toBe("SESSION_EXPIRED");
+    expect(await refused("po_admin_set_place", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_place: "sideways" })).toMatch(/general or per model/);
+    expect(await refused("po_admin_set_place", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: [], p_place: "general" })).toMatch(/Tick the rows/);
+    expect(await refused("po_admin_set_place", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: ["no||row"], p_place: "general" })).toMatch(/no longer exist/);
+    expect((await ok("po_admin_set_place", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_place: "model" })).changed).toBe(2);
+    const t = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
+    expect(t.rows).toEqual([]);                                  // no values in Riyadh; the place is the product's
+    expect((await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" })).rows[0]).toMatchObject({ key: "unit data||panel", place: "model" });
+    expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((r: any) => r.key === "unit data||insulation").place).toBe("model");
+    await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||insulation", section: "Unit data", component: "Insulation", place: "" }] });
+    expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((r: any) => r.key === "unit data||insulation").place).toBe("");
+    expect(await refused("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||insulation", section: "Unit data", component: "Insulation", place: "x" }] })).toMatch(/unknown place/);
+    const a = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'po_set_place'").first<any>();
+    expect(a.n).toBe(1);
+  });
+
+  it("makes (0012): admins of the tile keep the manufacturers of a section; everyone sees them; a reset with notes removes them", async () => {
+    const e = await poEditor(), ta = await login("teamAdmin"), plain = await login("sales");
+    expect(await refused("po_admin_save_extra", { p_token: e, p_factory_id: "ahu-dubai", p_section: "Fan Supply", p_row_key: "", p_kind: "make", p_body: "ebm-papst" })).toMatch(/keeps the makes/);
+    expect(await refused("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Fan Supply", p_row_key: "", p_kind: "make", p_body: "x".repeat(121) })).toMatch(/up to 120/);
+    const m = await ok("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Fan Supply", p_row_key: "", p_kind: "make", p_body: "ebm-papst" });
+    await ok("po_admin_save_extra", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Fan Supply", p_row_key: "", p_kind: "make", p_body: "Nicotra Gebhardt" });
+    expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" })).extras.filter((x: any) => x.kind === "make").map((x: any) => x.body)).toEqual(["ebm-papst", "Nicotra Gebhardt"]);
+    expect(await refused("po_admin_save_extra", { p_token: e, p_factory_id: "ahu-dubai", p_id: m.id, p_section: "Fan Supply", p_row_key: "", p_kind: "make", p_body: "Ziehl" })).toMatch(/keeps the makes/);
+    expect(await refused("po_admin_delete_extra", { p_token: e, p_id: m.id })).toMatch(/makes/);
+    await ok("po_admin_delete_extra", { p_token: ta, p_id: m.id });
+    const a = await login("admin");
+    await ok("po_reset", { p_token: a, p_product_id: "ahu", p_with_extras: true });
+    expect((await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" })).extras).toEqual([]);
   });
 
   it("po_admin_set_hidden with p_row_keys (21 Oct 2026): several rows left out or brought back at once; editors only; audited", async () => {

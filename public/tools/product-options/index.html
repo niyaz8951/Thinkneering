@@ -141,6 +141,14 @@
   .po-matrix th.unit .po-x { display: block; margin-top: 4px; padding: 0; }
   .po-matrix td.comp .po-note { margin-top: 4px; font-weight: 400; }
   .po-duty-toggle { display: block; margin-top: 10px; padding-left: 0; }
+  .po-fam { margin-top: 10px; }
+  .po-fam > summary { cursor: pointer; padding: 6px 0; font-size: 13px; font-weight: 650; color: var(--text-soft); display: flex; align-items: center; gap: 8px; list-style: none; }
+  .po-fam > summary::-webkit-details-marker { display: none; }
+  .po-fam > summary::before { content: ""; width: 6px; height: 6px; border-right: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(-45deg); transition: transform .15s; }
+  .po-fam[open] > summary::before { transform: rotate(45deg); }
+  .po-fam > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
+  .po-fam > summary .count { font-weight: 400; }
+  .po-chip.make { background: var(--surface); border-color: var(--brand); }
   .po-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
   .po-jump { font: inherit; font-size: 13px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
   .po-jump:hover { border-color: var(--brand); color: var(--brand-strong); }

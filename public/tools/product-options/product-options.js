@@ -265,6 +265,14 @@
     }
     if (out.length) bar.appendChild(act(out, true, 'Leave out ' + out.length + (out.length === 1 ? ' row' : ' rows'), out.length + (out.length === 1 ? ' row' : ' rows') + ' left out for every ' + all + ' factory.'));
     if (back.length) bar.appendChild(act(back, false, 'Bring back ' + back.length + (back.length === 1 ? ' row' : ' rows'), 'Rows are back in the tree.'));
+    if (!modelMode()) [['general', 'Move to general'], ['model', 'Move to columns']].forEach(function (m) {
+      bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: m[1], onclick: function (e) {
+        var b = e.currentTarget; b.disabled = true;
+        Api.poAdminSetPlace(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, place: m[0] }).then(function () {
+          picked = {}; window.Hub.toast(keys.length + (keys.length === 1 ? ' row moved.' : ' rows moved.')); return load(true);
+        }, function (err) { b.disabled = false; window.Hub.toast((err && err.message) || String(err), true); });
+      } }));
+    });
     bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Clear', onclick: function () { picked = {}; render(); } }));
   }
   function waitBar() {
@@ -291,6 +299,7 @@
     var form = el('div', { 'class': 'po-form' }, [
       el('strong', { 'class': 'small', text: (d.id ? 'Change ' : 'New ') + what + ' for ' + d.where }),
       d.kind === 'ai' ? el('p', { 'class': 'hint', text: 'A fact for the AI about this factory\'s product (what is standard, what is offered). Only admins see AI notes; the AI reads them with the datasheet and the options.' }) : null,
+      d.kind === 'make' ? el('p', { 'class': 'hint', text: 'A manufacturer the factory buys this component from, e.g. ebm-papst. Add one make at a time; everyone sees them.' }) : null,
       box, msg,
       el('div', { 'class': 'row' }, [save, el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Cancel', onclick: function () { form.remove(); } })])
     ]);
@@ -309,7 +318,7 @@
     anchor.appendChild(form); box.focus();
   }
 
-  var KIND = { option: 'special option', note: 'note', ai: 'AI note' };
+  var KIND = { option: 'special option', note: 'note', ai: 'AI note', make: 'make' };
   /* the buttons that add a special option, a note and (admins) an AI note */
   function addButtons(anchor, section, key, where, forSection) {
     var tail = forSection ? ' for the section' : '';
@@ -374,7 +383,12 @@
 
   /* the column of a value in card C: { key, label, head, family } or null (no column: belongs to the whole card) */
   function columnOf(C, row, v) {
-    if (C.bySection) { var nm = String(row.section || '').replace(/\s+(supply|return)$/i, '').replace(/^coil\s+/i, ''); return { key: tidy(nm), label: 'Coil', head: nm, family: '' }; }
+    if (C.bySection) {
+      // three coil types (owner, 21 Oct 2026): a "Cooling • Heating Water" coil is a cooling water coil
+      var nm = String(row.section || '').replace(/\s+(supply|return)$/i, '').replace(/^coil\s+/i, '');
+      nm = /\bdx\b/i.test(nm) ? 'Cooling DX' : /cool/i.test(nm) ? 'Cooling Water' : /heat/i.test(nm) ? 'Heating Water' : nm;
+      return { key: tidy(nm), label: 'Coil', head: nm, family: '' };
+    }
     if (!C.column || !v.g || !P) return null;
     var g = P.poGroupParts(v.g);
     if (!g || !(C.label ? tidy(g.label) === tidy(C.label) : C.column.test(g.label))) return null;
@@ -403,6 +417,7 @@
       var lk = kind + '|' + tidy(sub) + '|' + tidy(name), ln = c.lineBy[lk];
       if (!ln) { ln = c.lineBy[lk] = { name: name, sub: sub, kind: kind, keys: [], rows: [], off: true, extras: [], sections: [] }; c.lines.push(ln); }
       ln.keys.push(r.key); ln.rows.push(r); if (!r.hidden) ln.off = false;
+      if (r.place && !ln.place) ln.place = r.place;          // moved by an editor: general / per model
       if (ln.sections.indexOf(section) < 0) ln.sections.push(section);
       rowBy[r.key] = ln;
     });
@@ -410,6 +425,7 @@
       if (x.key && rowBy[x.key]) rowBy[x.key].extras.push(x);
       else card(x.section || 'General').extras.push(x);
     });
+    if (!extrasOnly) card('General');                         // the product's own notes, always at the end
     list.sort(function (a, b) { return (a.id === 'power' ? -1 : a.id === 'general' ? 1 : 0) - (b.id === 'power' ? -1 : b.id === 'general' ? 1 : 0); });
     list.forEach(function (c) { shapeCard(c, edit); });
     return list;
@@ -418,15 +434,21 @@
   /* values -> columns, cells, common / model-specific / duty / accessories */
   function shapeCard(c, edit) {
     var C = c.C, cols = [], colBy = {}, sides = {};
-    // cards with members (casing): only those rows have columns; the others are general, whatever group they were read in
-    var member = function (key) { return !C.members || C.members.test(key); };
+    /* where a row shows: the editor's move (dn_map.place), else the card's rule: heat recovery and humidifiers in General,
+       the casing's model box rows per model box and the rest in General, the other cards decided by the values ('auto') */
+    function placeOf(ln) {
+      if (ln.place) return ln.place;
+      if (C.general) return 'general';
+      if (C.members) return C.members.test(ln.keys[0]) ? 'model' : 'general';
+      return 'auto';
+    }
     c.lines.forEach(function (ln) {
-      ln.cells = {}; ln.loose = [];
+      ln.cells = {}; ln.loose = []; ln.pl = placeOf(ln);
       ln.rows.forEach(function (r) {
         r.values.forEach(function (v) {
           if (!edit && v.hidden) return;
           if (onlyWait && ln.kind !== 'duty' && !v.wait) return;
-          var col = ln.kind === 'accessory' || !member(r.key) ? null : columnOf(C, r, v);
+          var col = ln.kind === 'accessory' || ln.pl === 'general' ? null : columnOf(C, r, v);
           var x = { key: r.key, v: v, section: r.section };
           if (!col) { ln.loose.push(x); return; }
           var cc = colBy[col.key];
@@ -449,24 +471,21 @@
       var inCols = cols.filter(function (cc) { return (ln.cells[cc.key] || []).length; });
       if (ln.kind === 'accessory') { c.access.push(ln); return; }
       if (cols.length && !C.bySection && C.column && C.column.test(ln.rows[0].key.split('|')[2] || '') && !ln.loose.length && !ln.extras.length) { c.heads.push(ln); return; }   // the column heading says it
-      if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); return; }
-      // an option: common when it is the same in every column (or has no column at all), else model-specific
+      if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); ln.bucket = inCols.length ? 'model' : 'general'; return; }
+      // an option: per model when moved there (or by the card's rule), in General when moved there, else common when
+      // it is the same in every column (or has no column at all) and model-specific when it differs
       var sig = function (list) { return list.filter(function (x) { return !x.v.hidden; }).map(function (x) { return tidy(x.v.k); }).filter(function (k, i, a) { return a.indexOf(k) === i; }).sort().join('\u0001'); };
-      var same = inCols.length === 0 || (!(C.keepInColumns && member(ln.keys[0])) && cols.length > 1 && inCols.length === cols.length &&
+      var same = ln.pl === 'general' || inCols.length === 0 || (ln.pl !== 'model' && cols.length > 1 && inCols.length === cols.length &&
         inCols.every(function (cc) { return sig(ln.cells[cc.key]) === sig(ln.cells[inCols[0].key]); }) &&
         (!ln.loose.length || sig(ln.loose) === sig(ln.cells[inCols[0].key])));
-      if (same) {
-        c.common.push(ln);
-        // a general row read earlier inside a column, and read again since without one: the old copies can go
-        if (!member(ln.keys[0]) && ln.loose.some(function (x) { return !x.v.g; })) ln.loose.forEach(function (x) { if (x.v.g) drop(x); });
-      } else {
-        c.model.push(ln);
+      if (same) { c.common.push(ln); ln.bucket = 'general'; }
+      else {
+        c.model.push(ln); ln.bucket = 'model';
         // values read before the columns existed (no group, or another kind of group): admins can remove them
         ln.loose.forEach(drop);
       }
     });
     c.stale = c.drop.length;
-    c.colOld = c.model.some(function (ln) { return ln.loose.length; });
   }
 
   /* chips of one cell: the same value under two spellings or two rows (supply / return) is one chip */
@@ -507,7 +526,19 @@
     var waits = rowWaitButtons(waitItems(lineAll(ln)), ln.name);
     var where = c.name + ' > ' + ln.name;
     var add = edit ? addButtons(anchor, ln.rows[0].section || c.sections[0], ln.keys[0], where) : [];
-    return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? [leaveOut(ln.keys, ln.off)] : [])) : null;
+    return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? moveButtons(c, ln) : [], edit ? [leaveOut(ln.keys, ln.off)] : [])) : null;
+  }
+  /* move a row between General and the columns (owner, 21 Oct 2026): for every factory of the product (dn_map.place) */
+  function canMove(c) { return !!(c.C.column || c.C.bySection); }
+  function placeBtn(keys, place, label, done) {
+    return xbtn(label, function (e) { busy(e.currentTarget, Api.poAdminSetPlace(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, place: place }), done); });
+  }
+  function moveButtons(c, ln) {
+    if (!canMove(c) || ln.kind === 'accessory') return [];
+    var out = [ln.bucket === 'model' ? placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in General now.')
+                                    : placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is shown per ' + ((UNIT[c.id] || ['model'])[0]) + ' now.')];
+    if (ln.place) out.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place.'));
+    return out;
   }
   function lineExtras(c, ln, edit, anchor) { return extraNodes(ln.extras, { where: c.name + ' > ' + ln.name, anchor: anchor }, edit); }
 
@@ -551,10 +582,13 @@
 
     if (c.stale && tree.can_approve && !q) body.appendChild(staleNotice(c));
 
-    // common to every unit seen
-    if (lines.common.length) {
-      body.appendChild(el('p', { 'class': 'po-part', text: c.C.members ? 'General' : cols.length > 1 ? 'Common to every ' + (u ? u[0] : 'column') : (cols.length ? 'Common' : 'Options seen') }));
+    // General: the makes, then the options common to every column (or with no column)
+    var makes = c.extras.filter(function (x) { return x.kind === 'make'; });
+    var makeRow = makeCard(c) && !q && (makes.length || (edit && tree.can_approve)) ? makeLine(c, makes, edit) : null;
+    if (lines.common.length || makeRow) {
+      body.appendChild(el('p', { 'class': 'po-part', text: canMove(c) && cols.length > 1 && !c.C.members ? 'Common to every ' + (u ? u[0] : 'column') : 'General' }));
       var grid = el('div', { 'class': 'po-grid' });
+      if (makeRow) grid.appendChild(makeRow);
       lines.common.forEach(function (ln) {
         var vals = el('div', { 'class': 'po-vals' }), row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
         chipsOf(lineAll(ln)).forEach(function (ch) { vals.appendChild(chipNode(ch, edit)); });
@@ -585,8 +619,14 @@
     var dutyCols = showDuty ? lines.duty.filter(function (ln) { return cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }); }) : [];
     if (cols.length) families.forEach(function (fam) {
       var fc = cols.filter(function (cc) { return cc.family === fam; });
-      if (fam) body.appendChild(el('p', { 'class': 'po-part', text: fam }));
-      body.appendChild(modelTable(c, fc, lines.model, dutyCols, edit));
+      var table = modelTable(c, fc, lines.model, dutyCols, edit);
+      if (!fam) { body.appendChild(table); return; }
+      // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026)
+      var fk = 'fam:' + c.id + ':' + low(fam);
+      var fd = el('details', { 'class': 'po-fam', open: q ? true : !closed[fk] }, [
+        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), table]);
+      fd.addEventListener('toggle', function () { if (!q) closed[fk] = !fd.open; });
+      body.appendChild(fd);
     });
     if (lines.duty.length && !q) body.appendChild(el('button', { type: 'button', 'class': 'po-more po-duty-toggle', 'aria-expanded': showDuty ? 'true' : 'false',
       text: showDuty ? 'Hide duty figures' : 'Show duty figures (' + lines.duty.length + ')', title: 'Flows, pressures, sizes ... seen on the selections so far: not options and not limits.',
@@ -607,8 +647,35 @@
       });
       body.appendChild(dg);
     }
-    if (!body.childNodes.length) body.appendChild(el('p', { 'class': 'hint', text: 'Nothing here yet.' }));
+    if (!body.childNodes.length) {
+      if (c.id === 'general' && !edit) return null;
+      body.appendChild(el('p', { 'class': 'hint', text: c.id === 'general' ? 'Notes about the whole product go here.' : 'Nothing here yet.' }));
+    }
     return d;
+  }
+
+  /* Make: the manufacturers the factory buys the component from (owner, 21 Oct 2026), kept by the admins */
+  var NO_MAKE = { power: 1, general: 1, casing: 1, empty: 1 };
+  function makeCard(c) { return !NO_MAKE[c.id]; }
+  function makeLine(c, makes, edit) {
+    var row = el('div', { 'class': 'po-line' }), vals = el('div', { 'class': 'po-vals' });
+    makes.forEach(function (x) {
+      var chip = el('span', { 'class': 'po-chip make', title: 'Added by ' + (x.by || 'an admin') + (when(x.at) ? ', ' + when(x.at) : '') }, [el('span', { text: x.body })]);
+      if (edit && tree.can_approve) {
+        chip.appendChild(xbtn('Change', function () { openForm(row, { id: x.id, kind: 'make', body: x.body, section: x.section, key: x.key, where: c.name }); }));
+        chip.appendChild(xbtn('Delete', function (e) {
+          var b = e.currentTarget;
+          window.Hub.confirm(x.body, { title: 'Delete this make?', ok: 'Delete', danger: true }).then(function (yes) { if (yes) busy(b, Api.poAdminDeleteExtra(window.Hub.token(), x.id), 'Deleted.'); });
+        }, true));
+      }
+      vals.appendChild(chip);
+    });
+    if (!makes.length) vals.appendChild(el('span', { 'class': 'muted', text: 'None yet' }));
+    row.appendChild(el('div', { 'class': 'po-name', text: 'Make', title: 'The manufacturers the factory buys this component from' }));
+    row.appendChild(vals);
+    if (edit && tree.can_approve) row.appendChild(el('div', { 'class': 'po-tools' }, [
+      xbtn('+ Make', function () { openForm(row, { kind: 'make', section: c.sections[0] || c.name, key: '', where: c.name }); })]));
+    return row;
   }
 
   /* the columns of one card: the options that differ, then the duty figures seen with each column */
@@ -938,7 +1005,10 @@
       sr.models.forEach(function (m) { closed['model:' + low(m.model)] = !open; build().forEach(function (s) { closed['m:' + low(m.model) + ':' + low(s.name)] = !open; }); });
     });
     closed['series:all'] = !open;
-    buildCards(false, false).forEach(function (c) { closed['card:' + c.id] = !open; });
+    buildCards(false, false).forEach(function (c) {
+      closed['card:' + c.id] = !open;
+      c.cols.forEach(function (cc) { if (cc.family) closed['fam:' + c.id + ':' + low(cc.family)] = !open; });
+    });
     render();
   }
   $('po-open').addEventListener('click', function () { setAll(true); });
@@ -954,7 +1024,9 @@
     function seen(list) { return cellText(chipsOf(ok(list)).map(function (ch) { return { v: ch.text, n: ch.n }; })); }
     function colName(cc) { return (cc.family ? cc.family + ' · ' : '') + cc.label + ': ' + cc.head; }
     cards.forEach(function (c) {
-      if (c.extras.length) out.push([c.name, '', '(whole section)', '', '', txt(c.extras, 'option'), txt(c.extras, 'note')]);
+      if (c.extras.some(function (x) { return x.kind !== 'make'; })) out.push([c.name, '', '(whole section)', '', '', txt(c.extras, 'option'), txt(c.extras, 'note')]);
+      var mk = c.extras.filter(function (x) { return x.kind === 'make'; }).map(function (x) { return x.body; });
+      if (mk.length) out.push([c.name, 'All', 'Make', 'Make', mk.join('\n'), '', '']);
       c.common.forEach(function (ln) { var v = seen(lineAll(ln)); if (v || ln.extras.length) out.push([c.name, 'All', lineName(ln), 'Common', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
       var acc = []; c.access.forEach(function (ln) { acc = acc.concat(lineAll(ln)); });
       if (ok(acc).length) out.push([c.name, 'All', 'Accessories', 'Accessory', seen(acc), '', '']);

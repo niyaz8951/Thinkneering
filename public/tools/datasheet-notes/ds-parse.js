@@ -506,8 +506,9 @@
                  else the section), default the section
        shared    rows of the section that belong to every column (never grouped)
        family    fans: the row that gives the family (EC, DIDW), put before the column: "EC Fans · Model: ..."
-       members   only these rows (row keys) belong to a column; the card's other rows are general
-       keepInColumns  member rows stay in the columns even when every column has the same value
+       members   Product Options shows only these rows per column by default (the others in General); every row is
+                 still saved with its column, so an editor can move a row (dn_map.place, owner 21 Oct 2026)
+       general   Product Options shows the card's rows in General by default (heat recovery, humidifiers)
        bySection coils: one column per section kind (cooling DX, cooling water), no group needed
      A section no card names is a card of its own, supply and return together. */
   var PO_CARDS = [
@@ -515,12 +516,12 @@
     // owner, 21 Oct 2026: a column per model box with its panel, insulation, profile and EN 1886 classes; skins, base,
     // roof ... are general (project choices, not part of the model box)
     { id: 'casing', name: 'Casing', sections: /^(unit data|mechanical characteristic \(en ?1886\)|en ?13053)$/, column: /^model box ref\.?$/i, scope: 'unit',
-      members: /^unit data\|\|(model box ref\.?|panel|insulation|profile)$|^mechanical characteristic \(en ?1886\)\|/, keepInColumns: true },
+      members: /^unit data\|\|(model box ref\.?|panel|insulation|profile)$|^mechanical characteristic \(en ?1886\)\|/ },
     { id: 'dampers', name: 'Dampers', sections: /^(damper\b|mixing box\b)/ },
     { id: 'filters', name: 'Filters', sections: /^filter\b/, column: /^filter class$/i, scope: 'item', shared: /^(mounting|air velocity|pressure drop design)$/i },
-    { id: 'recovery', name: 'Heat recovery', sections: /heat wheel|recuperator|heat recovery|plate exchanger/, column: /^part number$/i },
+    { id: 'recovery', name: 'Heat recovery', sections: /heat wheel|recuperator|heat recovery|plate exchanger/, column: /^part number$/i, general: true },
     { id: 'coils', name: 'Coils', sections: /^coil\b/, bySection: true },
-    { id: 'humidifiers', name: 'Humidifiers', sections: /humidifier/, column: /^name$/i, label: 'Model' },
+    { id: 'humidifiers', name: 'Humidifiers', sections: /humidifier/, column: /^name$/i, label: 'Model', general: true },
     { id: 'heaters', name: 'Electric heaters', sections: /electric heater/ },
     { id: 'fans', name: 'Fans', sections: /^(fan\b.*|.*\bfan)$/, column: /^(fan )?(model|size)$/i, family: /^(fan )?type$/i },
     { id: 'empty', name: 'Empty sections', sections: /^empty section/ }
@@ -555,7 +556,6 @@
     function grouped(r, C) {
       var p = parts(r);
       if (!C.column || p[1] === 'options' || p[2] === 'note') return false;
-      if (C.members && !C.members.test(r.key)) return false;
       return !(C.shared && !r.sub && C.shared.test(r.component));
     }
     rows.forEach(function (r) {

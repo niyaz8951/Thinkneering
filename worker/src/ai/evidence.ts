@@ -191,6 +191,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
         const where = x.row_key ? m.component : m.section;
         if (x.kind === "option") o.specials.push(`${where}: ${x.body}`);
         else if (x.kind === "note") o.notes.push(`${where}: ${x.body}`);
+        else if (x.kind === "make") o.notes.push(`${where}: made by ${x.body}`);      // a manufacturer the factory buys from
         else o.ai.push(`${where}: ${x.body}`);
       }
       options.set(seq, o);
