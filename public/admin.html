@@ -11,27 +11,28 @@
 <script src="assets/js/api.js"></script>
 <script src="assets/js/hub.js"></script>
 <style>
-  .ad-tabs { overflow-x: auto; }
-  .ad-tabs .tab { white-space: nowrap; }
-  .ad-wait { display: flex; gap: 8px; flex-wrap: wrap; }
-  .ad-sum { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .ad-sum h3 { font-size: 13px; font-weight: 600; color: var(--text-soft); margin-bottom: 6px; }
-  .ad-sum ul { list-style: none; margin: 0; padding: 0; }
-  .ad-sum li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
-  .ad-sum li:last-child { border-bottom: 0; }
-  .ad-who td { vertical-align: top; }
-  .ad-tile { display: flex; align-items: center; justify-content: space-between; gap: 10px; white-space: nowrap; font-size: 14px; }
-  .ad-tile + .ad-tile { margin-top: 6px; }
+  /* class names never start with "ad-": ad blockers hide such elements (the tabs and the tile choices vanished) */
+  .mgr-tabs { overflow-x: auto; }
+  .mgr-tabs .tab { white-space: nowrap; }
+  .mgr-wait { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mgr-sum { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .mgr-sum h3 { font-size: 13px; font-weight: 600; color: var(--text-soft); margin-bottom: 6px; }
+  .mgr-sum ul { list-style: none; margin: 0; padding: 0; }
+  .mgr-sum li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .mgr-sum li:last-child { border-bottom: 0; }
+  .mgr-who td { vertical-align: top; }
+  .mgr-tile { display: flex; align-items: center; justify-content: space-between; gap: 10px; white-space: nowrap; font-size: 14px; }
+  .mgr-tile + .mgr-tile { margin-top: 6px; }
   /* Users: the super user's row and the actions keep their shape on a laptop screen */
-  .ad-users .user-cell { min-width: 130px; }
-  .ad-users .badge { white-space: nowrap; }
-  .ad-users .ad-role { min-width: 110px; }
-  .ad-users .ad-acts { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 128px; }
-  .ad-users .ad-acts .small { text-align: right; white-space: nowrap; }
-  .ad-users th, .ad-users td { padding-left: 9px; padding-right: 9px; }
-  .ad-users .ad-tile select.input { width: 106px; }
-  .ad-users .check { font-size: 13.5px; }
-  .ad-tile select.input { min-height: 32px; padding: 3px 8px; width: 118px; font-size: 14px; }
+  .mgr-users .user-cell { min-width: 130px; }
+  .mgr-users .badge { white-space: nowrap; }
+  .mgr-users .mgr-role { min-width: 110px; }
+  .mgr-users .mgr-acts { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 128px; }
+  .mgr-users .mgr-acts .small { text-align: right; white-space: nowrap; }
+  .mgr-users th, .mgr-users td { padding-left: 9px; padding-right: 9px; }
+  .mgr-users .mgr-tile select.input { width: 106px; }
+  .mgr-users .check { font-size: 13.5px; }
+  .mgr-tile select.input { min-height: 32px; padding: 3px 8px; width: 118px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -43,9 +44,9 @@
     <p id="adminIntro">Approve people, decide which team tiles they can open and which tools they can edit.</p>
   </div>
 
-  <div class="notice warn ad-wait" id="adWait" role="status" hidden></div>
+  <div class="notice warn mgr-wait" id="mgrWait" role="status" hidden></div>
 
-  <div class="tabs ad-tabs" role="tablist">
+  <div class="tabs mgr-tabs" role="tablist">
     <button class="tab" role="tab" data-tab="users" aria-selected="true">Users <span class="badge warn" id="pendingCount" hidden></span></button>
     <button class="tab" role="tab" data-tab="library" aria-selected="false">Compliance Library <span class="badge warn" id="reviewCount" hidden></span></button>
     <button class="tab" role="tab" data-tab="products" aria-selected="false">Products <span class="badge warn" id="rowsCount" hidden></span></button>
@@ -58,7 +59,7 @@
   <!-- USERS -->
   <section id="tab-users" class="stack">
     <div class="table-wrap">
-      <table class="table ad-users">
+      <table class="table mgr-users">
         <thead><tr><th>User</th><th style="white-space:normal">Team (as requested)</th><th>Status</th><th>Role</th><th>Access to each tile</th><th>Can edit</th><th></th></tr></thead>
         <tbody id="userRows"></tbody>
       </table>
@@ -116,14 +117,14 @@
         <a class="btn" href="tools/projects/index.html">Open all projects</a>
       </div>
       <p class="small muted">Admins see the projects of every user, with their compliance records, datasheet tables and history. The list can be searched, filtered and downloaded there.</p>
-      <div class="ad-sum" id="projSum"></div>
+      <div class="mgr-sum" id="projSum"></div>
     </div>
   </section>
 
   <!-- WHO APPROVES WHAT -->
   <section id="tab-who" class="stack" hidden>
     <div class="table-wrap">
-      <table class="table ad-who">
+      <table class="table mgr-who">
         <thead><tr><th>What</th><th>Who decides</th><th>Where</th></tr></thead>
         <tbody>
           <tr><td>A new user account (approve, reject, disable)</td><td>Super user, admins</td><td>Users tab</td></tr>
@@ -223,7 +224,7 @@
       var sel = select(opts, isAdm ? "admin" : has ? "user" : "none");
       sel.disabled = !editable || !inScope(c.id) || (!sup && isAdm);
       sel.setAttribute("aria-label", c.name + " access for " + u.full_name);
-      return { c: c, sel: sel, row: el("label", { "class": "ad-tile" }, [el("span", { text: c.name }), sel]) };
+      return { c: c, sel: sel, row: el("label", { "class": "mgr-tile" }, [el("span", { text: c.name }), sel]) };
     });
     var editTools = data.tools.filter(function (t) { return t.editable; });
     var editBoxes = editTools.map(function (t) {
@@ -251,7 +252,7 @@
         adminCategories: sup ? tiles.filter(function (x) { return x.sel.value === "admin"; }).map(function (x) { return x.c.id; }) : null,
         editTools: editBoxes.filter(function (b) { return b.cb.checked && !b.cb.disabled; }).map(function (b) { return b.t.id; }) };
     }
-    var actions = el("div", { "class": "ad-acts" }), saveBtn;
+    var actions = el("div", { "class": "mgr-acts" }), saveBtn;
     if (!editable) {
       actions.appendChild(el("span", { "class": "small muted", text: isSuperRow ? "Site owner" : "Managed by the super user" }));
     } else if (pending) {
@@ -279,7 +280,7 @@
       el("td", { "class": "user-cell" }, [el("b", { text: u.full_name }), el("div", { "class": "small muted", text: u.username })]),
       el("td", { text: u.team_note || "-" }),
       el("td", {}, pending ? [el("span", { "class": "badge warn", text: "Pending" })] : [statusSel]),
-      el("td", { "class": "ad-role" }, isSuperRow ? [el("span", { "class": "badge brand", text: "Super user" })] : [roleText]),
+      el("td", { "class": "mgr-role" }, isSuperRow ? [el("span", { "class": "badge brand", text: "Super user" })] : [roleText]),
       el("td", {}, isSuperRow ? [el("span", { "class": "small muted", text: "Every tile, as admin" })] : tiles.map(function (x) { return x.row; })),
       el("td", {}, isSuperRow ? [el("span", { "class": "small muted", text: "All tools" })] : (editBoxes.length ? editBoxes.map(function (b) { return b.row; }) : [el("span", { "class": "small muted", text: "-" })])),
       el("td", {}, [actions])
@@ -335,7 +336,7 @@
       badge("reviewCount", s.pending_answers); badge("reviewBadge", s.pending_answers); badge("rowsCount", s.new_rows); badge("rowsBadge", s.new_rows);
       $("reviewMeta").textContent = s.pending_answers ? plural(s.pending_answers, "answer is", "answers are") + " waiting." : "No user answer is waiting.";
       $("rowsMeta").textContent = s.new_rows ? plural(s.new_rows, "new row", "new rows") + " to look at." : "No new rows to look at.";
-      var wait = $("adWait"), items = []; wait.textContent = "";
+      var wait = $("mgrWait"), items = []; wait.textContent = "";
       if (s.pending_users) items.push([plural(s.pending_users, "user", "users") + " to approve", "users"]);
       if (s.pending_answers) items.push([plural(s.pending_answers, "compliance answer", "compliance answers") + " to review", "library"]);
       if (s.new_rows) items.push([plural(s.new_rows, "new datasheet row", "new datasheet rows") + " to map", "products"]);
