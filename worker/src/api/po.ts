@@ -170,11 +170,14 @@ export const routes: Routes = {
     // "seen from - to" and never waits for approval; the project's conditions and printed notes are not in the tree
     const kindOf = new Map<string, PoKind>(map.map((m) => [m.row_key, poKind(m.row_key, m.kind)]));
     const duty = (k: string) => kindOf.get(k) === "duty";
+    // a row left out of the tree (or not shown in the mapping) keeps its values for reference, neither approved nor
+    // rejected: they do not wait for approval and are not counted until the row is brought back (owner, 21 Oct 2026)
+    const live = new Set(map.filter((m) => m.in_tree && !poSkip(m.row_key)).map((m) => m.row_key));
     let waiting = 0;
     for (const v of values) {
       const kind = kindOf.get(v.row_key);
       if (kind === "project" || kind === "hide") continue;
-      if (!v.approved && !v.hidden && kind !== "duty") waiting++;
+      if (!v.approved && !v.hidden && kind !== "duty" && live.has(v.row_key)) waiting++;
       if (!v.approved && !seeWaiting && kind !== "duty") continue;   // not a fact yet: only editors and approvers see it
       if (updated === null || v.last_at > updated) updated = v.last_at;
       if (!edit && v.hidden) continue;
@@ -194,7 +197,8 @@ export const routes: Routes = {
         .sort((a, b) => a.model.localeCompare(b.model) || gOrder(a.grp, b.grp) || (b.times - a.times) || a.value_key.localeCompare(b.value_key));
       if (!list.length && !extraKeys.has(m.row_key)) continue;
       rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind, place: m.place || "",
-        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved && !duty(v.row_key) })) });
+        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved && !duty(v.row_key) && !!m.in_tree,
+          held: !v.approved && !duty(v.row_key) && !m.in_tree })) });   // held: kept for reference in a left-out row
     }
     // models: per model, the most units any one row counted (sum of times per row, max over rows)
     const perRow = new Map<string, number>();
