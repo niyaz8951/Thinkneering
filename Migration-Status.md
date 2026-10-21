@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 21 Oct 2026 (late): Datasheet Notes Excel: a row with the same value for every unit is one merged, centred cell across the unit columns (`ds-xlsx.js`); also in the project note download. No migration.
 - 21 Oct 2026 (16:53): makes are internal: never given to the AI, a remark naming one is flagged low, Remarks brief updated (owner: Compliance review > AI rules > Update from template on each rule book). Make shown as a dark yellow box.
 - 21 Oct 2026 (evening, later): Product Options: move rows between General and the columns (migration **0012**, `dn_map.place`), Make per component card (po_extras kind `make`, admins), EC / DIDW fan tables fold separately, heat recovery and humidifiers in General, three coil types, General notes card always there for editors. Owner: deploy applies 0012; read the datasheets again so moved rows fill.
 - 21 Oct 2026 (late night): Casing columns per model box hold only Model Box Ref., Panel, Insulation, Profile and the EN 1886 classes (always in the columns); skins, base, roof and the rest are General. Old copies removed exactly by "Remove old readings" (`p_drop`); an approved value keeps its approval in another group. Owner: read the AHU datasheets again, then "Remove old readings" in Casing. No migration.
