@@ -27,74 +27,137 @@
 .mp-crumbs .btn { margin-left: 8px; }
 .mp-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 
-/* ---------- the tree ---------- */
-.mp-work { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
-.mp-work.haspanel { grid-template-columns: minmax(0, 1fr) 360px; }
-.mp-treecard { padding: 0; overflow: hidden; }
-.mp-canvas { overflow: auto; max-height: 74vh; min-height: 320px; position: relative; }
-.mp-stage { position: relative; margin: 20px; }
-.mp-stage > svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
-.mp-stage > svg path { fill: none; stroke: color-mix(in srgb, var(--text-soft) 45%, var(--border)); stroke-width: 1.5; }
-.mp-legend { padding: 9px 16px 11px; font-size: 13px; color: var(--text-soft); border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
-.mp-legend i { display: inline-block; width: 22px; height: 12px; border-radius: 4px; border: 1.5px dashed var(--warn); vertical-align: -1px; margin-right: 5px; }
+/* ---------- the map: a free-flow page (20 Oct 2026) ----------
+   No boxes: a branch is its name on a line of its branch colour; lines flow from the branch it grows from.
+   The board scrolls both ways, is moved by dragging, zoomed with Ctrl + wheel, and can fill the screen. */
+.mp-work { display: block; }
+.mp-board { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background-color: var(--surface);
+  background-image: radial-gradient(color-mix(in srgb, var(--text-soft) 22%, transparent) 1px, transparent 1.2px); background-size: 22px 22px; overflow: hidden; }
+.mp-canvas { overflow: auto; height: max(440px, calc(100vh - var(--hub-top, 59px) - 250px)); position: relative; cursor: grab; touch-action: pan-x pan-y; overscroll-behavior: contain; }
+.mp-canvas.mp-panning { cursor: grabbing; user-select: none; }
+.mp-canvas.mp-panning .mp-n { cursor: grabbing; }
+.mp-sizer { position: relative; }
+.mp-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mp-stage > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mp-stage > svg path { fill: none; stroke-width: 2; stroke-linecap: round; opacity: .8; }
+.mp-stage > svg path.u { stroke-dasharray: 5 5; }
+.b0 { --bc: var(--brand); } .b1 { --bc: var(--ok); } .b2 { --bc: var(--brand-sky); } .b3 { --bc: color-mix(in srgb, var(--brand) 40%, var(--text)); }
+.mp-stage > svg path.b0 { stroke: var(--brand); } .mp-stage > svg path.b1 { stroke: var(--ok); }
+.mp-stage > svg path.b2 { stroke: var(--brand-sky); } .mp-stage > svg path.b3 { stroke: color-mix(in srgb, var(--brand) 40%, var(--text)); }
+.mp-stage > svg path.u { stroke: var(--warn); }
 
-.mp-node { position: absolute; width: 232px; }
-.mp-node, .mp-orow {
-  background: var(--surface); border: 1.5px solid var(--border); border-radius: 12px; padding: 8px 8px 8px 11px; cursor: pointer;
-  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), opacity .2s var(--ease);
-}
-.mp-node:hover, .mp-orow:hover { border-color: var(--brand-sky); }
-.mp-node:focus-visible, .mp-orow:focus-visible { border-radius: 12px; }
-.mp-unv { border-style: dashed; border-color: var(--warn); }
-.mp-sel, .mp-sel:hover { border-color: var(--brand); border-style: solid; box-shadow: var(--focus); }
-.mp-root, .mp-root:hover { background: var(--brand); border-color: var(--brand); border-style: solid; }
-.mp-root.mp-sel { box-shadow: var(--focus); border-color: var(--brand-strong); }
-.mp-root .mp-ttl { color: var(--on-brand); font-size: 16px; }
-.mp-root .mp-marks, .mp-root .mp-ibtn { color: var(--on-brand); }
-.mp-dim { opacity: .36; }
-.mp-hitn { border-color: var(--brand); border-style: solid; }
-.mp-grow { animation: mp-grow .24s var(--ease); }
-@keyframes mp-grow { from { opacity: 0; transform: translateX(-10px); } }
+.mp-n { position: absolute; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; max-width: 300px; padding: 3px 4px 4px 3px;
+  border-bottom: 2px solid var(--bc, var(--border)); border-radius: 7px 7px 0 0; color: var(--text); font-size: 14.5px; line-height: 1.35;
+  cursor: pointer; user-select: none; transition: background-color .15s var(--ease), opacity .2s var(--ease); }
+.mp-n:hover { background: color-mix(in srgb, var(--bc, var(--brand)) 9%, transparent); }
+.mp-n:focus-visible { outline: none; box-shadow: var(--focus); }
+.mp-n[aria-level="2"] { font-size: 15.5px; }
+.mp-n[aria-level="2"] .mp-t { font-weight: 700; }
+.mp-t { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.mp-n.mp-unv { border-bottom-style: dashed; border-bottom-color: var(--warn); }
+.mp-n.mp-sel { background: color-mix(in srgb, var(--bc, var(--brand)) 17%, transparent); }
+.mp-n.mp-root { flex-wrap: nowrap; align-items: center; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--brand); color: var(--on-brand); font-size: 17.5px; max-width: 340px; }
+.mp-n.mp-root .mp-t { font-weight: 750; }
+.mp-n.mp-root:hover { background: var(--brand-strong); }
+.mp-n.mp-root.mp-sel { box-shadow: var(--focus); }
+.mp-n.mp-dim { opacity: .28; }
+.mp-n.mp-hitn { background: color-mix(in srgb, var(--warn) 22%, transparent); }
+.mp-grow { animation: mp-grow .22s var(--ease); }
+@keyframes mp-grow { from { opacity: 0; transform: translateX(-8px); } }
 
-.mp-head { display: flex; align-items: flex-start; gap: 6px; }
-.mp-ttl { flex: 1; min-width: 0; font-weight: 650; font-size: 14.5px; line-height: 1.3; overflow-wrap: anywhere; }
-.mp-marks { display: inline-flex; gap: 6px; color: var(--text-soft); font-size: 12px; align-items: center; padding-top: 2px; font-variant-numeric: tabular-nums; }
-.mp-marks span { display: inline-flex; align-items: center; gap: 2px; }
+.mp-nb { border: 0; background: none; color: var(--text-soft); cursor: pointer; padding: 1px 2px; border-radius: 5px; display: inline-flex; align-self: center; }
+.mp-nb:hover { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
+.mp-root .mp-nb, .mp-root .mp-lk { color: var(--on-brand); }
 .mp-ico { display: inline-flex; }
 .mp-ico svg { width: 14px; height: 14px; display: block; }
-.mp-ibtn { border: 0; background: none; color: var(--text-soft); cursor: pointer; padding: 3px; border-radius: 6px; display: inline-flex; }
-.mp-ibtn:hover { background: color-mix(in srgb, var(--brand) 14%, transparent); color: var(--brand); }
-.mp-root .mp-ibtn:hover { color: var(--on-brand); background: var(--brand-strong); }
-.mp-tog { font: inherit; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 30px; border: 1px solid var(--border); background: var(--surface-2);
-  color: var(--text); border-radius: 999px; padding: 1px 7px; cursor: pointer; }
-.mp-tog:hover { border-color: var(--brand); color: var(--brand); }
-.mp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.mp-chip { display: inline-flex; gap: 6px; align-items: baseline; background: var(--ok-bg); color: var(--text); border: 1px solid var(--ok); border-radius: 14px;
-  padding: 2px 10px; font-size: 13px; line-height: 1.35; max-width: 100%; overflow-wrap: anywhere; }
-.mp-chip b { flex: none; white-space: nowrap; color: var(--ok); font-size: 10.5px; letter-spacing: .06em; font-weight: 800; }
-.mp-chip button { flex: none; border: 0; background: none; color: var(--ok); cursor: pointer; font: inherit; font-weight: 700; padding: 0 3px; }
+.mp-lk { color: var(--text-soft); display: inline-flex; align-self: center; }
+.mp-sp { display: inline-flex; gap: 2px; align-items: baseline; font-size: 11.5px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; }
+.mp-sp i { font-style: normal; }
+.mp-tv { font-size: 11px; font-weight: 650; color: var(--warn); white-space: nowrap; }
+.mp-sps { flex-basis: 100%; display: grid; gap: 1px; font-size: 12.5px; color: var(--ok); line-height: 1.35; }
+.mp-sps span { overflow-wrap: anywhere; }
+.mp-sps span::before { content: "! "; font-weight: 800; }
+.mp-tg { font: inherit; font-size: 11px; font-weight: 750; font-variant-numeric: tabular-nums; min-width: 20px; height: 20px; padding: 0 5px; align-self: center;
+  border-radius: 999px; border: 1.5px solid var(--bc, var(--border)); background: var(--surface); color: var(--text); cursor: pointer; line-height: 1; }
+.mp-tg:hover { background: var(--bc, var(--brand)); color: var(--on-brand); }
+.mp-root .mp-tg { border-color: var(--on-brand); background: transparent; color: var(--on-brand); }
+.mp-unv .mp-tg { border-color: var(--warn); }
 
-.mp-outline { padding: 14px 16px; }
-.mp-outline ul { list-style: none; margin: 6px 0 0 10px; padding: 0 0 0 14px; border-left: 1.5px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+/* the floating tools and the hint */
+.mp-tools { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 2px; padding: 4px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--glass, var(--surface)); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: var(--shadow); z-index: 2; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+.mp-tb { font: inherit; font-size: 13px; font-weight: 650; min-width: 34px; height: 32px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: var(--text); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.mp-tb:hover { background: var(--surface-2); }
+.mp-tb[aria-pressed="true"] { background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--brand-strong); }
+.mp-tb svg { width: 15px; height: 15px; }
+.mp-pct { min-width: 54px; font-variant-numeric: tabular-nums; }
+.mp-hint { position: absolute; left: 14px; bottom: 14px; margin: 0; font-size: 12.5px; color: var(--text-soft); pointer-events: none; max-width: 45%; }
+
+/* full screen: the map fills the screen; the bar stays on top */
+.mp-noscroll, .mp-noscroll body { overflow: hidden; }
+#mpMap.mp-fullscreen { position: fixed; inset: 0; z-index: 80; background: var(--bg); padding: 10px 12px 12px; display: flex; flex-direction: column; }
+#mpMap.mp-fullscreen .mp-bar { margin-bottom: 8px; }
+#mpMap.mp-fullscreen .mp-meta { margin-bottom: 8px; }
+#mpMap.mp-fullscreen .mp-work { flex: 1; min-height: 0; }
+#mpMap.mp-fullscreen .mp-board { height: 100%; }
+#mpMap.mp-fullscreen .mp-canvas { height: 100%; }
+
+/* the outline: the same branches as indented text */
+.mp-outline { padding: 14px 16px 70px; max-height: max(440px, calc(100vh - var(--hub-top, 59px) - 250px)); overflow: auto; background: var(--surface); }
+.mp-outline ul { list-style: none; margin: 2px 0 0 12px; padding: 0 0 0 12px; border-left: 1.5px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
 .mp-outline > ul { border: 0; padding: 0; margin: 0; }
-.mp-orow { padding: 9px 8px 9px 11px; scroll-margin-top: 84px; }
+.mp-orow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 6px 8px; border-radius: 8px; border-left: 3px solid var(--bc, transparent); cursor: pointer; scroll-margin-top: 84px; }
+.mp-orow:hover { background: var(--surface-2); }
+.mp-orow:focus-visible { outline: none; box-shadow: var(--focus); }
+.mp-orow.mp-sel { background: color-mix(in srgb, var(--bc, var(--brand)) 15%, transparent); }
+.mp-orow.mp-unv { border-left-style: dashed; border-left-color: var(--warn); }
+.mp-orow.mp-root { border-left-color: var(--brand); font-size: 17px; }
+.mp-orow.mp-root .mp-t { font-weight: 750; }
+.mp-orow.mp-dim { opacity: .35; }
+.mp-orow.mp-hitn { background: color-mix(in srgb, var(--warn) 20%, transparent); }
 
-/* ---------- the notes panel ---------- */
-.mp-panel { padding: 18px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: calc(var(--hub-top, 59px) + 12px); max-height: calc(100vh - var(--hub-top, 59px) - 24px); overflow: auto; }
-.mp-panel > * { flex: none; }
-.mp-panel section { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.mp-panel h2 { font-size: 18px; overflow-wrap: anywhere; }
-.mp-panel h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-soft); }
-.mp-phead { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
-.mp-path { font-size: 13px; color: var(--text-soft); margin-top: 2px; overflow-wrap: anywhere; }
+/* ---------- the note: one branch read or written, in front of the map (focus mode) ---------- */
+.mp-note-back { position: fixed; inset: 0; z-index: 85; display: grid; place-items: center; padding: 20px; background: var(--scrim);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); animation: hub-fade .16s ease-out; }
+.mp-note { width: min(820px, 100%); max-height: calc(100vh - 40px); overflow: auto; background: var(--surface); color: var(--text); border-radius: 22px;
+  box-shadow: var(--shadow-lift); padding: 22px 34px 26px; display: flex; flex-direction: column; gap: 16px; outline: none; animation: hub-rise .22s var(--ease); }
+.mp-ntop { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; position: sticky; top: -22px; margin: -22px -34px 0; padding: 14px 34px 10px;
+  background: var(--surface); border-bottom: 1px solid var(--border); z-index: 1; }
+.mp-ntrail { display: flex; flex-wrap: wrap; gap: 0 2px; align-items: center; font-size: 13.5px; min-width: 0; }
+.mp-ntrail button { font: inherit; border: 0; background: none; color: var(--link); cursor: pointer; padding: 2px 5px; border-radius: 6px; font-weight: 600; }
+.mp-ntrail button:hover { background: var(--surface-2); }
+.mp-ntrail .sep { color: var(--text-soft); }
+.mp-nnav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mp-ntitle { margin: 4px 0 0; font-size: 27px; line-height: 1.25; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.mp-ntitle-in { margin-top: 4px; font: 700 25px/1.25 var(--font); letter-spacing: -.015em; color: var(--text); background: transparent; border: 0; border-bottom: 1.5px dashed var(--border);
+  padding: 4px 0; width: 100%; }
+.mp-ntitle-in:focus { outline: none; border-bottom-color: var(--brand); }
+.mp-ntext { font-size: 17px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mp-ntext-in { font: 16.5px/1.65 var(--font); color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; min-height: 160px; resize: vertical; width: 100%; }
+.mp-ntext-in:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus); }
+.mp-nsec { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.mp-nsec h3 { margin: 0; font-size: 13px; font-weight: 650; color: var(--text-soft); }
+.mp-fields { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 15px; }
+.mp-fields dt { color: var(--ok); font-weight: 700; }
+.mp-fields dd { margin: 0; overflow-wrap: anywhere; }
+.mp-nkids { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.mp-nkids button { font: inherit; font-size: 14px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; }
+.mp-nkids button:hover { border-color: var(--brand); color: var(--brand-strong); }
+.mp-nkids button.unv { border-style: dashed; border-color: var(--warn); }
+.mp-nkids small { color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .mp-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.mp-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mp-chip { display: inline-flex; gap: 6px; align-items: baseline; background: var(--ok-bg); color: var(--text); border: 1px solid var(--ok); border-radius: 14px;
+  padding: 3px 11px; font-size: 14px; line-height: 1.4; max-width: 100%; overflow-wrap: anywhere; }
+.mp-chip b { flex: none; color: var(--ok); font-weight: 800; }
+.mp-chip button { flex: none; border: 0; background: none; color: var(--ok); cursor: pointer; font: inherit; font-weight: 700; padding: 0 3px; }
 .mp-add { display: flex; gap: 6px; }
 .mp-add .input { flex: 1; min-width: 0; }
-.mp-panel textarea.input { min-height: 110px; resize: vertical; line-height: 1.45; }
 .mp-status { font-size: 12.5px; color: var(--text-soft); min-height: 18px; }
 .mp-status.bad { color: var(--danger); font-weight: 600; }
-.mp-foot { font-size: 12.5px; color: var(--text-soft); }
+.mp-foot { font-size: 12.5px; color: var(--text-soft); margin: 0; }
 .mp-link { display: flex; gap: 8px; align-items: center; min-width: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
   color: var(--link); font: inherit; font-weight: 600; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; }
 .mp-link:hover { border-color: var(--brand); }
@@ -102,12 +165,6 @@
 .mp-link small { color: var(--text-soft); font-weight: 500; white-space: nowrap; }
 .mp-linkrow { display: flex; gap: 6px; align-items: center; }
 .mp-linkrow .mp-link { flex: 1; }
-.mp-thumbs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.mp-thumb { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.mp-thumb > button.pic { padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: zoom-in; background: var(--surface-2); display: block; aspect-ratio: 4 / 3; width: 100%; }
-.mp-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.mp-thumb figcaption { font-size: 13px; color: var(--text-soft); overflow-wrap: anywhere; }
-.mp-panel input[type=file] { font: inherit; font-size: 13.5px; color: var(--text-soft); max-width: 100%; }
 
 /* ---------- sheets of this tool (import, export, settings, link, image) ---------- */
 .hub-sheet.mp-sheet { max-width: 640px; max-height: 90vh; overflow: auto; }
@@ -117,25 +174,28 @@
 .mp-sheet .hub-sheet-actions { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .mp-err { color: var(--danger); font-size: 13.5px; font-weight: 600; min-height: 18px; }
 
-@media (max-width: 980px) {
-  .mp-work.haspanel { grid-template-columns: minmax(0, 1fr); }
-  .mp-panel { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 40; max-height: 64vh; border-radius: var(--radius) var(--radius) 0 0; box-shadow: var(--shadow-lift);
-    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
-  .mp-padsheet { padding-bottom: 66vh; }
-  /* outline on a narrow screen: the notes open under the chosen branch */
-  .mp-panel.mp-inline { position: static; max-height: none; overflow: visible; z-index: auto; margin-top: 6px; padding: 14px; border: 1.5px solid var(--brand); border-radius: 12px; box-shadow: none; }
-  .mp-work.haspanel:has(.mp-inline) { display: block; }
-}
 @media (max-width: 640px) {
-  .mp-tog { min-width: 38px; padding: 6px 9px; font-size: 13px; }
-  .mp-ibtn { padding: 8px; }
+  .mp-fields { grid-template-columns: 1fr; gap: 0; }
+  .mp-fields dd { margin-bottom: 8px; }
   .mp-bar .input { flex-basis: 100%; min-height: 46px; }
   .mp-bar .btn { min-height: 44px; }
   .mp-tile h3 { padding-right: 0; }
   .mp-tile .badge { position: static; justify-self: start; }
   .mp-sheet textarea.input { font-size: 16px; }
+  .mp-canvas, .mp-outline { height: calc(100vh - var(--hub-top, 59px) - 300px); min-height: 380px; max-height: none; }
+  .mp-tg { min-width: 28px; height: 28px; font-size: 12.5px; }
+  .mp-hint { display: none; }
+  .mp-tools { left: 8px; right: 8px; bottom: 8px; justify-content: center; }
+  .mp-tb { height: 38px; }
+  .mp-note-back { padding: 0; place-items: stretch; }
+  .mp-note { width: 100%; max-height: none; height: 100%; border-radius: 0; padding: 0 18px 28px; }
+  .mp-ntop { margin: 0 -18px; padding: 10px 18px; top: 0; }
+  .mp-ntitle { font-size: 23px; }
+  .mp-ntitle-in { font-size: 21px; }
+  .mp-ntext { font-size: 16.5px; }
+  .mp-ntext-in { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mp-grow { animation: none; }
-  .mp-node, .mp-orow { transition: none; }
+  .mp-grow, .mp-note, .mp-note-back { animation: none; }
+  .mp-n { transition: none; }
 }

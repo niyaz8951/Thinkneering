@@ -17,7 +17,7 @@
 <main class="page wide" id="mpPage">
   <div class="page-head">
     <h1 id="mpTitle">Maps</h1>
-    <p id="mpLead">Product knowledge as a growing tree. Open a branch, read its notes and special notes, or show one branch alone.</p>
+    <p id="mpLead">Knowledge as a growing tree. Open a map, follow its branches, and double-click one to read it.</p>
     <p class="small muted" id="mpSub" hidden></p>
   </div>
 
@@ -54,13 +54,21 @@
     </div>
     <div id="mpMapState" class="empty" hidden></div>
     <div class="mp-work" id="mpWork">
-      <div class="card mp-treecard">
-        <div class="mp-canvas" id="mpCanvas"><div class="mp-stage" id="mpStage"></div></div>
+      <div class="mp-board" id="mpBoard">
+        <div class="mp-canvas" id="mpCanvas"><div class="mp-sizer" id="mpSizer"><div class="mp-stage" id="mpStage" role="tree" aria-label="Map"></div></div></div>
         <div class="mp-outline" id="mpOutline" hidden></div>
-        <div class="mp-legend"><span>Click a branch to read it and grow it.</span><span>The arrows button shows that branch alone.</span><span><i></i>Dashed = to verify</span></div>
+        <div class="mp-tools" id="mpTools" role="toolbar" aria-label="Map view">
+          <button class="mp-tb" type="button" id="mpZoomOut" title="Zoom out (-)" aria-label="Zoom out">−</button>
+          <button class="mp-tb mp-pct" type="button" id="mpZoomPct" title="Back to 100% (0)">100%</button>
+          <button class="mp-tb" type="button" id="mpZoomIn" title="Zoom in (+)" aria-label="Zoom in">+</button>
+          <button class="mp-tb" type="button" id="mpFit" title="Fit the map on the screen">Fit</button>
+          <button class="mp-tb" type="button" id="mpSpecial" aria-pressed="false" title="Show the special notes under every branch">Special notes</button>
+          <button class="mp-tb mp-fullbtn" type="button" id="mpFull" aria-pressed="false" title="Full screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg><span id="mpFullTxt">Full screen</span></button>
+        </div>
+        <p class="mp-hint" id="mpHint"></p>
       </div>
-      <aside class="card mp-panel" id="mpPanel" aria-label="Branch notes" hidden></aside>
     </div>
+    <div class="mp-note-back" id="mpNoteBack" hidden><article class="mp-note" id="mpNote" tabindex="-1" role="dialog" aria-modal="true" aria-label="Branch"></article></div>
   </section>
 </main>
 <script src="maps.js"></script>

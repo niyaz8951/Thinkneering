@@ -61,6 +61,8 @@
     poTree: function (t, factoryId) { return rpc("po_get_tree", { p_token: t, p_factory_id: factoryId }); },
     poAdminSaveExtra: function (t, d) { return rpc("po_admin_save_extra", { p_token: t, p_factory_id: d.factoryId, p_id: d.id || null, p_section: d.section, p_row_key: d.key || "", p_kind: d.kind, p_body: d.body }); },
     poAdminDeleteExtra: function (t, id) { return rpc("po_admin_delete_extra", { p_token: t, p_id: id }); },
+    aiVocabLink: function (t, d) { return rpc("ai_vocab_link", { p_token: t, p_product_id: d.productId, p_map_id: d.mapId || null }); },
+    aiVocabCreate: function (t, d) { return rpc("ai_vocab_create", { p_token: t, p_product_id: d.productId, p_name: d.name || "" }); },
     prRunSelection: function (t, runId) { return rpc("pr_run_selection", { p_token: t, p_run_id: runId }); },
     poAdminApprove: function (t, d) { return rpc("po_admin_approve", { p_token: t, p_factory_id: d.factoryId, p_items: d.items || null, p_all: !!d.all, p_approve: !!d.approve }); },
     poAdminClearUngrouped: function (t, d) { return rpc("po_admin_clear_ungrouped", { p_token: t, p_factory_id: d.factoryId, p_section: d.section }); },

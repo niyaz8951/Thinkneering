@@ -16,6 +16,9 @@
                                                   the AI rule book (Maps) of one factory; maps hold rules only,
                                                   product facts are AI notes in Product Options (20 Oct 2026)
    ai_map_upgrade(token, product_id, factory_id)  adds the template's Instructions / Decision steps / Learned to a linked map
+   ai_vocab_link(token, product_id, map_id) / ai_vocab_create(token, product_id)
+                                                  the vocabulary map of a product (one for every factory): what
+                                                  specifications ask, read by code to recognise clauses (ai/vocab.ts)
    ai_quality(token, product_id)                  what people did with proposals, last 30 days; often-changed patterns
    ai_learn(token, product_id)                    writes those patterns into the maps, as "to verify" branches under Learned
    ai_eval(token, product_id, factory_id, check, n, seen)
@@ -37,7 +40,8 @@ import { loadContext, compareDatasheet, libraryConflict, picksFor, type Context,
 import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai/decide";
 import { aiMapFor, createAiMap, upgradeAiMap, instructionsText } from "../ai/map";
 import { learnToMaps } from "../ai/learn";
-import { mpRights, type MapRow } from "./mp";
+import { mpRights, kindOf, canVerify, type MapRow } from "./mp";
+import { vocabFor, identify, identifiedJson, createVocabMap } from "../ai/vocab";
 import { pickRules, directRule, splitComments, notesMatching } from "../ai/rules";
 import { standardChoice, systemPrompt, userPrompt, promptVersionOf } from "../ai/draft";
 import { pickLines, runEval, tally } from "../ai/eval";
@@ -319,7 +323,12 @@ export const routes: Routes = {
     const best = similar[0];
     const st = map.settings;
     const libCopy = st.useLibrary && best && best.score >= st.copyAt && best.status === "answered" && standardChoice(best.compliance);
+    // what the clause asks, recognised by the product's vocabulary (landmarks, like Shazam)
+    const vocab = await vocabFor(env, prod.id);
+    const asks = identify(vocab, clause, section);
     const steps = [
+      { step: "What the clause asks (vocabulary)", result: !vocab.types.length ? "No vocabulary is linked for " + prod.name + ": create it from the template above." :
+          asks.length ? asks.map((x) => `${x.type.component} › ${x.type.title}${x.asked ? ": " + x.asked : ""} (${x.confidence}; ${x.landmarks.join(", ")})`).join("; ") : "Not recognised: no type of the vocabulary has its landmarks in this clause. Add the wording as Terms of the right type." },
       { step: "Project datasheet", result: !st.useDatasheet ? "Switched off in Decision steps." : "Not part of a pasted clause: in a record, the blue chips under the clause are compared first." },
       { step: "Product Options and AI notes", result: !st.useOptions ? "Switched off in Decision steps." : aiNotes.length ? aiNotes.length + " AI notes match" : "No AI note of " + f.name + " matches this clause (Product Options > Edit > + AI note)." },
       { step: "Library", result: !st.useLibrary ? "Copying is switched off in Decision steps; similar answers still go to the model." : best ? `Most similar answered clause: ${(best.score * 100).toFixed(0)}% similar${libCopy ? `, at or above ${(map.settings.copyAt * 100).toFixed(0)}%: its answer "${best.compliance}" is copied` : ", below the copy threshold: shown to the model"}.` : "No similar clause in the library." },
@@ -332,7 +341,8 @@ export const routes: Routes = {
     return { ok: true, map: map.maps.length > 0, problems: map.problems, steps, prompt,
              rules: picked.rules.map((h) => ({ title: h.rule.title, where: h.rule.source || "", matched: h.matched, answer: h.rule.answer, remark: h.rule.remark, instruction: h.rule.instruction })),
              direct: direct ? { title: direct.rule.title, answer: direct.rule.answer, remark: direct.rule.remark, where: direct.rule.source || "" } : null,
-             similar: similar.map((x) => ({ text: x.spec_text.slice(0, 200), compliance: x.compliance, remarks: x.remarks, score: x.score })), notes: aiNotes };
+             similar: similar.map((x) => ({ text: x.spec_text.slice(0, 200), compliance: x.compliance, remarks: x.remarks, score: x.score })), notes: aiNotes,
+             asks: asks.map(identifiedJson) };
   },
 
   /* The maps linked for one factory (p_factory_id required), what in them the AI cannot use, and the
@@ -349,13 +359,16 @@ export const routes: Routes = {
     const links = await all<{ map_id: string; role: string; product_id: string; factory_id: string | null; product: string; factory: string | null }>(env.DB.prepare(
       "SELECT l.map_id, l.role, l.product_id, l.factory_id, p.name AS product, f.name AS factory FROM ai_map_links l JOIN cm_products p ON p.id = l.product_id LEFT JOIN cm_factories f ON f.id = l.factory_id"));
     const all_ = canMaps ? (await all<MapRow & { kind: string }>(env.DB.prepare("SELECT * FROM mp_maps ORDER BY lower(name)")))
-      .filter((m) => mpRights(s, m) !== "none").map((m) => ({ id: m.id, name: m.name, updated_at: m.updated_at, share: m.share, kind: m.kind || "knowledge",
+      .filter((m) => mpRights(s, m) !== "none").map((m) => ({ id: m.id, name: m.name, updated_at: m.updated_at, share: m.share, kind: kindOf(m),
         linked: links.filter((l) => l.map_id === m.id).map((l) => ({ role: l.role, product_id: l.product_id, factory_id: l.factory_id, where: l.product + ", " + (l.factory ? l.factory + " only" : "all factories") })) })) : [];
     const rb = (scope: string | null) => { const l = link(scope, "rulebook"); return l ? { ...l, ...counts(scope) } : null; };
     // maps linked for "all factories" before 20 Oct 2026: no longer read; the page offers to move them to one factory
     const legacy = await all<{ id: string; name: string; role: string }>(env.DB.prepare(
       "SELECT m.id, m.name, l.role FROM ai_map_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.product_id = ? AND l.factory_id IS NULL AND l.role = 'rulebook'").bind(prod.id));
-    return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_, legacy,
+    const vocab = await vocabFor(env, prod.id);
+    const vocabInfo = vocab.map ? { ...vocab.map, types: vocab.types.length, components: vocab.components.length, standards: vocab.standards.length,
+      terms: vocab.types.reduce((n, t) => n + t.terms.length + t.anchors.length, 0), problems: vocab.problems.slice(0, 12) } : null;
+    return { ok: true, product: prod, factory: fac, can_maps: canMaps, maps: all_, legacy, vocab: vocabInfo,
              own: rb(fac.id),
              settings: maps.settings, problems: maps.problems, used_today: await neuronsToday(env),
              instructions: maps.instructions ? maps.instructions.map((x) => x.title).filter(Boolean) : null,
@@ -380,7 +393,7 @@ export const routes: Routes = {
     }
     const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow & { kind: string }>();
     if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
-    if ((m.kind || "knowledge") !== role) fail("That map is a knowledge map. Choose an AI rule book, or change the map's type in Maps (the map's settings).");
+    if (kindOf(m) !== role) fail(`That map is ${kindOf(m) === "vocabulary" ? "a vocabulary" : "a knowledge map"}. Choose an AI rule book, or change the map's type in Maps (the map's settings).`);
     // a map belongs to one factory: linked for another factory, it is refused; linked for "all factories" of this
     // product (before 20 Oct 2026), it moves here
     const elsewhere = await env.DB.prepare(
@@ -403,6 +416,40 @@ export const routes: Routes = {
     const fac = await ownFactory(env, prod.id, p.p_factory_id);
     const made = await createAiMap(env, s.id, prod, fac, trimmed(p.p_name, 120) || undefined);
     await audit(env, s.id, "ai_map_create", made.id, "", { product: prod.id, factory: fac.id, name: made.name });
+    return { ok: true, ...made };
+  },
+
+  /* The vocabulary map of a product (p_map_id; null takes it off). One per product, for every factory (owner,
+     20 Oct 2026): it is engineering language, not what a factory offers. The map must be of the kind Vocabulary. */
+  async ai_vocab_link(env, p) {
+    const s = requireRulesEditor(await sessionUser(env, p.p_token));
+    const prod = await productRow(env, p.p_product_id);
+    const mapId = str(p.p_map_id, 60);
+    if (!mapId) {
+      await env.DB.prepare("DELETE FROM ai_vocab_links WHERE product_id = ?").bind(prod.id).run();
+      await audit(env, s.id, "ai_vocab_link", prod.id, "", { map: null });
+      return { ok: true };
+    }
+    const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow>();
+    if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
+    if (kindOf(m) !== "vocabulary") fail("That map is not a vocabulary. Choose a vocabulary map, or change the map's type in Maps (the map's settings).");
+    const other = await env.DB.prepare("SELECT p.name FROM ai_vocab_links l JOIN cm_products p ON p.id = l.product_id WHERE l.map_id = ? AND l.product_id <> ?").bind(m.id, prod.id).first<{ name: string }>();
+    if (other) fail(`"${m.name}" is already the vocabulary of ${other.name}. Every product has its own.`);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM ai_vocab_links WHERE product_id = ?").bind(prod.id),
+      env.DB.prepare("INSERT INTO ai_vocab_links (product_id, map_id, created_by) VALUES (?, ?, ?)").bind(prod.id, m.id, s.id)
+    ]);
+    await audit(env, s.id, "ai_vocab_link", prod.id, "", { map: m.id, name: m.name });
+    return { ok: true, map: { id: m.id, name: m.name } };
+  },
+
+  /* A new vocabulary map of a product from the template (AHU, FCU or Chiller), private to its maker, linked at once.
+     Its branches come verified when the maker may verify in Maps (engineering language, not factory claims). */
+  async ai_vocab_create(env, p) {
+    const s = requireRulesEditor(await sessionUser(env, p.p_token));
+    const prod = await productRow(env, p.p_product_id);
+    const made = await createVocabMap(env, s.id, prod, canVerify(s), trimmed(p.p_name, 80) || undefined);
+    await audit(env, s.id, "ai_vocab_create", made.id, "", { product: prod.id, name: made.name, types: made.types });
     return { ok: true, ...made };
   },
 

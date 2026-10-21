@@ -33,9 +33,10 @@ Rule of the house (standards A.13.8): **the model writes, code compares.** Every
 3. **Cloudflare > R2 > hub-files:** delete the folders `notes/` and `maps/`.
 4. Sign in again as the super user.
 5. **Compliance review > AI rules:** choose AHU and **the factory** (e.g. Riyadh), *Create from template*. Every factory has its own rule book, kept by its own team; the AI never reads another factory's (20 Oct 2026). Verify the branches you want switched on (only the super user and Maps admins can). Repeat for each factory. The rule book holds only rules and the way of thinking: there is no knowledge map any more.
-6. **Product Options > AHU > Riyadh > Edit on > + AI note** (admins only): the facts about the product that are on no datasheet ("Warranty: 2 years from system acceptance ..."). Migration 0009 has already put back the eleven AHU Riyadh notes and the Eurovent / datasheet / manuals facts; check them there.
+6. **Compliance review > AI rules**, block "All AHU factories": *Create from template* under **Vocabulary** (one per product; also FCU and Chiller). Open it in Maps: components, requirement types with their Terms, Anchors, Unit, Scale, Standard and datasheet Row. *Try a clause* shows what the code recognises ("Asks: Casing › Casing air leakage class = L2 or better").
+7. **Product Options > AHU > Riyadh > Edit on > + AI note** (admins only): the facts about the product that are on no datasheet ("Warranty: 2 years from system acceptance ..."). Migration 0009 has already put back the eleven AHU Riyadh notes and the Eurovent / datasheet / manuals facts; check them there.
 
-Check that the database is up to date: `SELECT name FROM d1_migrations ORDER BY id;` ends with `0009_po_groups_rules_only.sql`.
+Check that the database is up to date: `SELECT name FROM d1_migrations ORDER BY id;` ends with `0010_vocabulary_maps.sql`.
 
 ---
 
@@ -194,6 +195,8 @@ Code: `worker/src/ai/evidence.ts` (`optionPicks`, `compareOptions`, `picksFor`),
 - [ ] Downloads: consultant Excel has four columns and `_DRAFT` while open; working Excel has the Datasheet rows sheet
 - [ ] Second project without a datasheet: dashed chips; Focus proposal from Product Options is AMBER; working Excel has the Selection list
 - [ ] Maps: a plain user's new branch is *to verify*; only the super user / Maps admin verifies
+- [ ] Maps: no boxes; drag moves the map, Ctrl + wheel zooms, Full screen and Esc; double-click a branch opens the note, Next / Previous read on; Tab adds a branch in Edit
+- [ ] Vocabulary: created from the template on AI rules; Try a clause shows the type, the level and the landmarks
 - [ ] Day and night themes, phone width (390 px) on the project, record and Focus pages
 
 For developers (laptop): `npm install`, `npm test` (Vitest + parity), `npm run typecheck`, `npm run dev:offline` (local copy with a stand-in model, demo users `admin` / `admin12345`).

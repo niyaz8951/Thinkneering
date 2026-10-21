@@ -92,6 +92,9 @@ export function operatorOf(before: string, after: string): ">=" | "<=" | "=" {
   if (OPS_MIN.test(b)) return ">=";
   if (AFTER_MIN.test(after)) return ">=";
   if (AFTER_MAX.test(after)) return "<=";
+  // "maximum face velocity 2.5 m/s", "minimum insulation density 40 kg/m3": the limit word, then up to three words
+  if (/\b(?:maximum|max\.?)\s+(?:[a-z][a-z-]*\s+){1,3}$/i.test(b)) return "<=";
+  if (/\b(?:minimum|min\.?)\s+(?:[a-z][a-z-]*\s+){1,3}$/i.test(b)) return ">=";
   return "=";
 }
 

@@ -695,6 +695,8 @@
                      : "None: for " + factoryName() + " the AI uses its built-in instructions, the datasheet, " + factoryName() + "'s Product Options and library.";
       return el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: KINDS[role] }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })]);
     }
+    // the vocabulary of the product: one for every factory (what specifications ask, read by code to recognise clauses)
+    host.appendChild(vocabBlock(res));
     var label = factoryName() + " factory";
     host.appendChild(el("div", { "class": "map-link" }, [el("b", { text: label }), picker(factoryId(), "rulebook", res.own, label)]));
     var po = el("p", { "class": "small muted" }, [document.createTextNode("Facts about " + factoryName() + "'s product (what is standard, what is offered): AI notes in "),
@@ -736,6 +738,35 @@
       " · copies from the library at " + Math.round(st.copyAt * 100) + "% similar · daily budget " + st.budget + " neurons (" + (res.used_today || 0) + " used today) · focus-mode suggestions " + (st.suggest ? "on" : "off") +
       " · datasheet wins over the library: " + (st.datasheetWins ? "yes" : "no") + (off.length ? " · steps switched off: " + off.join(", ") : " · all decision steps on") + ".";
   }
+  function vocabBlock(res) {
+    var v = res.vocab, mine = res.maps.filter(function (m) { return m.kind === "vocabulary"; });
+    var sel = el("select", { "class": "input", "aria-label": "Vocabulary of " + productName() }, [el("option", { value: "", text: v ? "None (take this map off)" : "None" })]
+      .concat(mine.map(function (m) { return el("option", { value: m.id, text: m.name + (m.share === "private" ? "" : m.share === "team_read" ? " (team reads)" : " (team edits)") }); })));
+    if (v && !mine.some(function (m) { return m.id === v.id; })) sel.appendChild(el("option", { value: v.id, text: v.name }));
+    sel.value = v ? v.id : "";
+    sel.addEventListener("change", function () {
+      sel.disabled = true;
+      Api.aiVocabLink(Hub.token(), { productId: productId(), mapId: sel.value || null }).then(function () {
+        Hub.toast(sel.value ? "The vocabulary of " + productName() + " is now “" + sel.selectedOptions[0].textContent + "”." : "Vocabulary taken off."); loadRules.scope = ""; loadRules();
+      }, function (err) { sel.disabled = false; fail(err); });
+    });
+    var open = v && res.can_maps ? el("a", { "class": "btn ghost", href: mapUrl(v.id), text: "Open in Maps" }) : null;
+    var make = el("button", { type: "button", "class": "btn ghost", text: "Create from template", onclick: function () {
+      Hub.ask("Name of the new vocabulary", { title: "Create from template", ok: "Create", placeholder: "Vocabulary: " + productName(),
+        hint: "What " + productName() + " specifications ask, in their own words: components, requirement types with their terms, anchors, units, scales and standards, and the datasheet row that answers each. One for every factory. It is private to you; share it in Maps with the teams." }).then(function (name) {
+        if (name === null) return;
+        Api.aiVocabCreate(Hub.token(), { productId: productId(), name: name.trim() }).then(function (r) {
+          Hub.toast("“" + r.name + "” created and linked: " + r.types + " requirement types."); loadRules.scope = ""; loadRules();
+        }, fail);
+      });
+    } });
+    var sum = v ? v.types + " requirement types in " + v.components + " components, " + v.terms + " terms and anchors, " + v.standards + " standards · changed " + Hub.date(v.updated_at, true)
+                : "None: clauses are matched to datasheet rows by keywords only. The vocabulary lets the code recognise what each clause asks (like Shazam recognises a song), whatever its wording.";
+    var box = el("div", { "class": "map-link" }, [el("b", { text: "All " + productName() + " factories" }),
+      el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: "Vocabulary" }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })])]);
+    if (v && v.problems.length) box.appendChild(el("div", { "class": "notice warn", style: "white-space:pre-line", text: "The code cannot read everything in the vocabulary:\n" + v.problems.join("\n") }));
+    return box;
+  }
   function upgrade(scope) {
     Api.aiMapUpgrade(Hub.token(), { productId: productId(), factoryId: scope }).then(function (r) {
       Hub.toast(r.added.length ? "Done: " + r.added.join(", ") + "." : "The rule book is up to date."); loadRules.scope = ""; loadRules();
@@ -763,6 +794,11 @@
         var hit = /copied|answers it by itself|match/.test(st.result) && !/^No /.test(st.result);
         return el("li", { "class": hit ? "hit" : "" }, [el("b", { text: (k + 1) + ". " + st.step }), st.result]);
       })));
+      (res.asks || []).forEach(function (a) {
+        out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: "Asks: " + a.component + " › " + a.title + (a.asked ? " = " + a.asked : "") }),
+          " · " + a.confidence + " · landmarks: " + a.landmarks.join(", ") + (a.rows.length ? " · datasheet row: " + a.rows.join(", ") : ""),
+          el("div", { "class": "small muted", text: a.kind + (a.unit ? ", " + a.unit : "") + (a.direction ? ", " + (a.direction === "exact" ? "must match" : a.direction + " is better") : "") + (a.scale.length ? ", scale " + a.scale.join(" < ") : "") })]));
+      });
       res.rules.forEach(function (r) {
         out.appendChild(el("div", { "class": "try-hit" }, [el("b", { text: r.title }), " · " + (r.matched.length ? "found: " + r.matched.join(", ") : "applies to every clause of its Part"),
           r.answer ? " · " + r.answer + (r.remark ? ": " + r.remark : "") : "", el("div", { "class": "small muted", text: r.where })]));

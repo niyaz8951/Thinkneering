@@ -1,7 +1,7 @@
 /* ============================================================
    Thinkneering Tools - Maps.
    Product knowledge as a tree: a map (Chiller) grows into branches (Components > Compressor ...).
-   Every branch has notes, special notes, links and images.
+   Every branch has notes, special notes and links (images are not used since 20 Oct 2026: text first).
      index.html            every map the user can open, search across them, Add map
      index.html?map=<id>   one map. #<branch id> shows that branch alone, #at-<branch id> selects it.
    Data only through Api.mp* (db/schema.sql, part "MAPS"). No AI in the tool: knowledge is typed,
@@ -18,7 +18,6 @@
   var ICON = {
     note: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 2.5h9v11h-9zM6 6h4M6 8.5h4M6 11h2.5"/></svg>',
     link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.8 9.2l2.4-2.4M7 4.6l1-1a2.6 2.6 0 013.7 3.7l-1 1M9 11.4l-1 1a2.6 2.6 0 01-3.7-3.7l1-1"/></svg>',
-    img: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11v9h-11zM2.5 10.5l3-3 2.5 2.5 2-2 3.5 3.5"/></svg>',
     focus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></svg>'
   };
   function ico(name) { return el("span", { "class": "mp-ico", "aria-hidden": "true", html: ICON[name] }); }
@@ -50,8 +49,8 @@
     return close;
   }
   // what a map is for: knowledge (process or product understanding) or an AI rule book (Compliance review > AI rules)
-  var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: what the AI follows" };
-  var KIND_HINT = "Knowledge maps are for people: the AI does not read them (facts about a product are AI notes in Product Options). An AI rule book holds the AI's instructions, decision steps and rules, linked in Compliance review > AI rules; a new one starts from the template.";
+  var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: how the AI thinks and answers", vocabulary: "Vocabulary: what specifications ask (one per product)" };
+  var KIND_HINT = "Knowledge maps are for people. An AI rule book holds the AI's instructions, decision steps and rules (one per factory); a Vocabulary holds the requirement types specifications ask, their words, units and scales (one per product). Both are linked in Compliance review > AI rules and start from a template there. Facts about a product are AI notes in Product Options.";
   function kindSelect(id, value) {
     var s = el("select", { "class": "input", id: id }, Object.keys(KIND).map(function (k) { return el("option", { value: k, text: KIND[k] }); }));
     s.value = value || "knowledge";
@@ -83,11 +82,10 @@
       listState(null);
       r.maps.forEach(function (m) {
         var parts = [plural(m.branches, "branch", "branches"), plural(m.special, "special note")];
-        if (m.images) parts.push(plural(m.images, "image"));
         grid.appendChild(el("a", { "class": "tile mp-tile", href: "?map=" + m.id }, [
           el("span", { "class": "tile-icon", "aria-hidden": "true", html: Hub.ICON.tree }),
           el("span", { "class": "badge", text: SHARE[m.share] || m.share }),
-          m.kind === "rulebook" ? el("span", { "class": "badge mp-kind", text: "AI rule book" }) : null,
+          m.kind === "rulebook" || m.kind === "vocabulary" ? el("span", { "class": "badge mp-kind", text: m.kind === "rulebook" ? "AI rule book" : "Vocabulary" }) : null,
           el("h3", { text: m.name }),
           el("p", { text: parts.join(" · ") }),
           el("span", { "class": "meta", text: (m.mine ? "Yours" : "By " + m.owner) + " · changed " + Hub.date(m.updated_at) + (m.to_verify ? " · " + m.to_verify + " to verify" : "") })
@@ -146,18 +144,24 @@
   }
 
   // ======================================================================
-  // One map
+  // One map (20 Oct 2026, owner: "a complete free-flow page"). The map is text on lines, not boxes: every
+  // branch is its name on a line of its branch colour, and the lines flow from the branch it grows from.
+  // The page scrolls both ways; press and hold (drag) moves it; Ctrl + wheel zooms; Full screen fills the
+  // screen. A branch opens in the note (focus mode): double-click it, press Enter, or click its notes icon.
+  // The note is where it is read and written; reading goes branch by branch with Previous / Next.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { focus: null, sel: null, view: "map", edit: false, q: "" };
-  var seen = {}, wantScroll = false, W = 232, GX = 56, GY = 10, COL = W + GX;
-  var imgCache = {}, fullCache = {};
+  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false };
+  var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60;
+  var COARSE = window.matchMedia ? window.matchMedia("(pointer: coarse)") : { matches: false };
   function N(id) { return M.nodes[id]; }
   function canEdit() { return M && (M.map.rights === "edit" || M.map.rights === "own"); }
   function isOwn() { return M && M.map.rights === "own"; }
   function pathOf(id) { var p = []; while (id && N(id)) { p.unshift(id); id = N(id).parent; } return p; }
   function each(id, fn) { var n = N(id); fn(n); n.kids.forEach(function (k) { each(k, fn); }); }
   function under(id) { var c = 0; each(id, function () { c++; }); return c - 1; }
+  function order() { var out = []; each(st.focus, function (n) { out.push(n.id); }); return out; }         // reading order
+  function visible() { var out = []; (function w(id) { out.push(id); if (N(id).open) N(id).kids.forEach(w); })(st.focus); return out; }
 
   function mapState(node, cls) {
     var s = $("mpMapState"); s.textContent = ""; s.hidden = !node; s.className = cls || "empty";
@@ -189,13 +193,15 @@
     if (!old) N(M.root).open = true;
     if (!st.focus || !N(st.focus)) st.focus = M.root;
     if (st.sel && !N(st.sel)) st.sel = null;
+    if (st.note && !N(st.note)) st.note = null;
     head();
   }
+  var KIND_NAME = { rulebook: "AI rule book", vocabulary: "Vocabulary" };
   function head() {
     var m = M.map;
     $("mpTitle").textContent = m.name; document.title = m.name + " - Maps - Thinkneering Tools";
     var sub = $("mpSub"); sub.hidden = false;
-    sub.textContent = (m.kind === "rulebook" ? "AI rule book · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
+    sub.textContent = (KIND_NAME[m.kind] ? KIND_NAME[m.kind] + " · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
     $("mpMode").hidden = !canEdit(); $("mpImport").hidden = !(canEdit() && st.edit); $("mpSettings").hidden = !isOwn();
   }
   function reload(after) {
@@ -207,6 +213,9 @@
     if (wired) return; wired = true;
     var v = store("localStorage", userKey("view"));
     st.view = v === "map" || v === "outline" ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
+    var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
+    if (z >= 0.3 && z <= 2) st.zoom = z;
+    st.special = store("localStorage", userKey("special")) === "1";
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
     $("mpViewMap").addEventListener("click", function () { setView("map"); });
@@ -216,25 +225,27 @@
     $("mpImport").addEventListener("click", importSheet);
     $("mpExport").addEventListener("click", exportSheet);
     $("mpSettings").addEventListener("click", settingsSheet);
+    $("mpZoomIn").addEventListener("click", function () { zoomBy(1.2); });
+    $("mpZoomOut").addEventListener("click", function () { zoomBy(1 / 1.2); });
+    $("mpZoomPct").addEventListener("click", function () { setZoom(1); });
+    $("mpFit").addEventListener("click", fit);
+    $("mpFull").addEventListener("click", function () { full(!st.full); });
+    $("mpSpecial").addEventListener("click", function () { st.special = !st.special; store("localStorage", userKey("special"), st.special ? "1" : "0"); renderView(); });
     var timer, q = $("mpQ");
     q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { search(q.value); }, 150); });
     window.addEventListener("hashchange", function () { applyHash(false); render(); });
-    var onNarrow = function () { if (M) { flush(); render(); } };
-    if (NARROW.addEventListener) NARROW.addEventListener("change", onNarrow); else if (NARROW.addListener) NARROW.addListener(onNarrow);
-    document.addEventListener("paste", function (e) {
-      if (!st.edit || !st.sel || !canEdit() || !e.clipboardData || document.querySelector(".hub-sheet-back")) return;
-      var files = [].filter.call(e.clipboardData.files || [], function (f) { return /^image\//.test(f.type); });
-      if (!files.length) return;
-      e.preventDefault(); addImages(st.sel, files);
-    });
+    document.addEventListener("fullscreenchange", function () { if (!document.fullscreenElement && st.full) full(false, true); });
+    document.addEventListener("keydown", pageKeys);
+    noteWire();
+    canvasMouse();
     head();
   }
   function setView(v) { st.view = v; seen = {}; store("localStorage", userKey("view"), v); wantScroll = true; renderView(); }
   function setEdit(on) {
     if (!canEdit()) return;
     flush();
-    st.edit = on; head(); renderView(); renderPanel();
-    if (on && !st.sel) Hub.toast("Edit is on. Click a branch to change it.");
+    st.edit = on; head(); render();
+    if (on) Hub.toast(COARSE.matches ? "Edit is on. Tap a branch to change it." : "Edit is on. Double-click a branch to write in it; Tab adds a branch under the chosen one.");
   }
   function hashOf() { var h = ""; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) { h = ""; } return h; }
   function applyHash(first) {
@@ -244,16 +255,15 @@
       return;
     }
     var id = h && N(h) ? h : M.root;
-    if (id !== st.focus) { st.focus = id; N(id).open = true; seen = {}; if (st.sel && pathOf(st.sel).indexOf(id) < 0) st.sel = null; wantScroll = true; }
+    if (id !== st.focus) { st.focus = id; N(id).open = true; seen = {}; if (st.sel && pathOf(st.sel).indexOf(id) < 0) st.sel = null; wantScroll = true; firstDraw = true; }
   }
   function setHash(h) {
     try { if (hashOf() !== h) { if (h) location.hash = h; else history.pushState(null, "", location.pathname + location.search); } } catch (e) { /* ignore */ }
   }
   function focusOn(id) {
     flush();
-    st.focus = id; N(id).open = true; seen = {};
+    st.focus = id; N(id).open = true; seen = {}; firstDraw = true;
     if (st.sel && pathOf(st.sel).indexOf(id) < 0) st.sel = null;
-    $("mpCanvas").scrollLeft = 0; $("mpCanvas").scrollTop = 0;
     setHash(id === M.root ? "" : id);
     render();
   }
@@ -265,11 +275,20 @@
     st.sel = id; wantScroll = true;
     if (!quiet) { setHash(st.focus === M.root ? "" : st.focus); render(); }
   }
+  // choosing a branch only moves the highlight (the page is not redrawn, so a double-click lands on the same branch)
   function pick(n) {
     if (st.sel !== n.id) flush();
-    st.sel = n.id; if (n.kids.length && !n.open) n.open = true;
-    wantScroll = true; render();
+    st.sel = n.id;
+    [].forEach.call(document.querySelectorAll("[data-node].mp-sel"), function (x) { x.classList.remove("mp-sel"); x.setAttribute("aria-selected", "false"); });
+    var x = document.querySelector('[data-node="' + n.id + '"]');
+    if (!x) { wantScroll = true; renderView(); x = document.querySelector('[data-node="' + n.id + '"]'); }
+    if (x) {
+      x.classList.add("mp-sel"); x.setAttribute("aria-selected", "true");
+      if (x.scrollIntoView) x.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    refocus(n.id);
   }
+  function toggle(n) { if (!n.kids.length) return; n.open = !n.open; if (n.open) { st.sel = n.id; wantScroll = true; } renderView(); refocus(n.id); }
   function matches(n) { return !!st.q && (n.title + "\n" + n.notes + "\n" + n.special.join("\n")).toLowerCase().indexOf(st.q) >= 0; }
   function search(text) {
     st.q = text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -278,110 +297,249 @@
   }
 
   // ---------- drawing ----------
-  function inner(n) {
-    var isRoot = n.id === st.focus;
-    var marks = el("span", { "class": "mp-marks" }, [
-      n.notes ? el("span", { title: "Has notes" }, [ico("note")]) : null,
-      n.images ? el("span", { title: plural(n.images, "image") }, [ico("img"), String(n.images)]) : null,
-      n.links.length ? el("span", { title: plural(n.links.length, "link") }, [ico("link"), String(n.links.length)]) : null
-    ]);
-    var head = el("div", { "class": "mp-head" }, [
-      el("span", { "class": "mp-ttl", text: n.title }), marks,
-      isRoot ? null : el("button", { type: "button", "class": "mp-ibtn", title: "Show this branch alone", "aria-label": "Show " + n.title + " alone",
-        onclick: function (e) { e.stopPropagation(); focusOn(n.id); } }, [ico("focus")]),
-      n.kids.length ? el("button", { type: "button", "class": "mp-tog", "aria-expanded": n.open ? "true" : "false",
-        "aria-label": (n.open ? "Close " : "Open ") + n.title + ", " + plural(n.kids.length, "branch", "branches"),
-        onclick: function (e) { e.stopPropagation(); n.open = !n.open; renderView(); }, text: n.open ? "−" : "+" + n.kids.length }) : null
-    ]);
-    var out = [head];
-    if (n.special.length) out.push(el("div", { "class": "mp-chips" }, n.special.map(function (s) { return el("span", { "class": "mp-chip" }, [el("b", { text: "SPECIAL" }), s]); })));
-    return out;
-  }
+  // the colour of a branch: the top branch it grows from (four hub colours in turn); the focus is the centre
+  function hue(id) { var p = pathOf(id), i = p.indexOf(st.focus); if (i < 0 || i === p.length - 1) return -1; var top = p[i + 1]; return N(st.focus).kids.indexOf(top) % 4; }
   function cls(base, n) {
-    var c = base;
-    if (n.id === st.focus) c += " mp-root"; else if (!n.verified) c += " mp-unv";
+    var c = base, h = hue(n.id);
+    if (n.id === st.focus) c += " mp-root"; else c += " b" + h;
+    if (!n.verified && n.id !== st.focus) c += " mp-unv";
     if (n.id === st.sel) c += " mp-sel";
     if (st.q) c += matches(n) ? " mp-hitn" : " mp-dim";
     return c;
   }
-  function keys(n) {
-    return function (e) {
-      if (e.target !== e.currentTarget) return;
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(n); }
-      else if (e.key === "ArrowRight" && n.kids.length && !n.open) { e.preventDefault(); n.open = true; renderView(); refocus(n.id); }
-      else if (e.key === "ArrowLeft" && n.open && n.kids.length) { e.preventDefault(); n.open = false; renderView(); refocus(n.id); }
-    };
+  function marks(n) {
+    var out = [];
+    if (n.notes) out.push(el("button", { type: "button", "class": "mp-nb", title: "Read the notes", "aria-label": "Read the notes of " + n.title, "data-act": "note" }, [ico("note")]));
+    if (n.special.length && !st.special) out.push(el("span", { "class": "mp-sp", title: n.special.join("\n") }, [el("i", { text: "!" }), String(n.special.length)]));
+    if (n.links.length) out.push(el("span", { "class": "mp-lk", title: plural(n.links.length, "link") }, [ico("link")]));
+    if (!n.verified && n.id !== st.focus) out.push(el("span", { "class": "mp-tv", title: "To verify: not yet checked by an admin" }, [document.createTextNode("to verify")]));
+    return out;
   }
-  function refocus(id) { var x = document.querySelector('[data-node="' + id + '"]'); if (x) x.focus(); }
-  function box(base, n, grow) {
-    return el("div", { "class": cls(base, n) + (grow ? " mp-grow" : ""), tabindex: "0", role: "button", "data-node": n.id,
-      "aria-label": n.title + (n.verified ? "" : ", to verify"), onclick: function () { pick(n); }, onkeydown: keys(n) }, inner(n));
+  function nodeEl(n, base) {
+    var kids = n.kids.length;
+    var e = el("div", { "class": cls(base, n), tabindex: "0", role: "treeitem", "data-node": n.id, "aria-level": String(pathOf(n.id).length - pathOf(st.focus).length + 1),
+      "aria-expanded": kids ? (n.open ? "true" : "false") : null, "aria-selected": n.id === st.sel ? "true" : "false",
+      "aria-label": n.title + (n.notes ? ", has notes" : "") + (n.verified ? "" : ", to verify") + (kids ? ", " + plural(kids, "branch", "branches") : "") }, [
+      el("span", { "class": "mp-t", text: n.title })
+    ].concat(marks(n)));
+    if (st.special && n.special.length) e.appendChild(el("span", { "class": "mp-sps" }, n.special.slice(0, 6).map(function (s) { return el("span", { text: s }); })));
+    if (kids) e.appendChild(el("button", { type: "button", "class": "mp-tg", tabindex: "-1", "data-act": "toggle", "aria-hidden": "true",
+      title: n.open ? "Close" : "Open " + plural(kids, "branch", "branches"), text: n.open ? "−" : String(kids) }));
+    return e;
   }
   function renderMap() {
-    var stage = $("mpStage"), canvas = $("mpCanvas"), els = {}, maxD = 0, now = {}, first = !Object.keys(seen).length;
+    var stage = $("mpStage"), canvas = $("mpCanvas"), els = {}, now = {}, first = !Object.keys(seen).length, maxX = 0;
     stage.textContent = "";
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); stage.appendChild(svg);
-    (function walk(id, d) {
-      var n = N(id); maxD = Math.max(maxD, d); now[id] = 1;
-      var e = box("mp-node", n, !first && !seen[id]);
-      e.style.left = d * COL + "px"; stage.appendChild(e); els[id] = e; n._x = d * COL;
-      if (n.open) n.kids.forEach(function (k) { walk(k, d + 1); });
-    })(st.focus, 0);
-    Object.keys(els).forEach(function (id) { N(id)._h = els[id].offsetHeight; });
+    (function walk(id) {
+      var n = N(id); now[id] = 1;
+      var e = nodeEl(n, "mp-n" + (!first && !seen[id] ? " mp-grow" : ""));
+      stage.appendChild(e); els[id] = e;
+      if (n.open) n.kids.forEach(walk);
+    })(st.focus);
+    Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
+    // across: a branch starts right after the text it grows from (free flow, no columns)
+    (function across(id, x) { var n = N(id); n._x = x; maxX = Math.max(maxX, x + n._w); if (n.open) n.kids.forEach(function (k) { across(k, x + n._w + GX); }); })(st.focus, PAD);
+    // down: every branch takes the height of what grows from it; a branch sits in the middle of its own
     function shift(id, dy) { var n = N(id); n._y += dy; if (n.open) n.kids.forEach(function (k) { shift(k, dy); }); }
     var total = (function lay(id, top) {
-      var n = N(id), kh = 0;
+      var n = N(id), kh = 0, gap = id === st.focus ? GTOP : GY;
       if (!n.open || !n.kids.length) { n._y = top; return n._h; }
-      n.kids.forEach(function (k, i) { N(k)._sub = lay(k, 0); kh += N(k)._sub + (i ? GY : 0); });
+      n.kids.forEach(function (k, i) { N(k)._sub = lay(k, 0); kh += N(k)._sub + (i ? gap : 0); });
       var sub = Math.max(kh, n._h), y = top + (sub - kh) / 2;
-      n.kids.forEach(function (k) { shift(k, y); y += N(k)._sub + GY; });
+      n.kids.forEach(function (k) { shift(k, y); y += N(k)._sub + gap; });
       n._y = top + (sub - n._h) / 2;
       return sub;
     })(st.focus, 0);
-    var d = "";
+    var paths = {};
     Object.keys(els).forEach(function (id) {
-      var n = N(id); els[id].style.top = n._y + "px";
-      if (n.open) n.kids.forEach(function (k) {
-        var c = N(k), x1 = n._x + W, y1 = n._y + n._h / 2, x2 = c._x, y2 = c._y + c._h / 2, mx = (x1 + x2) / 2;
-        d += "M" + x1 + " " + y1 + "C" + mx + " " + y1 + "," + mx + " " + y2 + "," + x2 + " " + y2;
+      var n = N(id); n._y += PAD;
+      els[id].style.left = n._x + "px"; els[id].style.top = n._y + "px";
+    });
+    Object.keys(els).forEach(function (id) {
+      var n = N(id), root = id === st.focus;
+      if (!n.open) return;
+      n.kids.forEach(function (k) {
+        var c = N(k), x1 = n._x + n._w, y1 = root ? n._y + n._h / 2 : n._y + n._h - 1, x2 = c._x, y2 = c._y + c._h - 1, mx = x1 + (x2 - x1) * 0.55;
+        var h = "b" + hue(k) + (c.verified ? "" : " u");
+        paths[h] = (paths[h] || "") + "M" + x1 + " " + y1 + "C" + mx + " " + y1 + "," + (x1 + (x2 - x1) * 0.45) + " " + y2 + "," + x2 + " " + y2;
       });
     });
-    var p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", d); svg.appendChild(p);
-    stage.style.width = (maxD * COL + W) + "px"; stage.style.height = total + "px";
+    Object.keys(paths).forEach(function (h) {
+      var p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", paths[h]); p.setAttribute("class", h); svg.appendChild(p);
+    });
+    var w = maxX + PAD, ht = total + PAD * 2;
+    stage.style.width = w + "px"; stage.style.height = ht + "px";
+    stage.style.transform = "scale(" + st.zoom + ")";
+    var sizer = $("mpSizer"); sizer.style.width = Math.ceil(w * st.zoom) + "px"; sizer.style.height = Math.ceil(ht * st.zoom) + "px";
     seen = now;
-    var s = st.sel && els[st.sel] ? N(st.sel) : null;
-    if (s && wantScroll) {                       // keep the chosen branch, and the branches it just grew, in view
-      var right = s._x + W + (s.open && s.kids.length ? COL : 0) + 40;
-      if (right > canvas.scrollLeft + canvas.clientWidth) canvas.scrollLeft = right - canvas.clientWidth;
-      if (s._x < canvas.scrollLeft) canvas.scrollLeft = s._x;
-      if (s._y < canvas.scrollTop) canvas.scrollTop = Math.max(s._y - 10, 0);
-      else if (s._y + s._h + 40 > canvas.scrollTop + canvas.clientHeight) canvas.scrollTop = s._y + s._h + 40 - canvas.clientHeight;
+    var z = st.zoom, s = st.sel && els[st.sel] ? N(st.sel) : null;
+    if (firstDraw) {                              // the centre of the map in the middle of the screen, on the left
+      var r = N(st.focus);
+      canvas.scrollLeft = 0;
+      canvas.scrollTop = Math.max(0, (r._y + r._h / 2) * z - canvas.clientHeight / 2);
+      firstDraw = false;
+    }
+    if (s && wantScroll) {                        // keep the chosen branch, and the branches it just grew, in view
+      var right = (s._x + s._w + (s.open && s.kids.length ? 260 : 0) + 30) * z, left = (s._x - 30) * z;
+      if (right > canvas.scrollLeft + canvas.clientWidth) canvas.scrollLeft = Math.min(left, right - canvas.clientWidth);
+      if (left < canvas.scrollLeft) canvas.scrollLeft = Math.max(0, left);
+      var top = (s._y - 30) * z, bottom = (s._y + s._h + 30) * z;
+      if (s.open && s.kids.length) { top = Math.min(top, (N(s.kids[0])._y - 20) * z); bottom = Math.max(bottom, (N(s.kids[s.kids.length - 1])._y + 50) * z); }
+      if (bottom - top > canvas.clientHeight) bottom = top + canvas.clientHeight;
+      if (top < canvas.scrollTop) canvas.scrollTop = Math.max(0, top);
+      else if (bottom > canvas.scrollTop + canvas.clientHeight) canvas.scrollTop = bottom - canvas.clientHeight;
     }
     wantScroll = false;
+    $("mpZoomPct").textContent = Math.round(z * 100) + "%";
   }
-  // On a narrow screen the outline shows the notes of the chosen branch right under it, not in a
-  // sheet that would cover the branches. Anywhere else the panel sits beside the tree (or is a
-  // bottom sheet over the map view on a narrow screen).
-  var NARROW = window.matchMedia ? window.matchMedia("(max-width: 980px)") : { matches: false };
-  function inlinePanel() { return st.view === "outline" && NARROW.matches; }
-  function placePanel() {
-    var panel = $("mpPanel"), row = inlinePanel() && st.sel ? $("mpOutline").querySelector('[data-node="' + st.sel + '"]') : null;
-    if (row) { if (row.nextSibling !== panel) row.parentNode.insertBefore(panel, row.nextSibling); }
-    else if (panel.parentNode !== $("mpWork")) $("mpWork").appendChild(panel);
-    panel.classList.toggle("mp-inline", !!row);
-    $("mpPage").classList.toggle("mp-padsheet", !panel.hidden && !row);
+
+  // ---------- zoom, fit, full screen ----------
+  function setZoom(z, cx, cy) {
+    var c = $("mpCanvas"), old = st.zoom;
+    z = Math.max(0.3, Math.min(2, Math.round(z * 100) / 100));
+    if (z === old) return;
+    if (cx === undefined) { cx = c.clientWidth / 2; cy = c.clientHeight / 2; }
+    var px = (c.scrollLeft + cx) / old, py = (c.scrollTop + cy) / old;
+    st.zoom = z; store("localStorage", userKey("zoom") + ":" + M.map.id, String(z));
+    var stage = $("mpStage"), sizer = $("mpSizer");
+    stage.style.transform = "scale(" + z + ")";
+    sizer.style.width = Math.ceil(stage.offsetWidth * z) + "px"; sizer.style.height = Math.ceil(stage.offsetHeight * z) + "px";
+    c.scrollLeft = px * z - cx; c.scrollTop = py * z - cy;
+    $("mpZoomPct").textContent = Math.round(z * 100) + "%";
   }
+  function zoomBy(k, cx, cy) { setZoom(st.zoom * k, cx, cy); }
+  function fit() {
+    var c = $("mpCanvas"), stage = $("mpStage");
+    var z = Math.min(1, (c.clientWidth - 10) / stage.offsetWidth, (c.clientHeight - 10) / stage.offsetHeight);
+    setZoom(Math.max(0.3, z)); c.scrollLeft = 0; c.scrollTop = 0;
+  }
+  // Full screen: the map fills the screen (the browser's full screen when it allows it); Esc leaves it
+  function full(on, fromBrowser) {
+    st.full = on;
+    $("mpMap").classList.toggle("mp-fullscreen", on);
+    document.documentElement.classList.toggle("mp-noscroll", on);
+    $("mpFull").setAttribute("aria-pressed", on ? "true" : "false");
+    $("mpFull").title = on ? "Leave full screen (Esc)" : "Full screen";
+    $("mpFullTxt").textContent = on ? "Exit full screen" : "Full screen";
+    if (!fromBrowser) {
+      try {
+        if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () { /* the page alone is enough */ });
+        if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () { /* ignore */ });
+      } catch (e) { /* ignore */ }
+    }
+    if (on && st.view !== "map") setView("map"); else renderView();
+  }
+
+  // ---------- the mouse and the keys on the map ----------
+  // Press and hold, then move: the map moves with it (a click that did not move picks the branch). The wheel
+  // scrolls up and down, Shift + wheel (or a touchpad) sideways, Ctrl + wheel zooms where the pointer is.
+  function canvasMouse() {
+    var c = $("mpCanvas"), drag = null;
+    c.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0 || e.pointerType === "touch") return;                 // a finger scrolls the page natively
+      drag = { x: e.clientX, y: e.clientY, sl: c.scrollLeft, st: c.scrollTop, moved: false, id: e.pointerId };
+    });
+    c.addEventListener("pointermove", function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+      if (!drag.moved) { drag.moved = true; c.classList.add("mp-panning"); try { c.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } }
+      c.scrollLeft = drag.sl - dx; c.scrollTop = drag.st - dy;
+    });
+    function end(e) {
+      if (!drag || (e && e.pointerId !== drag.id)) return;
+      if (drag.moved) { c.classList.remove("mp-panning"); c.addEventListener("click", swallow, true); }
+      drag = null;
+    }
+    function swallow(e) { e.stopPropagation(); e.preventDefault(); c.removeEventListener("click", swallow, true); }
+    c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end);
+    c.addEventListener("wheel", function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;                                   // plain wheel: the browser scrolls
+      e.preventDefault();
+      var r = c.getBoundingClientRect();
+      zoomBy(Math.exp(-e.deltaY * 0.0022), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    c.addEventListener("click", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+      if (!nodeE) { if (st.sel) { st.sel = null; renderView(); } return; }
+      var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
+      if (!n) return;
+      if (act && act.getAttribute("data-act") === "toggle") { toggle(n); return; }
+      if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
+      // a finger has no double-click: a tap on the chosen branch opens it, as a second click would
+      if ((COARSE.matches || e.pointerType === "touch") && st.sel === n.id) { openNote(n.id); return; }
+      pick(n);
+    });
+    c.addEventListener("dblclick", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+      if (!nodeE || (e.target.closest && e.target.closest("[data-act]"))) return;
+      e.preventDefault();
+      openNote(nodeE.getAttribute("data-node"));
+    });
+    c.addEventListener("keydown", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+      if (!nodeE || e.target !== nodeE) return;
+      nodeKey(e, N(nodeE.getAttribute("data-node")));
+    });
+  }
+  function nodeKey(e, n) {
+    if (!n) return;
+    var vis = visible(), i = vis.indexOf(n.id), go = null;
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNote(n.id); return; }
+    if (e.key === "ArrowDown") go = vis[i + 1];
+    else if (e.key === "ArrowUp") go = vis[i - 1];
+    else if (e.key === "ArrowRight") { if (n.kids.length && !n.open) { e.preventDefault(); toggle(n); return; } go = n.open ? n.kids[0] : null; }
+    else if (e.key === "ArrowLeft") { if (n.open && n.kids.length) { e.preventDefault(); toggle(n); return; } go = n.id !== st.focus ? n.parent : null; }
+    else if (e.key === "Home") go = st.focus;
+    else if (e.key === "Tab" && st.edit && canEdit() && !e.shiftKey) { e.preventDefault(); addBranch(n, "New branch", true); return; }
+    else if ((e.key === "Delete" || e.key === "Backspace") && st.edit && canEdit() && n.id !== M.root) { e.preventDefault(); removeBranch(n); return; }
+    else if (e.key === "F2" && st.edit && canEdit()) { e.preventDefault(); openNote(n.id, "name"); return; }
+    if (go !== null) e.preventDefault();
+    if (go && N(go)) pick(N(go));
+  }
+  function pageKeys(e) {
+    if (!M || st.note || document.querySelector(".hub-sheet-back")) return;
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || "");
+    if (typing) return;
+    if ((e.key === "+" || e.key === "=") && st.view === "map") { e.preventDefault(); zoomBy(1.2); }
+    else if ((e.key === "-" || e.key === "_") && st.view === "map") { e.preventDefault(); zoomBy(1 / 1.2); }
+    else if (e.key === "0" && st.view === "map") { e.preventDefault(); setZoom(1); }
+    else if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); full(!st.full); }
+    else if (e.key === "Escape" && st.full) { e.preventDefault(); full(false); }
+  }
+  function refocus(id) { var x = document.querySelector('[data-node="' + id + '"]'); if (x && document.activeElement !== x) x.focus({ preventScroll: true }); }
+
+  // ---------- the outline ----------
   function renderOutline() {
     var host = $("mpOutline");
-    $("mpWork").appendChild($("mpPanel"));           // keep the panel out of what is redrawn
     host.textContent = "";
-    host.appendChild(el("ul", {}, [(function li(id) {
+    host.appendChild(el("ul", { role: "tree" }, [(function li(id) {
       var n = N(id);
-      return el("li", {}, [box("mp-orow", n, false), n.open && n.kids.length ? el("ul", {}, n.kids.map(li)) : null]);
+      return el("li", {}, [nodeEl(n, "mp-orow"), n.open && n.kids.length ? el("ul", { role: "group" }, n.kids.map(li)) : null]);
     })(st.focus)]));
-    placePanel();
     if (wantScroll && st.sel) { var x = host.querySelector('[data-node="' + st.sel + '"]'); if (x && x.scrollIntoView) x.scrollIntoView({ block: "nearest" }); }
     wantScroll = false;
+  }
+  function outlineMouse() {
+    var o = $("mpOutline");
+    o.addEventListener("click", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null; if (!nodeE) return;
+      var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
+      if (act && act.getAttribute("data-act") === "toggle") { toggle(n); return; }
+      if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
+      if (COARSE.matches || e.pointerType === "touch") { openNote(n.id); return; }   // a tap reads the branch
+      pick(n);
+    });
+    o.addEventListener("dblclick", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+      if (!nodeE || (e.target.closest && e.target.closest("[data-act]"))) return;
+      openNote(nodeE.getAttribute("data-node"));
+    });
+    o.addEventListener("keydown", function (e) {
+      var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
+      if (nodeE && e.target === nodeE) nodeKey(e, N(nodeE.getAttribute("data-node")));
+    });
   }
   function renderCrumbs() {
     var c = $("mpCrumbs"), p = pathOf(st.focus); c.textContent = "";
@@ -393,49 +551,43 @@
     if (p.length > 1) c.appendChild(el("button", { type: "button", "class": "btn ghost sm", text: "Whole map", onclick: function () { focusOn(M.root); } }));
   }
   function renderPills() {
-    var b = 0, s = 0, v = 0, im = 0, hits = 0;
-    each(M.root, function (n) { b++; s += n.special.length; im += n.images; if (!n.verified) v++; });
+    var b = 0, s = 0, v = 0, hits = 0;
+    each(M.root, function (n) { b++; s += n.special.length; if (!n.verified) v++; });
     if (st.q) each(st.focus, function (n) { if (matches(n)) hits++; });
     var p = $("mpPills"); p.textContent = "";
     if (st.q) p.appendChild(el("span", { "class": "badge brand", text: hits + " found" }));
     p.appendChild(el("span", { "class": "badge", text: plural(b - 1, "branch", "branches") }));
     p.appendChild(el("span", { "class": "badge", text: plural(s, "special note") }));
-    if (im) p.appendChild(el("span", { "class": "badge", text: plural(im, "image") }));
     p.appendChild(el("span", { "class": "badge " + (v ? "warn" : "ok"), text: v ? v + " to verify" : "All verified" }));
   }
-  var viewQueued = false;
+  var viewQueued = false, outlineWired = false;
   function renderView() {
+    if (!outlineWired) { outlineWired = true; outlineMouse(); }
     renderCrumbs(); renderPills();
     var map = st.view === "map";
-    $("mpCanvas").hidden = !map; $("mpOutline").hidden = map;
+    $("mpCanvas").hidden = !map; $("mpOutline").hidden = map; $("mpTools").hidden = !map;
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", map ? "false" : "true");
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
-    if (map) { placePanel(); renderMap(); } else renderOutline();
+    $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
+    $("mpHint").textContent = COARSE.matches ? "Tap a branch twice to read it · two fingers to scroll"
+      : (map ? "Drag to move · Ctrl + wheel to zoom · double-click a branch to read it" : "Double-click a branch or press Enter to read it") + (st.edit ? " · Tab adds a branch" : "");
+    if (map) renderMap(); else renderOutline();
     var open = []; Object.keys(M.nodes).forEach(function (id) { if (N(id).open) open.push(id); });
     store("sessionStorage", userKey("open") + ":" + M.map.id, JSON.stringify(open.slice(0, 600)));
   }
   function viewSoon() {                       // while typing a name: one redraw per frame
     if (viewQueued) return; viewQueued = true;
-    window.requestAnimationFrame(function () {
-      viewQueued = false;
-      if (!inlinePanel()) return renderView();
-      // the panel sits inside the outline: redrawing it would take the cursor out of the box being typed in
-      renderCrumbs(); renderPills();
-      [].forEach.call($("mpOutline").querySelectorAll("[data-node]"), function (row) {
-        var n = N(row.getAttribute("data-node")), t = row.querySelector(".mp-ttl");
-        if (n && t && t.textContent !== n.title) t.textContent = n.title;
-      });
-    });
+    window.requestAnimationFrame(function () { viewQueued = false; renderView(); });
   }
-  function render() { renderView(); renderPanel(); }
+  function render() { renderView(); renderNote(); }
 
   // ---------- saving ----------
-  // Text typed in the panel is saved by itself, shortly after the typing stops and when the branch
-  // is left. One request at a time; a failed save is shown and can be sent again.
+  // Text typed in the note is saved by itself, shortly after the typing stops and when the branch is left.
+  // One request at a time; a failed save is shown and can be sent again.
   var draft = null, retry = null, chain = Promise.resolve(), waiting = 0;
-  var lastMsg = { id: null, text: "", bad: false };       // the last save message of the open branch, kept when the panel is redrawn
+  var lastMsg = { id: null, text: "", bad: false };       // the last save message of the open branch, kept when the note is redrawn
   function status(text, bad, again) {
-    lastMsg = { id: st.sel, text: again ? "" : text, bad: !!bad && !again };
+    lastMsg = { id: st.note, text: again ? "" : text, bad: !!bad && !again };
     var s = $("mpStatus"); if (!s) return;
     s.textContent = text; s.className = "mp-status" + (bad ? " bad" : "");
     if (again) s.appendChild(el("button", { type: "button", "class": "btn ghost sm", style: "margin-left:8px", text: "Save again", onclick: function () { var r = retry; retry = null; if (r) send(r.id, r.patch); } }));
@@ -482,9 +634,30 @@
     return promise.then(done, function (err) { Hub.toast(err.message, true); });
   }
 
-  // ---------- the notes panel ----------
+  // ---------- the note: one branch, read or written (focus mode) ----------
+  var noteLast = null, noteWant = "";
+  function openNote(id, want) {
+    if (!N(id)) return;
+    if (st.note !== id) flush();
+    if (!st.note) noteLast = document.activeElement;
+    st.note = id; st.sel = id; noteWant = want || "";
+    renderNote(); renderView();
+  }
+  function closeNote() {
+    flush();
+    var id = st.note; st.note = null; renderNote();
+    wantScroll = true; renderView();
+    refocus(id);
+  }
+  function stepNote(dir) {
+    var o = order(), i = o.indexOf(st.note);
+    if (i < 0) { reveal(st.note, true); o = order(); i = o.indexOf(st.note); }
+    var to = o[i + dir]; if (!to) return;
+    pathOf(to).forEach(function (a) { if (a !== to) N(a).open = true; });
+    openNote(to);
+  }
   function foot() {
-    var f = $("mpFoot"), n = st.sel && N(st.sel); if (!f || !n) return;
+    var f = $("mpFoot"), n = st.note && N(st.note); if (!f || !n) return;
     f.textContent = n.updated_at ? "Last changed" + (n.updated_by ? " by " + n.updated_by : "") + ", " + Hub.date(n.updated_at, true) : "";
   }
   function adder(id, placeholder, label, max, fn) {
@@ -493,100 +666,138 @@
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
     return el("div", { "class": "mp-add" }, [inp, el("button", { type: "button", "class": "btn ghost", text: label, onclick: go })]);
   }
-  var panelFor = null;
-  function renderPanel() {
-    var panel = $("mpPanel"), n = st.sel && N(st.sel);
-    panel.hidden = !n; $("mpWork").className = "mp-work" + (n ? " haspanel" : "");
-    panel.textContent = ""; placePanel(); if (!n) { panelFor = null; return; }
-    if (panelFor !== n.id) { panelFor = n.id; panel.scrollTop = 0; }       // another branch: start at its top
-    var E = st.edit && canEdit(), isRoot = n.id === M.root;
-    var trail = pathOf(n.id).slice(0, -1).map(function (i) { return N(i).title; }).join(" › ");
-    panel.appendChild(el("div", { "class": "mp-phead" }, [
-      el("div", { style: "min-width:0" }, [el("h2", { id: "mpPTitle", text: n.title }), trail ? el("p", { "class": "mp-path", text: trail }) : null]),
-      el("button", { type: "button", "class": "btn ghost sm", text: "Close", onclick: function () { flush(); st.sel = null; render(); } })
+  var noteFor = null;
+  function renderNote() {
+    var back = $("mpNoteBack"), box = $("mpNote"), n = st.note && N(st.note);
+    if (!n) { back.hidden = true; box.textContent = ""; noteFor = null; document.documentElement.classList.toggle("mp-noscroll", !!st.full); return; }
+    back.hidden = false; document.documentElement.classList.add("mp-noscroll");
+    var keep = noteFor === n.id ? box.scrollTop : 0, had = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : "";
+    noteFor = n.id;
+    box.textContent = "";
+    var E = st.edit && canEdit(), isRoot = n.id === M.root, o = order(), at = o.indexOf(n.id);
+    var trail = pathOf(n.id).slice(0, -1);
+    // top: where it is, place in the reading order, close
+    box.appendChild(el("div", { "class": "mp-ntop" }, [
+      el("nav", { "class": "mp-ntrail", "aria-label": "Where this branch is" }, trail.map(function (id, i) {
+        return el("span", {}, [i ? el("span", { "class": "sep", text: "›" }) : null, el("button", { type: "button", text: N(id).title, onclick: function () { openNote(id); } })]);
+      })),
+      el("div", { "class": "mp-nnav" }, [
+        at >= 0 ? el("span", { "class": "small muted", text: (at + 1) + " of " + o.length }) : null,
+        el("button", { type: "button", "class": "btn ghost sm", text: "‹ Previous", title: "Previous branch (Alt + ←)", disabled: at <= 0, onclick: function () { stepNote(-1); } }),
+        el("button", { type: "button", "class": "btn ghost sm", text: "Next ›", title: "Next branch (Alt + →)", disabled: at < 0 || at >= o.length - 1, onclick: function () { stepNote(1); } }),
+        el("button", { type: "button", "class": "btn sm", text: "Close", title: "Close (Esc)", onclick: closeNote })
+      ])
     ]));
-    var below = 0; each(n.id, function (x) { if (!x.verified && x.id !== n.id) below++; });
-    panel.appendChild(el("div", { "class": "mp-rowwrap" }, [
-      el("span", { "class": "badge " + (n.verified ? "ok" : "warn"), text: n.verified ? "Verified" : "To verify" }),
-      n.verified && n.verified_by ? el("span", { "class": "small muted", text: "by " + n.verified_by + (n.verified_at ? ", " + Hub.date(n.verified_at) : "") }) : null,
-      n.id !== st.focus ? el("button", { type: "button", "class": "btn ghost sm", text: "Show this branch alone", onclick: function () { focusOn(n.id); } }) : null
-    ]));
+    // the name
     if (E) {
-      panel.appendChild(el("div", { "class": "mp-status", id: "mpStatus", role: "status" }));
-      if (retry && retry.id === n.id) status("Not saved yet.", true, true);
-      else if (lastMsg.id === n.id && lastMsg.text) status(lastMsg.text, lastMsg.bad);
-    }
-
-    // name
-    if (E) {
-      var name = el("input", { "class": "input", type: "text", id: "mpName", value: n.title, maxlength: isRoot ? "80" : "120", autocomplete: "off", disabled: isRoot && !isOwn() });
+      var name = el("input", { "class": "mp-ntitle-in", type: "text", id: "mpName", value: n.title, maxlength: isRoot ? "80" : "120", autocomplete: "off", disabled: isRoot && !isOwn(), "aria-label": isRoot ? "Map name" : "Branch name" });
       name.addEventListener("input", function () {
         var v = name.value.replace(/\s+/g, " ").trim();
         if (!v) { status("Give the branch a name.", true); return; }
-        typed(n.id, "title", v); $("mpPTitle").textContent = v; viewSoon();
+        typed(n.id, "title", v); viewSoon();
       });
       name.addEventListener("blur", function () { if (!name.value.trim()) { name.value = n.title; status(""); } flush(); });
-      name.addEventListener("keydown", function (e) { if (e.key === "Enter") name.blur(); });
-      panel.appendChild(el("section", {}, [el("h3", {}, [el("label", { "for": "mpName", text: isRoot ? "Map name" : "Name" })]), name,
-        isRoot && !isOwn() ? el("p", { "class": "hint", text: "Only the owner renames the map." }) : null]));
+      name.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if ($("mpNotes")) $("mpNotes").focus(); } });
+      box.appendChild(name);
+    } else box.appendChild(el("h2", { "class": "mp-ntitle", id: "mpNTitle", text: n.title }));
+    box.appendChild(el("div", { "class": "mp-rowwrap" }, [
+      el("span", { "class": "badge " + (n.verified ? "ok" : "warn"), text: n.verified ? "Verified" : "To verify" }),
+      n.verified && n.verified_by ? el("span", { "class": "small muted", text: "by " + n.verified_by + (n.verified_at ? ", " + Hub.date(n.verified_at) : "") }) : null,
+      E ? el("span", { "class": "mp-status", id: "mpStatus", role: "status" }) : null
+    ]));
+    if (E) {
+      if (retry && retry.id === n.id) status("Not saved yet.", true, true);
+      else if (lastMsg.id === n.id && lastMsg.text) status(lastMsg.text, lastMsg.bad);
     }
-
-    // notes
+    // notes: the heart of it
     var notes;
     if (E) {
-      notes = el("textarea", { "class": "input", id: "mpNotes", maxlength: "8000", placeholder: "What to know about " + n.title, text: n.notes });
-      notes.addEventListener("input", function () { typed(n.id, "notes", notes.value); });
+      notes = el("textarea", { "class": "mp-ntext-in", id: "mpNotes", maxlength: "8000", placeholder: "What to know about " + n.title + "…", "aria-label": "Notes", text: n.notes });
+      notes.addEventListener("input", function () { typed(n.id, "notes", notes.value); grow(notes); });
       notes.addEventListener("blur", flush);
-      Hub.autoGrow(notes);
-    } else notes = n.notes ? el("p", { "class": "mp-notes", text: n.notes }) : el("p", { "class": "muted small", text: "No notes yet." });
-    panel.appendChild(el("section", {}, [el("h3", {}, [E ? el("label", { "for": "mpNotes", text: "Notes" }) : "Notes"]), notes]));
-
+    } else notes = n.notes ? el("div", { "class": "mp-ntext", text: n.notes }) : n.special.length ? null : el("p", { "class": "muted", text: "No notes on this branch." });
+    if (notes) box.appendChild(notes);
     // special notes
-    var sp = el("section", {}, [el("h3", { text: "Special notes" })]);
-    if (n.special.length) sp.appendChild(el("div", { "class": "mp-chips", style: "margin:0" }, n.special.map(function (s, i) {
-      return el("span", { "class": "mp-chip" }, [el("b", { text: "SPECIAL" }), s,
-        E ? el("button", { type: "button", "aria-label": "Remove special note: " + s, text: "×", onclick: function () { setList(n, "special", n.special.filter(function (x, j) { return j !== i; })); } }) : null]);
-    })));
-    else if (!E) sp.appendChild(el("p", { "class": "muted small", text: "None. They are for what must not be missed." }));
-    if (E) sp.appendChild(adder("mpSpecial", "e.g. 50Hz for Egypt", "Add", 200, function (v) {
-      if (n.special.length >= 20) { Hub.toast("A branch holds up to 20 special notes.", true); return; }
-      setList(n, "special", n.special.concat([v]), "mpSpecial");
-    }));
-    panel.appendChild(sp);
-
-    // images
-    panel.appendChild(el("section", { id: "mpImages" }));
-    drawImages();
-
+    if (n.special.length || E) {
+      var sp = el("section", { "class": "mp-nsec" }, [el("h3", { text: "Special notes" })]);
+      // reading: "Name: value" lines (rule books, vocabularies) as a list of fields, the others as chips
+      var FIELD = /^\s*([A-Za-z][A-Za-z ]{1,20}):\s*(.+)$/;
+      var fieldsOf = E ? [] : n.special.filter(function (s) { return FIELD.test(s); });
+      if (fieldsOf.length) sp.appendChild(el("dl", { "class": "mp-fields" }, [].concat.apply([], fieldsOf.map(function (s) {
+        var m = FIELD.exec(s); return [el("dt", { text: m[1] }), el("dd", { text: m[2] })];
+      }))));
+      var chipsOf = E ? n.special : n.special.filter(function (s) { return !FIELD.test(s); });
+      if (chipsOf.length) sp.appendChild(el("div", { "class": "mp-chips" }, n.special.map(function (s, i) {
+        if (chipsOf.indexOf(s) < 0) return null;
+        return el("span", { "class": "mp-chip" }, [el("b", { text: "!" }), s,
+          E ? el("button", { type: "button", "aria-label": "Remove special note: " + s, text: "×", onclick: function () { setList(n, "special", n.special.filter(function (x, j) { return j !== i; })); } }) : null]);
+      })));
+      if (E) sp.appendChild(adder("mpSpecialIn", "e.g. 50Hz for Egypt, or Terms: air tightness, casing leakage", "Add", 200, function (v) {
+        if (n.special.length >= 20) { Hub.toast("A branch holds up to 20 special notes.", true); return; }
+        setList(n, "special", n.special.concat([v]), "mpSpecialIn");
+      }));
+      box.appendChild(sp);
+    }
     // links
-    var lk = el("section", {}, [el("h3", { text: "Links" })]), shown = 0;
+    var shown = [];
     n.links.forEach(function (l, i) {
-      var a = linkNode(l); if (!a) return; shown++;
-      lk.appendChild(E ? el("div", { "class": "mp-linkrow" }, [a, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
+      var a = linkNode(l); if (!a) return;
+      shown.push(E ? el("div", { "class": "mp-linkrow" }, [a, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
         onclick: function () { setList(n, "links", n.links.filter(function (x, j) { return j !== i; })); } })]) : a);
     });
-    if (!shown && !E) lk.appendChild(el("p", { "class": "muted small", text: "No links." }));
-    if (E) lk.appendChild(el("div", {}, [el("button", { type: "button", "class": "btn ghost sm", text: "Add link", onclick: function () { linkSheet(n); } })]));
-    panel.appendChild(lk);
-
+    if (shown.length || E) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "Links" })].concat(shown,
+      E ? [el("div", {}, [el("button", { type: "button", "class": "btn ghost sm", text: "Add link", onclick: function () { linkSheet(n); } })])] : [])));
+    // what grows from it
+    if (n.kids.length || E) {
+      var kids = el("section", { "class": "mp-nsec" }, [el("h3", { text: n.kids.length ? plural(n.kids.length, "branch", "branches") + " under it" : "Branches under it" })]);
+      if (n.kids.length) kids.appendChild(el("ul", { "class": "mp-nkids" }, n.kids.map(function (k) {
+        var c = N(k);
+        return el("li", {}, [el("button", { type: "button", "class": c.verified ? "" : "unv", onclick: function () { N(n.id).open = true; openNote(k); } }, [
+          el("span", { text: c.title }), c.notes ? ico("note") : null, c.kids.length ? el("small", { text: String(c.kids.length) }) : null])]);
+      })));
+      if (E) kids.appendChild(adder("mpChild", "Name of a new branch under " + n.title, "Add", 120, function (v) { addBranch(n, v); }));
+      box.appendChild(kids);
+    }
+    // this branch: verify, move, show alone, delete
+    var tools2 = [];
+    if (n.id !== st.focus) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Show this branch alone", onclick: function () { var id = n.id; closeNote(); focusOn(id); } }));
     if (E) {
-      panel.appendChild(el("section", {}, [el("h3", {}, [el("label", { "for": "mpChild", text: "Add a branch under this one" })]),
-        adder("mpChild", "Branch name", "Add", 120, function (v) { addBranch(n, v); })]));
-      var sibs = isRoot ? [] : N(n.parent).kids, at = sibs.indexOf(n.id), tools2 = [];
-      // only the super user and the admins of the Maps tile verify (a verified branch is a fact for the AI)
-      var mayVerify = !!M.map.can_verify;
+      var sibs = isRoot ? [] : N(n.parent).kids, pos = sibs.indexOf(n.id), mayVerify = !!M.map.can_verify, below = 0;
+      each(n.id, function (x) { if (!x.verified && x.id !== n.id) below++; });
+      // only the super user and the admins of the Maps tile verify (a verified branch is what the AI reads)
       if (!n.verified && mayVerify) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Mark as verified", onclick: function () { verify(n, true, false); } }));
-      if (below && mayVerify) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Verify this branch and " + (below === 1 ? "the 1" : "the " + below) + " under it", onclick: function () { verify(n, true, true); } }));
+      if (below && mayVerify) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Verify it and the " + (below === 1 ? "1 branch" : below + " branches") + " under it", onclick: function () { verify(n, true, true); } }));
       if (n.verified) tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Mark to verify", onclick: function () { verify(n, false, false); } }));
       if (!isRoot) {
-        tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Move up", disabled: at <= 0, onclick: function () { move(n, -1); } }));
-        tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Move down", disabled: at < 0 || at >= sibs.length - 1, onclick: function () { move(n, 1); } }));
+        tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Move up", disabled: pos <= 0, onclick: function () { move(n, -1); } }));
+        tools2.push(el("button", { type: "button", "class": "btn ghost sm", text: "Move down", disabled: pos < 0 || pos >= sibs.length - 1, onclick: function () { move(n, 1); } }));
         tools2.push(el("button", { type: "button", "class": "btn danger sm", text: "Delete branch", onclick: function () { removeBranch(n); } }));
       }
-      panel.appendChild(el("section", {}, [el("h3", { text: "This branch" }), el("div", { "class": "mp-rowwrap" }, tools2)]));
     }
-    panel.appendChild(el("p", { "class": "mp-foot", id: "mpFoot" }));
+    if (tools2.length) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "This branch" }), el("div", { "class": "mp-rowwrap" }, tools2)]));
+    box.appendChild(el("p", { "class": "mp-foot", id: "mpFoot" }));
     foot();
+    box.scrollTop = keep;
+    if (notes && notes.tagName === "TEXTAREA") grow(notes);
+    var f = had && $(had) ? $(had) : noteWant === "name" && $("mpName") ? $("mpName") : null;
+    if (f) { f.focus(); if (noteWant === "name" && f.select) f.select(); }
+    else if (noteFor && !box.contains(document.activeElement)) box.focus({ preventScroll: true });
+    noteWant = "";
+  }
+  function grow(t) { t.style.height = "auto"; t.style.height = Math.max(160, t.scrollHeight + 2) + "px"; }
+  function noteWire() {
+    var back = $("mpNoteBack"), downOn = null;
+    back.addEventListener("mousedown", function (e) { downOn = e.target; });
+    back.addEventListener("click", function (e) { if (e.target === back && downOn === back) closeNote(); });
+    document.addEventListener("keydown", function (e) {
+      if (!st.note || document.querySelector(".hub-sheet-back")) return;
+      var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || "");
+      if (e.key === "Escape") { e.preventDefault(); closeNote(); }
+      else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); stepNote(1); }
+      else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); stepNote(-1); }
+      else if (!typing && (e.key === "ArrowRight" || e.key === "j")) { e.preventDefault(); stepNote(1); }
+      else if (!typing && (e.key === "ArrowLeft" || e.key === "k")) { e.preventDefault(); stepNote(-1); }
+    });
   }
   // special notes and links: the whole list is saved at once; a refusal puts the list back
   function setList(n, field, list, refocusId) {
@@ -594,21 +805,23 @@
     n[field] = list; render();
     if (refocusId && $(refocusId)) $(refocusId).focus();
     flush();
-    send(n.id, (function () { var p = {}; p[field] = list; return p; })(), function () { n[field] = before; }).then(function () { if (st.sel === n.id && field === "links") renderPanel(); });
+    send(n.id, (function () { var p = {}; p[field] = list; return p; })(), function () { n[field] = before; }).then(function () { if (st.note === n.id && field === "links") renderNote(); });
   }
-  function addBranch(n, title) {
+  function addBranch(n, title, open) {
     settled().then(function () {
       return act(Api.mpNodeAdd(T, n.id, title), function (r) {
         var c = r.node; c.kids = []; c.open = false; M.nodes[c.id] = c; n.kids.push(c.id); n.open = true;
-        wantScroll = true; render();
+        wantScroll = true;
+        if (open) { openNote(c.id, "name"); return; }            // Tab on the map: name it at once
+        render();
         if ($("mpChild")) $("mpChild").focus();
       });
     });
   }
   function removeBranch(n) {
     var c = under(n.id);
-    Hub.confirm(c ? "The branch, the " + plural(c, "branch", "branches") + " under it and their images are deleted. This cannot be undone."
-                  : "The branch and its images are deleted. This cannot be undone.",
+    Hub.confirm(c ? "The branch and the " + plural(c, "branch", "branches") + " under it are deleted. This cannot be undone."
+                  : "The branch is deleted. This cannot be undone.",
       { title: "Delete " + n.title + "?", ok: "Delete branch", danger: true }).then(function (yes) {
       if (!yes) return;
       settled().then(function () {
@@ -617,9 +830,10 @@
           each(n.id, function (x) { gone.push(x.id); });
           par.kids.splice(par.kids.indexOf(n.id), 1);
           if (gone.indexOf(st.focus) >= 0) { st.focus = M.root; setHash(""); }
-          gone.forEach(function (id) { delete M.nodes[id]; delete imgCache[id]; });
+          gone.forEach(function (id) { delete M.nodes[id]; });
           if (draft && gone.indexOf(draft.id) >= 0) { clearTimeout(draft.timer); draft = null; }
-          st.sel = par.id; render(); Hub.toast("Deleted " + n.title + ".");
+          if (st.note && gone.indexOf(st.note) >= 0) st.note = null;
+          st.sel = par.id; render(); refocus(par.id); Hub.toast("Deleted " + n.title + ".");
         });
       });
     });
@@ -758,129 +972,6 @@
     });
   }
 
-  // ---------- images ----------
-  // Shrunk in the browser before they are saved: 1600 px on the long side at most, JPEG, about 450 KB at most.
-  var MAX_IMAGES = 8, MAX_CHARS = 600000, imgBusy = "";
-  function loadImages(id) {
-    imgCache[id] = { state: "loading", list: [] };
-    Api.mpNodeImages(T, id).then(function (r) { imgCache[id] = { state: "ok", list: r.images }; if (N(id)) N(id).images = r.images.length; if (st.sel === id) { drawImages(); viewSoon(); } },
-      function (err) { imgCache[id] = { state: "error", list: [], error: err.message }; if (st.sel === id) drawImages(); });
-  }
-  function drawImages() {
-    var host = $("mpImages"), n = st.sel && N(st.sel); if (!host || !n) return;
-    var E = st.edit && canEdit(), c = imgCache[n.id];
-    host.textContent = "";
-    host.appendChild(el("h3", {}, [E ? el("label", { "for": "mpFile", text: "Images" }) : "Images"]));
-    if (!c && n.images) { loadImages(n.id); c = imgCache[n.id]; }
-    if (c && c.state === "loading") host.appendChild(el("p", { "class": "muted small", text: "Loading images…" }));
-    else if (c && c.state === "error") host.appendChild(el("div", { "class": "mp-rowwrap" }, [el("span", { "class": "mp-err", text: "The images could not be loaded. " + c.error }),
-      el("button", { type: "button", "class": "btn ghost sm", text: "Try again", onclick: function () { loadImages(n.id); drawImages(); } })]));
-    else if (c && c.list.length) host.appendChild(el("div", { "class": "mp-thumbs" }, c.list.map(function (g) {
-      var cap = null;
-      if (E) {
-        cap = el("input", { "class": "input", type: "text", value: g.caption, maxlength: "120", placeholder: "Caption", "aria-label": "Caption", autocomplete: "off" });
-        cap.addEventListener("change", function () {
-          var v = cap.value.replace(/\s+/g, " ").trim();
-          act(Api.mpImageSave(T, g.id, v), function () { g.caption = v; });
-        });
-      } else if (g.caption) cap = el("figcaption", { text: g.caption });
-      return el("figure", { "class": "mp-thumb" }, [
-        el("button", { type: "button", "class": "pic", "aria-label": "Enlarge " + (g.caption || "image"), onclick: function () { viewImage(g, n); } }, [el("img", { src: g.thumb, alt: g.caption || "" })]),
-        cap,
-        E ? el("button", { type: "button", "class": "btn ghost sm", text: "Remove", onclick: function () { removeImage(n, g); } }) : null
-      ]);
-    })));
-    else if (!E) host.appendChild(el("p", { "class": "muted small", text: "No images." }));
-    if (E) {
-      var file = el("input", { type: "file", id: "mpFile", accept: "image/*", multiple: true });
-      file.addEventListener("change", function () { addImages(n.id, file.files); });
-      host.appendChild(file);
-      host.appendChild(el("p", { "class": "hint", text: imgBusy || "Photos, nameplates, drawings or screenshots, up to " + MAX_IMAGES + " on a branch. You can also paste a screenshot (Ctrl+V). Images are shrunk before they are saved." }));
-    }
-  }
-  function readPicture(file) {
-    return new Promise(function (resolve, reject) {
-      var url = URL.createObjectURL(file), im = new Image();
-      im.onload = function () { resolve({ im: im, done: function () { URL.revokeObjectURL(url); } }); };
-      im.onerror = function () { URL.revokeObjectURL(url); reject(new Error("read")); };
-      im.src = url;
-    });
-  }
-  function jpeg(im, max, q) {
-    var w = im.naturalWidth || 1200, h = im.naturalHeight || 900, k = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
-    c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
-    var x = c.getContext("2d");
-    x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, c.width, c.height);          // paper white behind a transparent drawing: this is image data, not page colour
-    x.drawImage(im, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", q);
-  }
-  function shrink(file) {
-    return readPicture(file).then(function (p) {
-      var steps = [[1600, 0.82], [1600, 0.7], [1280, 0.7], [1024, 0.7], [1024, 0.55], [800, 0.5]], data = "", thumb, i;
-      try {
-        for (i = 0; i < steps.length; i++) { data = jpeg(p.im, steps[i][0], steps[i][1]); if (data.length <= MAX_CHARS) break; }
-        thumb = jpeg(p.im, 360, 0.7); if (thumb.length > 55000) thumb = jpeg(p.im, 240, 0.6);
-      } finally { p.done(); }
-      if (data.indexOf("data:image/jpeg;base64,") !== 0 || thumb.indexOf("data:image/jpeg;base64,") !== 0) throw new Error("read");
-      if (data.length > MAX_CHARS) throw new Error("large");
-      return { data: data, thumb: thumb };
-    });
-  }
-  function addImages(id, fileList) {
-    var files = [].slice.call(fileList || []), total = files.length, added = 0, kb = 0, problems = [], n = N(id);
-    if (!n || !total) return;
-    if (imgBusy) { Hub.toast("Wait until the images being added are saved.", true); return; }
-    var have = imgCache[id] && imgCache[id].state === "ok" ? imgCache[id].list.length : n.images;
-    function say(i) { imgBusy = "Adding image " + i + " of " + total + "…"; if (st.sel === id) drawImages(); }
-    function finish() {
-      imgBusy = ""; if (st.sel === id) drawImages(); viewSoon();
-      if (!problems.length) Hub.toast((added === 1 ? "Image added" : added + " images added") + ", " + kb + " KB after shrinking.");
-      else if (problems.length === 1 && !added) Hub.toast(problems[0], true);
-      else Hub.tell(problems.join("\n"), { title: added ? plural(added, "image") + " added, " + problems.length + " not added" : "No image was added" });
-    }
-    (function next(i) {
-      var f = files[i]; if (!f) return finish();
-      var name = f.name || "The pasted image";
-      if (!/^image\//.test(f.type)) { problems.push(name + " is not an image. Use JPG, PNG or a screenshot."); return next(i + 1); }
-      if (f.size > 25 * 1024 * 1024) { problems.push(name + " is over 25 MB. Use a smaller one."); return next(i + 1); }
-      if (have + added >= MAX_IMAGES) { problems.push("A branch holds up to " + MAX_IMAGES + " images. " + plural(total - i, "image") + " not added."); return finish(); }
-      say(i + 1);
-      shrink(f).then(function (s) {
-        return Api.mpImageAdd(T, { nodeId: id, data: s.data, thumb: s.thumb, caption: "" }).then(function (r) {
-          var c = imgCache[id] && imgCache[id].state === "ok" ? imgCache[id] : (imgCache[id] = { state: "ok", list: [] });
-          if (c.list.length < n.images) { delete imgCache[id]; }            // the list was never loaded: read it again
-          else c.list.push({ id: r.id, caption: "", thumb: s.thumb });
-          fullCache[r.id] = s.data; n.images++; added++; kb += Math.round(s.data.length * 0.75 / 1024);
-        });
-      }).then(function () { next(i + 1); }, function (err) {
-        problems.push(err.message === "read" ? name + " could not be read. Try saving it as JPG or PNG."
-                    : err.message === "large" ? name + " is still too large after shrinking. Crop it or use a smaller one."
-                    : name + ": " + err.message);
-        next(i + 1);
-      });
-    })(0);
-  }
-  function removeImage(n, g) {
-    Hub.confirm("The image is deleted from this branch. This cannot be undone.", { title: "Remove " + (g.caption ? "\"" + g.caption + "\"" : "this image") + "?", ok: "Remove image", danger: true }).then(function (yes) {
-      if (!yes) return;
-      act(Api.mpImageDelete(T, g.id), function () {
-        var c = imgCache[n.id]; if (c) c.list = c.list.filter(function (x) { return x.id !== g.id; });
-        n.images = Math.max(0, n.images - 1); delete fullCache[g.id];
-        if (st.sel === n.id) drawImages(); viewSoon();
-      });
-    });
-  }
-  function viewImage(g, n) {
-    sheet(g.caption || n.title, function (close) {
-      var host = el("div", {}, [el("p", { "class": "muted", text: "Loading the image…" })]);
-      function show(data) { host.textContent = ""; host.appendChild(el("img", { "class": "mp-full", src: data, alt: g.caption || "" })); }
-      if (fullCache[g.id]) show(fullCache[g.id]);
-      else Api.mpImageGet(T, g.id).then(function (r) { fullCache[g.id] = r.data; show(r.data); },
-        function (err) { host.textContent = ""; host.appendChild(el("p", { "class": "mp-err", text: "The image could not be loaded. " + err.message })); });
-      return [host, el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Close", onclick: close })])];
-    });
-  }
-
   // ---------- import and export: a plain outline ----------
   // One branch per line, deeper = further in. "> text" is a note of the branch above, "! text" a special note.
   function outlineOf(id, d) {
@@ -935,7 +1026,7 @@
       }
       ta.addEventListener("input", count); count();
       return [
-        el("p", { "class": "small muted", text: "Paste an outline: one branch per line, two spaces deeper for a branch under it. A line starting with > is a note, with ! a special note. Images are added by hand. To import somewhere else, close this and select that branch first." }),
+        el("p", { "class": "small muted", text: "Paste an outline: one branch per line, two spaces deeper for a branch under it. A line starting with > is a note, with ! a special note. To import somewhere else, close this and select that branch first." }),
         ta, info, err,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), ok])
       ];
@@ -957,7 +1048,7 @@
         document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
       }
       return [
-        el("p", { "class": "small muted", text: (n.id === M.root ? "The whole map" : "This branch and everything under it") + " as a plain outline: names, notes (>) and special notes (!). Images and links stay on the map. To export one branch only, show it alone first." }),
+        el("p", { "class": "small muted", text: (n.id === M.root ? "The whole map" : "This branch and everything under it") + " as a plain outline: names, notes (>) and special notes (!). Links stay on the map. To export one branch only, show it alone first." }),
         ta,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Close", onclick: close }),
           el("button", { type: "button", "class": "btn ghost", text: "Download .txt", onclick: download }), el("button", { type: "button", "class": "btn", text: "Copy", onclick: copy })])
@@ -986,7 +1077,7 @@
       function del() {
         var b = under(M.root);
         close();
-        Hub.confirm("The map, its " + plural(b, "branch", "branches") + " and every image on it are deleted for everyone. This cannot be undone.",
+        Hub.confirm("The map and its " + plural(b, "branch", "branches") + " are deleted for everyone. This cannot be undone.",
           { title: "Delete the map " + M.map.name + "?", ok: "Delete map", danger: true }).then(function (yes) {
           if (!yes) return;
           act(Api.mpDelete(T, M.map.id), function () { window.location.href = Hub.url("tools/maps/"); });
@@ -994,7 +1085,7 @@
       }
       return [
         el("label", { "class": "field" }, [el("span", { text: "Map name" }), name]),
-        el("label", { "class": "field" }, [el("span", { text: "What it is for" }), kind, el("p", { "class": "hint", text: "Changing it takes the map off the AI links of the other type in Compliance review." })]),
+        el("label", { "class": "field" }, [el("span", { text: "What it is for" }), kind, el("p", { "class": "hint", text: "Changing it takes the map off the AI links of its old type in Compliance review." })]),
         el("label", { "class": "field" }, [el("span", { text: "Shared with" }), share, el("p", { "class": "hint", text: SHARE_HINT })]),
         err,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn danger", text: "Delete map", onclick: del }),

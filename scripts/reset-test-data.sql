@@ -22,6 +22,7 @@ DELETE FROM ai_chats;
 DELETE FROM ai_jobs;
 DELETE FROM ai_rules;
 DELETE FROM ai_map_links;
+DELETE FROM ai_vocab_links;
 -- projects and their records
 DELETE FROM cm_answer_log;
 DELETE FROM cm_run_lines;
