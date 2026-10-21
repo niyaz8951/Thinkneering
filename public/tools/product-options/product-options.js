@@ -597,8 +597,11 @@
     if (c.stale && tree.can_approve && !q) body.appendChild(staleNotice(c));
 
     // General: the makes, then the options common to every column (or with no column)
-    var makes = c.extras.filter(function (x) { return x.kind === 'make'; });
-    var makeRow = makeCard(c) && !q && (makes.length || (edit && tree.can_approve)) ? makeLine(c, makes, edit) : null;
+    // fans keep a make per family (EC Fans, DIDW Fans: row key "family:EC Fans", owner 21 Oct 2026); a make for the
+    // whole card stays in General
+    var perFamily = c.id === 'fans' && cols.some(function (cc) { return cc.family; });
+    var makes = c.extras.filter(function (x) { return x.kind === 'make' && !/^family:/.test(x.key || ''); });
+    var makeRow = makeCard(c) && !q && (makes.length || (edit && tree.can_approve && !perFamily)) ? makeLine(c, makes, edit) : null;
     if (lines.common.length || makeRow) {
       body.appendChild(el('p', { 'class': 'po-part', text: canMove(c) && cols.length > 1 && !c.C.members ? 'Common to every ' + (u ? u[0] : 'column') : 'General' }));
       var grid = el('div', { 'class': 'po-grid' });
@@ -637,8 +640,10 @@
       if (!fam) { body.appendChild(table); return; }
       // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026)
       var fk = 'fam:' + c.id + ':' + low(fam);
+      var fmakes = c.extras.filter(function (x) { return x.kind === 'make' && x.key === 'family:' + fam; });
+      var fmake = !q && (fmakes.length || (edit && tree.can_approve)) ? el('div', { 'class': 'po-grid po-fam-make' }, [makeLine(c, fmakes, edit, fam)]) : null;
       var fd = el('details', { 'class': 'po-fam', open: q ? true : !closed[fk] }, [
-        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), table]);
+        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, table]);
       fd.addEventListener('toggle', function () { if (!q) closed[fk] = !fd.open; });
       body.appendChild(fd);
     });
@@ -671,12 +676,12 @@
   /* Make: the manufacturers the factory buys the component from (owner, 21 Oct 2026), kept by the admins */
   var NO_MAKE = { power: 1, general: 1, casing: 1, empty: 1 };
   function makeCard(c) { return !NO_MAKE[c.id]; }
-  function makeLine(c, makes, edit) {
+  function makeLine(c, makes, edit, family) {
     var row = el('div', { 'class': 'po-line' }), vals = el('div', { 'class': 'po-vals' });
     makes.forEach(function (x) {
       var chip = el('span', { 'class': 'po-chip make', title: 'Added by ' + (x.by || 'an admin') + (when(x.at) ? ', ' + when(x.at) : '') }, [el('span', { text: x.body })]);
       if (edit && tree.can_approve) {
-        chip.appendChild(xbtn('Change', function () { openForm(row, { id: x.id, kind: 'make', body: x.body, section: x.section, key: x.key, where: c.name }); }));
+        chip.appendChild(xbtn('Change', function () { openForm(row, { id: x.id, kind: 'make', body: x.body, section: x.section, key: x.key, where: family || c.name }); }));
         chip.appendChild(xbtn('Delete', function (e) {
           var b = e.currentTarget;
           window.Hub.confirm(x.body, { title: 'Delete this make?', ok: 'Delete', danger: true }).then(function (yes) { if (yes) busy(b, Api.poAdminDeleteExtra(window.Hub.token(), x.id), 'Deleted.'); });
@@ -685,10 +690,10 @@
       vals.appendChild(chip);
     });
     if (!makes.length) vals.appendChild(el('span', { 'class': 'muted', text: 'None yet' }));
-    row.appendChild(el('div', { 'class': 'po-name', text: 'Make', title: 'The manufacturers the factory buys this component from' }));
+    row.appendChild(el('div', { 'class': 'po-name', text: 'Make', title: 'The manufacturers the factory buys ' + (family || 'this component') + ' from' }));
     row.appendChild(vals);
     if (edit && tree.can_approve) row.appendChild(el('div', { 'class': 'po-tools' }, [
-      xbtn('+ Make', function () { openForm(row, { kind: 'make', section: c.sections[0] || c.name, key: '', where: c.name }); })]));
+      xbtn('+ Make', function () { openForm(row, { kind: 'make', section: c.sections[0] || c.name, key: family ? 'family:' + family : '', where: family || c.name }); })]));
     return row;
   }
 
@@ -1052,8 +1057,9 @@
     function colName(cc) { return (cc.family ? cc.family + ' · ' : '') + cc.label + ': ' + cc.head; }
     cards.forEach(function (c) {
       if (c.extras.some(function (x) { return x.kind !== 'make'; })) out.push([c.name, '', '(whole section)', '', '', txt(c.extras, 'option'), txt(c.extras, 'note')]);
-      var mk = c.extras.filter(function (x) { return x.kind === 'make'; }).map(function (x) { return x.body; });
-      if (mk.length) out.push([c.name, 'All', 'Make', 'Make', mk.join('\n'), '', '']);
+      var mkBy = {};
+      c.extras.forEach(function (x) { if (x.kind !== 'make') return; var col = /^family:/.test(x.key || '') ? x.key.slice(7) : 'All'; (mkBy[col] = mkBy[col] || []).push(x.body); });
+      Object.keys(mkBy).forEach(function (col) { out.push([c.name, col, 'Make', 'Make', mkBy[col].join('\n'), '', '']); });
       c.common.forEach(function (ln) { var v = seen(lineAll(ln)); if (v || ln.extras.length) out.push([c.name, 'All', lineName(ln), 'Common', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
       var acc = []; c.access.forEach(function (ln) { acc = acc.concat(lineAll(ln)); });
       if (ok(acc).length) out.push([c.name, 'All', 'Accessories', 'Accessory', seen(acc), '', '']);
