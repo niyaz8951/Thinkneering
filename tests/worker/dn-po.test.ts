@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { ok, refused, rpc, login, resetLogins, USERS } from "./helpers";
 import { poSkip, poModel, poSeries, poValue, poPieces } from "../../worker/src/api/po";
+import { poAutoKind, poKind } from "../../worker/src/lib/po-kind";
+import KEYS from "./fixtures-po-keys.json";
 
 /* A plain user given "Can edit" for Product Options (the grant is read on every request). */
 async function poEditor(): Promise<string> {
@@ -49,6 +51,37 @@ describe("po helpers (po__skip, po__model, po__series, po__value)", () => {
   });
 });
 
+describe("po kinds (lib/po-kind.ts), on every row of the HILTOP and Qiddiya datasheets", () => {
+  const kinds = new Map((KEYS as string[]).map((k) => [k, poAutoKind(k)]));
+  it("options: what the unit is made of, classes, models", () => {
+    for (const k of ["unit data||panel", "unit data||model box ref.", "unit data||profile", "unit data||roof", "general||power supply",
+      "mechanical characteristic (en1886)||thermal bridging", "filter supply||filter class", "filter supply||filter name", "filter supply||material",
+      "filter supply||efficiency epm1", "filter supply||pressure drop design", "fan supply||model", "fan supply||type", "fan supply||material",
+      "fan supply||rotation speed max", "fan supply||k factor", "fan supply|motor data|efficiency class", "recuperator heat wheel supply||part number",
+      "recuperator heat wheel supply||diameter", "coil cooling water supply|geometry|tube material", "coil cooling dx supply|geometry|fluid",
+      "isothermal steam humidifier supply||name", "electric heater supply||material", "damper supply||mounting"]) expect([k, kinds.get(k)]).toEqual([k, "option"]);
+  });
+  it("duty: figures of one selection", () => {
+    for (const k of ["unit data||supply air flow", "unit data||model", "unit data||weight", "unit data||total supply filters eff. epm1", "unit data||sfpv (clean filters)",
+      "en 13053||supply power class", "filter supply||air velocity", "filter supply||clean pressure drop", "filter supply||dimensions", "filter supply||area",
+      "fan supply||flow design", "fan supply||rotation speed work", "fan supply||efficiency (reg327/2011)", "fan supply||quantity", "fan supply||control voltage",
+      "fan supply|motor data|power", "fan supply||sfpv class", "coil cooling dx supply|geometry|rows", "coil cooling water supply|geometry|connection diam",
+      "recuperator heat wheel supply||energy class (en13053)", "isothermal steam humidifier supply||steam", "damper supply||torque",
+      "mixing box supply||recirculated air", "empty section supply||length"]) expect([k, kinds.get(k)]).toEqual([k, "duty"]);
+    expect([...kinds].filter(([k]) => /\|(winter|summer|cooling|cooling air side|cooling fluid side)( · (supply|return))?\|/.test(k)).every(([k, v]) => v === "duty" || /note|\[/.test(k))).toBe(true);
+  });
+  it("accessories, project conditions, notes", () => {
+    expect([...kinds].filter(([k]) => /\|options\|option$/.test(k)).every(([, v]) => v === "accessory")).toBe(true);
+    expect(["unit data||location", "unit data||air density", "unit data||altitude"].map((k) => kinds.get(k))).toEqual(["project", "project", "project"]);
+    expect(kinds.get("fan supply|motor data|note")).toBe("hide");
+    expect(kinds.get("coil cooling dx supply|geometry|model")).toBe("hide");
+    expect(poKind("unit data||supply air flow", "option")).toBe("option");     // the editor's choice wins
+    expect(poKind("unit data||panel", "duty")).toBe("duty");
+    expect(poKind("unit data||location", "option")).toBe("option");
+    expect(poKind("fan supply|options|option", "duty")).toBe("accessory");     // except for Options List lines and notes
+  });
+});
+
 describe("dn_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
@@ -66,7 +99,7 @@ describe("dn_* routes", () => {
     const rules = (await ok("dn_get_rules", { p_token: t, p_product_id: "ahu" })).rules;
     expect(rules.map((x: any) => x.key)).toEqual(["general||project", "general||power supply", "unit data||panel"]);
     expect(rules[1]).toEqual({ key: "general||power supply", section: "General", sub: "", component: "Power supply", show: true, label: "", strip: "+ PE", response: "",
-      keywords: "power supply; electrical characteristic; electrical supply; supply voltage; main power; electrical power", new: true, in_tree: true });
+      keywords: "power supply; electrical characteristic; electrical supply; supply voltage; main power; electrical power", new: true, in_tree: true, kind: "", auto_kind: "option" });
     expect(rules[2].keywords).toMatch(/double skin/);
     // a row new to the mapping has had no decision yet: it gets its starter keywords even when other rows have keywords (19 Oct 2026)
     const r2 = await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: AHU_ROWS });
@@ -122,7 +155,7 @@ describe("dn_* routes", () => {
     expect(g.rules.length).toBe(6);
     expect(g.rules.map((x: any) => x.key)).toEqual(["unit data||panel", "general||power supply", "unit data||supply air flow", "new||row", "unit data||insulation", "casing|options|option"]);   // sort then key, as before
     expect(g.rules[0]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", show: true, label: "Panel thickness", strip: "+ PE",
-      response: "Panel thickness is $", keywords: "panel thick", new: false, in_tree: true });
+      response: "Panel thickness is $", keywords: "panel thick", new: false, in_tree: true, kind: "", auto_kind: "option" });
     expect(g.rules[2]).toMatchObject({ show: false, new: false, in_tree: false, component: "Supply air flow" });   // in_tree kept
     expect(g.rules[3]).toMatchObject({ new: false, section: "New" });
     expect(g.rules[1]).toMatchObject({ new: true });                                  // rows not in the list are kept as they are
@@ -260,7 +293,7 @@ describe("po_* routes", () => {
     expect(typeof u.updated).toBe("string");
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
-    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, values: [
+    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", values: [
       { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
@@ -285,7 +318,7 @@ describe("po_* routes", () => {
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
     await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -337,6 +370,8 @@ describe("po_* routes", () => {
     expect(poPieces("2x(592x592x48) 2x(490x592x48) 1x(287x592x48)")).toEqual(["592x592x48", "490x592x48", "287x592x48"]);
     expect(poPieces("592x592x48")).toEqual(["592x592x48"]);
     expect(poPieces("2 x 50 mm")).toEqual(["2 x 50 mm"]);
+    expect(poPieces("2x(Fan Array)")).toEqual(["2x(Fan Array)"]);
+    expect(poPieces("3x(592 x 592 x 48)")).toEqual(["592x592x48"]);
     const t = await login("sbu");
     await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [
       { key: "filter supply||filter class", section: "Filter Supply", sub: "", component: "Filter Class" },
@@ -351,6 +386,8 @@ describe("po_* routes", () => {
       { factory: "Riyadh", key: "filter supply||dimensions", value: "2x(592x592x48)", model: "", grp: F7 },
       { factory: "Riyadh", key: "filter supply||clean pressure drop", value: "65 Pa", model: "", grp: F7 }];
     await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: items });
+    // sizes and pressure drops are duty figures (0011); as options here, to check approval within groups
+    await env.DB.prepare("UPDATE dn_map SET kind = 'option' WHERE product_id = 'ahu' AND row_key IN ('filter supply||dimensions', 'filter supply||clean pressure drop')").run();
     const ta = await login("teamAdmin");
     const w = await ok("po_get_tree", { p_token: ta, p_factory_id: "ahu-riyadh" });
     const dims = w.rows.find((r: any) => r.key === "filter supply||dimensions").values.map((v: any) => [v.g, v.v]);
@@ -461,6 +498,45 @@ describe("po_* routes", () => {
     expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "no||row", p_value_key: "", p_hidden: true })).toMatch(/no longer exists/);
     expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "99 mm", p_hidden: true })).toMatch(/no longer exists/);
     expect(await refused("po_admin_set_hidden", { p_token: "nope", p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "", p_hidden: true })).toBe("SESSION_EXPIRED");
+  });
+
+  it("po kinds in the tree (0011): duty figures for everyone, never waiting; project rows out; the editor's kind wins; validated", async () => {
+    const e = await poEditor();
+    await ok("dn_add_rows", { p_token: e, p_product_id: "ahu", p_rows: [...AHU_ROWS, { key: "unit data||location", section: "Unit data", sub: "", component: "Location" }] });
+    await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [
+      { factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }, { factory: "Dubai", key: "unit data||supply air flow", value: "1000 l/s", model: "" },
+      { factory: "Dubai", key: "unit data||location", value: "ROMA URBE, Italy", model: "" }] });
+    const plain = await login("sales");
+    const pu = await ok("po_get_tree", { p_token: plain, p_factory_id: "ahu-dubai" });
+    expect(pu.rows.map((r: any) => [r.key, r.kind, r.values.map((v: any) => [v.v, v.wait])])).toEqual([["unit data||supply air flow", "duty", [["1000 l/s", false]]]]);
+    const pe = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
+    expect(pe.waiting).toBe(1);                                    // the panel only: the air flow is a duty figure
+    expect(pe.rows.map((r: any) => r.key)).not.toContain("unit data||location");
+    const rules = (await ok("dn_get_rules", { p_token: plain, p_product_id: "ahu" })).rules;
+    expect(rules.find((r: any) => r.key === "unit data||supply air flow")).toMatchObject({ kind: "", auto_kind: "duty" });
+    expect(await refused("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow", kind: "maybe" }] })).toMatch(/unknown kind/);
+    expect(await refused("dn_admin_save_rules", { p_token: plain, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow", kind: "option" }] })).toMatch(/Edit access/);
+    await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow", kind: "option" }, { key: "unit data||location", section: "Unit data", component: "Location", kind: "option" }] });
+    const pe2 = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
+    expect(pe2.waiting).toBe(3);
+    expect(pe2.rows.find((r: any) => r.key === "unit data||supply air flow")).toMatchObject({ kind: "option", values: [{ wait: true }] });
+    // a rule saved without kind keeps the stored one
+    await ok("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||supply air flow", section: "Unit data", component: "Supply air flow" }] });
+    expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((r: any) => r.key === "unit data||supply air flow").kind).toBe("option");
+  });
+
+  it("po_admin_clear_ungrouped with p_groups (21 Oct 2026): removes the groups of an older layout in that section; approvers only", async () => {
+    const t = await login("sbu");
+    await ok("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: [{ key: "unit data||panel", section: "Unit Data", sub: "", component: "Panel" }, { key: "unit data||insulation", section: "Unit Data", sub: "", component: "Insulation" }] });
+    const MB = "Model Box Ref.: Energy F2", OLD = "Location: ROMA URBE, Italy";
+    await ok("po_collect", { p_token: t, p_product_id: "ahu", p_items: [
+      { factory: "Dubai", key: "unit data||panel", value: "42 mm", model: "", grp: MB }, { factory: "Dubai", key: "unit data||panel", value: "42 mm", model: "", grp: OLD },
+      { factory: "Dubai", key: "unit data||insulation", value: "Foam", model: "", grp: "" }] });
+    expect(await refused("po_admin_clear_ungrouped", { p_token: t, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_groups: [OLD] })).toMatch(/super user or an admin/);
+    const ta = await login("teamAdmin");
+    expect((await ok("po_admin_clear_ungrouped", { p_token: ta, p_factory_id: "ahu-dubai", p_section: "Unit Data", p_groups: [OLD] })).removed).toBe(1);
+    const left = (await env.DB.prepare("SELECT row_key, grp FROM po_values WHERE factory_id = 'ahu-dubai' ORDER BY row_key").all<any>()).results;
+    expect(left).toEqual([{ row_key: "unit data||insulation", grp: "" }, { row_key: "unit data||panel", grp: MB }]);   // a row without any group keeps its value
   });
 
   it("po_admin_set_hidden with p_row_keys (21 Oct 2026): several rows left out or brought back at once; editors only; audited", async () => {
