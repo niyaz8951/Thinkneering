@@ -165,32 +165,11 @@
   var PROJECT_ROWS = /^general\|\|(?!power supply$)/;
   // FCU trees are kept per unit model (series > model): the model is the datasheet's Unit Model row.
   var MODEL_ROW = { fcu: 'unit data||unit model' };
-  /* Values that belong together are saved as one group of Product Options (owner, 20 Oct 2026):
-     - a numbered item of a section ("Filter 1", "Filter 2" ...): its rows are grouped under its class row (else its
-       first row), "Filter Class: ISO Coarse 60%(G4)", so a filter's name, material, dimensions and pressure drops stay with its class;
-     - rows whose values depend on another row (DSParse.LINKED): the EN 1886 classes under the profile ("Profile:
-       Aluminium Natural Thermal Break"), the panel and insulation under the model box ("Model Box Ref.: Energy F2"). */
-  function groupsOf(rows, strip) {
-    var out = [], lead = {}, byKey = {};
-    var item = function (r) { return r.sub && /\s\d+$/.test(r.sub) && r.key.split('|')[1] === '' ? r.group + '|' + r.nth + '|' + r.sub : ''; };
-    rows.forEach(function (r) { if (!byKey[r.key]) byKey[r.key] = r; });
-    // the item is named after its class or grade row when it has one (Filter Class), else its first row with a value
-    rows.forEach(function (r) {
-      var bk = item(r), v = bk ? strip(r) : '';
-      if (!bk || !v || v === '-') return;
-      if (!lead[bk] || (!lead[bk].cls && /class|grade/i.test(r.component))) lead[bk] = { text: r.component + ': ' + v, cls: /class|grade/i.test(r.component) };
-    });
-    rows.forEach(function (r, i) {
-      var g = '', bk = item(r);
-      if (bk) g = lead[bk] ? lead[bk].text : r.sub;
-      else {
-        var L = window.DSParse.linkOf(r.key), from = null;
-        if (L) for (var k in byKey) if (L.lead.test(k)) { from = byKey[k]; break; }
-        if (from && strip(from) && strip(from) !== '-') g = from.component + ': ' + strip(from);
-      }
-      out[i] = g;
-    });
-    return out;
+  /* Values that belong together are saved as one group of Product Options (DSParse.poGroups, owner 20-21 Oct 2026):
+     each filter with its class, each fan with its model (EC / DIDW), each heat wheel with its part number, each
+     humidifier with its model, the casing with its model box. Not for products kept per unit model (FCU). */
+  function groupsOf(rows, strip, perModel) {
+    return perModel ? rows.map(function () { return ''; }) : window.DSParse.poGroups(rows, strip);
   }
   function collect(c, m, units) {
     var items = [];
@@ -199,7 +178,7 @@
       var rows = window.DSParse.rows(unit, c), modelKey = MODEL_ROW[unit.type], model = '';
       if (modelKey) rows.forEach(function (r) { if (r.key === modelKey && !model) model = window.DSParse.fill('', r.value); });
       var valueOf = function (r) { var rule = m.rules[r.key]; return window.DSParse.fill('', r.value, rule && rule.strip); };
-      var grp = groupsOf(rows, valueOf);
+      var grp = groupsOf(rows, valueOf, !!modelKey);
       rows.forEach(function (r, i) {
         var rule = m.rules[r.key];
         if (PROJECT_ROWS.test(r.key) || (rule ? rule.show === false : !m.showUnmapped)) return;

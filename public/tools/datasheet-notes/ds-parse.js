@@ -362,6 +362,15 @@
     return norm(group) + '|' + (/^Filter \d+$/i.test(sub) ? '' : norm(sub)) + '|' + norm(component);
   }
 
+  /* VRV Xpress lines of a DX coil (HILTOP, 21 Oct 2026): "1[D]* x EKEXVA250 [A]* EKEA" / "NOSUPPLIED" is the
+     expansion kit, "Total Capacity[B]*" the capacity it is chosen for; the [A]* marks point to a footnote. */
+  function vrv(param, value) {
+    if (!/\[[A-Z]\]\*/.test(param)) return { param: param, value: value };
+    var bare = clean(param.replace(/\s*\[[A-Z]\]\*\s*/g, ' '));
+    if (!/^\d+\s*x\s/i.test(bare)) return { param: bare, value: value };
+    return { param: 'VRV Expansion Kit', value: bare + (/^not? ?supplied$/i.test(clean(value || '')) ? ' (not supplied)' : (value ? ' ' + clean(value) : '')) };
+  }
+
   function rows(data, choice) {
     var out = [], count = {};
     function push(group, title, nth, sub, component, value) {
@@ -369,7 +378,7 @@
     }
     function body(group, title, nth, t) {
       var subs = [];
-      function add(r) { expand(r.param, r.value).forEach(function (e) { push(group, title, nth, r.sub, e.param, e.value); }); }
+      function add(r) { var x = vrv(r.param, r.value); expand(x.param, x.value).forEach(function (e) { push(group, title, nth, r.sub, e.param, e.value); }); }
       t.rows.forEach(function (r) { if (!r.sub) add(r); else if (subs.indexOf(r.sub) < 0) subs.push(r.sub); });
       subs.forEach(function (s) { t.rows.forEach(function (r) { if (r.sub === s) add(r); }); });
       t.options.forEach(function (o) { push(group, title, nth, 'Options', 'Option', o); });
@@ -486,19 +495,78 @@
     return { columns: tags(units), rows: out };
   }
 
-  /* Rows whose values belong to the value of another row (owner, 20-21 Oct 2026): saved as one group of Product Options
-     (Datasheet Notes) and shown there as one tile under the lead row (Product Options). Add an entry for another pair.
-       - the EN 1886 classes depend on the casing profile: one tile per profile ("Aluminium Natural Thermal Break")
-       - the panel and its insulation make a model box: one tile per model box ("Energy ThermiC° S2": 62 mm, Foam)
-       - the air density and the altitude belong to the location ("JEDDAH KING ABDULAZIZ INTL, Saudi Arabia") */
-  var LINKED = [
-    { id: 'profile', lead: /^unit data\|\|profile$/, member: function (key) { return /^mechanical characteristic \(en ?1886\)\|/.test(key); } },
-    { id: 'model box', lead: /^unit data\|\|model box ref\.?$/, member: function (key) { return /^unit data\|\|(panel|insulation)$/.test(key); } },
-    { id: 'location', lead: /^unit data\|\|location$/, member: function (key) { return /^unit data\|\|(air density|altitude)$/.test(key); } }
+  /* Product Options cards (owner, 21 Oct 2026; docs/Product-Options-Redesign.md). Each card gathers the datasheet
+     sections of one kind of component (supply and return together) and, when it has a column row, saves the values
+     of each component with the column they belong to, as one group of Product Options ("Filter Class: ePM1 65%(F7)",
+     "EC Fans · Model: K3G450PA3103", "Model Box Ref.: Energy ThermiC° S2"). Product Options then shows one column
+     per group, puts what is the same in every column on top ("common") and shows duty figures as ranges.
+       sections  the datasheet sections of the card (section name without its number, lower case)
+       column    the row whose value names the column; label: the name used in the group instead of the row's own
+       scope     where the column row is read: 'unit' (anywhere in the unit), 'item' (the numbered item, "Filter 1",
+                 else the section), default the section
+       shared    rows of the section that belong to every column (never grouped)
+       family    fans: the row that gives the family (EC, DIDW), put before the column: "EC Fans · Model: ..."
+       bySection coils: one column per section kind (cooling DX, cooling water), no group needed
+     A section no card names is a card of its own, supply and return together. */
+  var PO_CARDS = [
+    { id: 'power', name: 'Power supply', sections: /^general$/ },
+    { id: 'casing', name: 'Casing', sections: /^(unit data|mechanical characteristic \(en ?1886\)|en ?13053)$/, column: /^model box ref\.?$/i, scope: 'unit' },
+    { id: 'dampers', name: 'Dampers', sections: /^(damper\b|mixing box\b)/ },
+    { id: 'filters', name: 'Filters', sections: /^filter\b/, column: /^filter class$/i, scope: 'item', shared: /^(mounting|air velocity|pressure drop design)$/i },
+    { id: 'recovery', name: 'Heat recovery', sections: /heat wheel|recuperator|heat recovery|plate exchanger/, column: /^part number$/i },
+    { id: 'coils', name: 'Coils', sections: /^coil\b/, bySection: true },
+    { id: 'humidifiers', name: 'Humidifiers', sections: /humidifier/, column: /^name$/i, label: 'Model' },
+    { id: 'heaters', name: 'Electric heaters', sections: /electric heater/ },
+    { id: 'fans', name: 'Fans', sections: /^(fan\b.*|.*\bfan)$/, column: /^(fan )?(model|size)$/i, family: /^(fan )?type$/i },
+    { id: 'empty', name: 'Empty sections', sections: /^empty section/ }
   ];
-  function linkOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].member(key)) return LINKED[i]; return null; }
-  function leadOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].lead.test(key)) return LINKED[i]; return null; }
+  var SIDE = /\s+(supply|return|exhaust|extract|fresh air|outdoor|recirculation)$/i;
+  function poCard(section) {
+    var k = clean(section).toLowerCase();
+    for (var i = 0; i < PO_CARDS.length; i++) if (PO_CARDS[i].sections.test(k)) return PO_CARDS[i];
+    var base = clean(section).replace(SIDE, '');
+    return { id: 'x:' + base.toLowerCase(), name: base || 'Other' };
+  }
+  /* fans: EC when the type says EC; DIDW for centrifugal forward / backward blades (owner, 21 Oct 2026) */
+  function fanFamily(type) {
+    if (/\bEC\b/i.test(type)) return 'EC Fans';
+    if (/centrifugal|backward|forward|didw/i.test(type)) return 'DIDW Fans';
+    return 'Other Fans';
+  }
+  var GROUP_HEAD = /^(?:(EC|DIDW|Other) Fans · )?([^:]+): (.+)$/;
+  /* "EC Fans · Model: K3G450PA3103" -> { family: "EC Fans", label: "Model", value: "K3G450PA3103" } */
+  function poGroupParts(g) {
+    var m = GROUP_HEAD.exec(g || '');
+    return m ? { family: m[1] ? m[1] + ' Fans' : '', label: m[2], value: m[3] } : null;
+  }
+  /* rows = DSParse.rows of one unit, value(r) = the value as saved; returns the group of each row ('' = none) */
+  function poGroups(rows, value) {
+    var heads = {}, fam = {}, out = [];
+    function parts(r) { return r.key.split('|'); }
+    function scope(r, C) {
+      if (C.scope === 'unit') return C.id;
+      return C.id + '|' + r.group + '|' + r.nth + (C.scope === 'item' && /\s\d+$/.test(r.sub) ? '|' + r.sub : '');
+    }
+    function grouped(r, C) {
+      var p = parts(r);
+      if (!C.column || p[1] === 'options' || p[2] === 'note') return false;
+      return !(C.shared && !r.sub && C.shared.test(r.component));
+    }
+    rows.forEach(function (r) {
+      var C = poCard(parts(r)[0]), v = value(r);
+      if (!C.column || !v || v === '-') return;
+      var sc = scope(r, C);
+      if (C.column.test(r.component) && !heads[sc]) heads[sc] = (C.label || r.component) + ': ' + (C.id === 'humidifiers' ? v.replace(/^\d+\s*x\s*/i, '') : v);
+      if (C.family && C.family.test(r.component) && !fam[sc]) fam[sc] = fanFamily(v);
+    });
+    rows.forEach(function (r, i) {
+      var C = poCard(parts(r)[0]), sc = C.column ? scope(r, C) : '';
+      out[i] = sc && heads[sc] && grouped(r, C) ? (C.family ? (fam[sc] || 'Other Fans') + ' · ' : '') + heads[sc] : '';
+    });
+    return out;
+  }
 
   window.DSParse = { readers: readers, detect: detect, clean: clean, lines: lines, parse: parse, parseAll: parseAll,
-                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey, LINKED: LINKED, linkOf: linkOf, leadOf: leadOf };
+                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey,
+                     PO_CARDS: PO_CARDS, poCard: poCard, poGroups: poGroups, poGroupParts: poGroupParts, fanFamily: fanFamily };
 })();

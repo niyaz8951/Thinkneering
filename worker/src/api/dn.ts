@@ -6,12 +6,13 @@ import type { Routes } from "../router";
 import { fail } from "../errors";
 import { sessionUser } from "../auth";
 import { dnProduct } from "../lib/factory";
+import { poAutoKind, PO_KIND_OVERRIDES } from "../lib/po-kind";
 import { all, now, str, trimmed, bool, isArray, isObject, chunks, marks, batched } from "../lib/sql";
 
 export interface MapRow {
   product_id: string; row_key: string; section: string; sub: string; component: string; show: number;
   label: string; strip: string; response: string; keywords: string; sort: number; reviewed: number; in_tree: number;
-  updated_by: string | null; updated_at: string;
+  updated_by: string | null; updated_at: string; kind?: string;
 }
 
 /* The "rows not in the list yet" setting of a product (true when never saved). */
@@ -77,7 +78,9 @@ export const routes: Routes = {
       show_unmapped: await showUnmapped(env, prod.id),
       rules: rows.map((r) => ({
         key: r.row_key, section: r.section, sub: r.sub, component: r.component, show: !!r.show, label: r.label, strip: r.strip,
-        response: r.response, keywords: r.keywords, new: !r.reviewed, in_tree: !!r.in_tree
+        response: r.response, keywords: r.keywords, new: !r.reviewed, in_tree: !!r.in_tree,
+        // Product Options: the editor's choice ('' = by name) and what the name gives (lib/po-kind.ts)
+        kind: r.kind || "", auto_kind: poAutoKind(r.row_key)
       }))
     };
   },
@@ -111,7 +114,9 @@ export const routes: Routes = {
        p_rules:  [{ key, section, sub, component, show, label, strip, response, keywords }, ...] in display order.
                  Rows already stored and not in the list are kept as they are. A saved row is reviewed;
                  its "left out of the tree" flag (in_tree) is kept.
-       p_remove: ["key", ...] rules to delete. */
+       p_remove: ["key", ...] rules to delete.
+     A rule may carry kind: '' (by its name), 'option' or 'duty' (Product Options, 21 Oct 2026, migration 0011);
+     a rule without kind keeps the one stored. */
   async dn_admin_save_rules(env, p) {
     const s = (await sessionUser(env, p.p_token)).requireEditor("product-options");
     const prod = await dnProduct(env, p.p_product_id);
@@ -121,6 +126,7 @@ export const routes: Routes = {
     for (const raw of rulesIn) {
       const o = isObject(raw) ? raw : {};
       const key = trimmed(o.key);
+      if (o.kind !== undefined && o.kind !== null && !(PO_KIND_OVERRIDES as readonly string[]).includes(str(o.kind))) fail("A row has an unknown kind. Choose Auto, Option or Duty.");
       if (key.length < 1 || key.length > 300) fail("A row has no name and cannot be saved.");
       if (str(o.label).length > 120 || str(o.response).length > 1000 || str(o.strip).length > 300 || str(o.keywords).length > 600) {
         fail('A name is longer than 120 characters, a "remove text" is longer than 300, the keywords are longer than 600, or a response is longer than 1000.');
@@ -159,6 +165,7 @@ export const routes: Routes = {
            show = excluded.show, label = excluded.label, strip = excluded.strip, response = excluded.response,
            keywords = excluded.keywords, reviewed = 1`)
         .bind(prod.id, r.key, r.section, r.sub, r.component, show, label, strip, response, keywords, r.ord, s.id, at));
+      if (o.kind !== undefined && o.kind !== null) stmts.push(env.DB.prepare("UPDATE dn_map SET kind = ? WHERE product_id = ? AND row_key = ?").bind(str(o.kind), prod.id, r.key));
     }
     stmts.push(env.DB.prepare(
       `INSERT INTO dn_map_settings (product_id, show_unmapped, updated_by, updated_at) VALUES (?, ?, ?, ?)

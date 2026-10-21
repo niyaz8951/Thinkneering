@@ -19,12 +19,12 @@
   .dm-help li + li { margin-top: 3px; }
   .dm-help code { font: inherit; font-weight: 650; padding: 0 3px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); }
   .dm-wrap { max-height: 70vh; overflow: auto; }
-  .dm-table { table-layout: fixed; min-width: 1280px; }
+  .dm-table { table-layout: fixed; min-width: 1420px; }
   .dm-keys { resize: vertical; min-height: 36px; line-height: 1.35; font-family: inherit; }
   .dm-table thead th { position: sticky; top: 0; z-index: 2; }
   .dm-table th:nth-child(1) { width: 64px; } .dm-table th:nth-child(2) { width: 17%; }
   .dm-table th:nth-child(3) { width: 12%; }  .dm-table th:nth-child(4) { width: 10%; }
-  .dm-table th:nth-child(6) { width: 15%; } .dm-table th:nth-child(7) { width: 20%; }
+  .dm-table th:nth-child(6) { width: 14%; } .dm-table th:nth-child(7) { width: 18%; } .dm-table th:nth-child(8) { width: 10%; }
   .dm-table td { vertical-align: top; padding: 8px 12px; overflow-wrap: anywhere; }
   .dm-table td .input { min-height: 36px; padding: 6px 10px; font-size: 14px; }
   .dm-table tr.group td { background: var(--surface-2); font-weight: 650; border-top: 2px solid var(--border); }
@@ -78,6 +78,7 @@
               Separate entries with <code>;</code>. An entry finds a clause when every word of it starts a word of the clause:
               <em>fin spac</em> finds "fins shall be spaced". Empty means the row is not searched for.</li>
           <li><strong>Name in Excel</strong> changes what is printed in the Component column. Empty keeps the datasheet name.</li>
+          <li><strong>In Product Options</strong>: <em>Auto</em> decides by the row's name. <em>Option</em> = what the unit is made of or comes with (waits for approval, shown per model). <em>Duty figure</em> = a figure of one selection, such as a flow or a pressure (shown as lowest to highest, never waits, never read by the AI as an option).</li>
         </ul>
       </div>
 
@@ -100,7 +101,7 @@
       <div class="empty" id="dm-empty" hidden>No rows are mapped for this product yet. Load a datasheet to list its rows.</div>
       <div class="table-wrap dm-wrap" id="dm-wrap" tabindex="0" role="region" aria-labelledby="h-rows" hidden>
         <table class="table dm-table">
-          <thead><tr><th>Show</th><th>Datasheet row</th><th>Name in Excel</th><th>Remove text</th><th>Response</th><th>Result</th><th>Spec keywords</th></tr></thead>
+          <thead><tr><th>Show</th><th>Datasheet row</th><th>Name in Excel</th><th>Remove text</th><th>Response</th><th>Result</th><th>Spec keywords</th><th>In Product Options</th></tr></thead>
           <tbody id="dm-body"></tbody>
         </table>
       </div>

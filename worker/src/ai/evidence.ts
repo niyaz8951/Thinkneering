@@ -15,6 +15,7 @@
 
    A clause the library answers (green) is reopened when this project's datasheet gives a different value: the
    datasheet wins as a blue draft that names both values. */
+import { poKind } from "../lib/po-kind";
 import type { Env } from "../env";
 import { placeRows, cmNorm } from "../lib/cm";
 import { all, sha256 } from "../lib/sql";
@@ -106,7 +107,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const place = placeRows(specRows);
   type MapRow = MapRule & { row_key: string };
   const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
-    env.DB.prepare("SELECT row_key, section, sub, component, show, label, keywords, strip, response FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),
+    env.DB.prepare("SELECT * FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),      // * : kind (0011) when present
     env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
     env.DB.prepare("SELECT row_key, value, times, grp FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
     env.DB.prepare("SELECT section, row_key, kind, body FROM po_extras WHERE factory_id = ? ORDER BY created_at").bind(run.factory_id),
@@ -148,7 +149,11 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   // Product Options of the factory, per mapping row and per section
   const valuesByRow = new Map<string, string[]>(), poValues = new Map<string, PoValue[]>();
   // a value seen in two groups (the same size on the G4 and the F7 filter) counts once, with both counts
+  // a duty figure (flow, pressure ...) or a project condition is not an option of the factory (lib/po-kind.ts)
+  const kindByRow = new Map((mapRes.results as unknown as { row_key: string; kind?: string }[]).map((r) => [r.row_key, poKind(r.row_key, r.kind)]));
   for (const v of valRes.results as unknown as { row_key: string; value: string; times: number; grp: string }[]) {
+    const kind = kindByRow.get(v.row_key);
+    if (kind === "duty" || kind === "project" || kind === "hide") continue;
     const l = valuesByRow.get(v.row_key) || []; if (l.length < 8 && !l.includes(v.value)) l.push(v.value); valuesByRow.set(v.row_key, l);
     const p = poValues.get(v.row_key) || [];
     const same = p.find((x) => x.value.toLowerCase() === v.value.toLowerCase());

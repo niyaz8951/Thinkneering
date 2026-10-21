@@ -8,6 +8,7 @@ import type { Routes } from "../router";
 import { fail } from "../errors";
 import { sessionUser, uuid, audit, type Session } from "../auth";
 import { cmFactory, factoriesOf, dnProduct } from "../lib/factory";
+import { poKind, type PoKind } from "../lib/po-kind";
 import { all, now, str, trimmed, tidy, bool, isArray, isObject, chunks, marks, batched } from "../lib/sql";
 
 /* ---------- pure helpers (mirror po__skip, po__model, po__series, po__value) ---------- */
@@ -35,7 +36,7 @@ export function poSeries(model: unknown): string {
    a set of filter sizes is saved as its sizes, without the counts of one project). Any other value is itself. */
 export function poPieces(value: string): string[] {
   const v = value.trim();
-  if (!/^(\d+\s*x\s*\([^)]+\)\s*)+$/i.test(v)) return [v];
+  if (!/^(\d+\s*x\s*\(\s*\d[\d.\s]*(x\s*\d[\d.\s]*)+\)\s*)+$/i.test(v)) return [v];      // sizes only: "2x(Fan Array)" stays as it is
   const out: string[] = [];
   for (const m of v.matchAll(/\(([^)]+)\)/g)) { const p = m[1].replace(/\s+/g, ""); if (!out.includes(p)) out.push(p); }
   return out;
@@ -65,7 +66,7 @@ export function poApprover(s: Session): boolean {
   return s.isSuper || (!!t && s.isTileAdmin(t.category_id));
 }
 
-interface MapRow { row_key: string; section: string; sub: string; component: string; label: string; show: number; in_tree: number; sort: number }
+interface MapRow { row_key: string; section: string; sub: string; component: string; label: string; show: number; in_tree: number; sort: number; kind?: string }
 interface ValueRow { rid?: number; row_key: string; model: string; grp: string; value_key: string; value: string; times: number; hidden: number; approved: number; last_at: string }
 interface ExtraRow { id: string; section: string; row_key: string; kind: string; body: string; created_at: string; updated_at: string; created_by: string | null; updated_by: string | null; by: string | null }
 
@@ -154,7 +155,8 @@ export const routes: Routes = {
     const f = await cmFactory(env, p.p_factory_id);
     const edit = s.canEdit("product-options"), approver = poApprover(s), seeWaiting = edit || approver;
     const [mapRes, valRes, extraRes] = await env.DB.batch([
-      env.DB.prepare("SELECT row_key, section, sub, component, label, show, in_tree, sort FROM dn_map WHERE product_id = ? AND show = 1 ORDER BY sort, row_key").bind(f.product_id),
+      // SELECT *: the kind column comes with migration 0011; a database without it reads every row by its name
+      env.DB.prepare("SELECT * FROM dn_map WHERE product_id = ? AND show = 1 ORDER BY sort, row_key").bind(f.product_id),
       env.DB.prepare("SELECT rowid AS rid, row_key, model, grp, value_key, value, times, hidden, approved, last_at FROM po_values WHERE factory_id = ?").bind(f.id),
       env.DB.prepare(`SELECT x.id, x.section, x.row_key, x.kind, x.body, x.created_at, x.updated_at, x.created_by, x.updated_by, w.full_name AS by
                         FROM po_extras x LEFT JOIN app_users w ON w.id = coalesce(x.updated_by, x.created_by)
@@ -163,10 +165,16 @@ export const routes: Routes = {
     const map = mapRes.results as unknown as MapRow[], values = valRes.results as unknown as ValueRow[], extras = extraRes.results as unknown as ExtraRow[];
     let updated: string | null = null;
     const byRow = new Map<string, ValueRow[]>(), seen: ValueRow[] = [];
+    // what each row is (lib/po-kind.ts): a duty figure (flow, pressure ...) is not an option; it is shown to everyone as
+    // "seen from - to" and never waits for approval; the project's conditions and printed notes are not in the tree
+    const kindOf = new Map<string, PoKind>(map.map((m) => [m.row_key, poKind(m.row_key, m.kind)]));
+    const duty = (k: string) => kindOf.get(k) === "duty";
     let waiting = 0;
     for (const v of values) {
-      if (!v.approved && !v.hidden) waiting++;
-      if (!v.approved && !seeWaiting) continue;           // not a fact yet: only editors and approvers see it
+      const kind = kindOf.get(v.row_key);
+      if (kind === "project" || kind === "hide") continue;
+      if (!v.approved && !v.hidden && kind !== "duty") waiting++;
+      if (!v.approved && !seeWaiting && kind !== "duty") continue;   // not a fact yet: only editors and approvers see it
       if (updated === null || v.last_at > updated) updated = v.last_at;
       if (!edit && v.hidden) continue;
       seen.push(v);
@@ -179,12 +187,13 @@ export const routes: Routes = {
     const extraKeys = new Set(extras.map((x) => x.row_key));
     const rows: Record<string, unknown>[] = [];
     for (const m of map) {
-      if (poSkip(m.row_key) || (!edit && !m.in_tree)) continue;
+      const kind = kindOf.get(m.row_key)!;
+      if (poSkip(m.row_key) || (!edit && !m.in_tree) || kind === "project" || kind === "hide") continue;
       const list = (byRow.get(m.row_key) || []).slice()
         .sort((a, b) => a.model.localeCompare(b.model) || gOrder(a.grp, b.grp) || (b.times - a.times) || a.value_key.localeCompare(b.value_key));
       if (!list.length && !extraKeys.has(m.row_key)) continue;
-      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree,
-        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved })) });
+      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind,
+        values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved && !duty(v.row_key) })) });
     }
     // models: per model, the most units any one row counted (sum of times per row, max over rows)
     const perRow = new Map<string, number>();
@@ -251,9 +260,23 @@ export const routes: Routes = {
        p_value_key '' = the whole row, for every factory of the product (dn_map.in_tree);
        otherwise that one value for this factory (and model, '' for AHUs). */
   async po_admin_set_hidden(env, p) {
-    (await sessionUser(env, p.p_token)).requireEditor("product-options");
+    const s = await sessionUser(env, p.p_token);
+    s.requireEditor("product-options");
     const f = await cmFactory(env, p.p_factory_id);
     const rowKey = str(p.p_row_key), valueKey = str(p.p_value_key), hidden = bool(p.p_hidden) ? 1 : 0;
+    /* p_row_keys: several whole rows at once (rows ticked on the tree, 21 Oct 2026), for every factory of the product. */
+    if (p.p_row_keys !== undefined && p.p_row_keys !== null) {
+      if (!isArray(p.p_row_keys)) fail("The rows could not be read. Refresh the page.");
+      const keys = [...new Set(p.p_row_keys.map((k) => str(k)).filter(Boolean))];
+      if (!keys.length) fail("Tick the rows first.");
+      if (keys.length > 500) fail("Leave out up to 500 rows at a time.");
+      const res = await env.DB.batch(keys.map((k) =>
+        env.DB.prepare("UPDATE dn_map SET in_tree = ? WHERE product_id = ? AND row_key = ?").bind(hidden ? 0 : 1, f.product_id, k)));
+      const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+      if (!n) fail("Those rows no longer exist. Refresh the page.");
+      await audit(env, s.id, hidden ? "po_rows_left_out" : "po_rows_back", f.id, "", { rows: keys });
+      return { ok: true, changed: n };
+    }
     const r = valueKey === ""
       ? await env.DB.prepare("UPDATE dn_map SET in_tree = ? WHERE product_id = ? AND row_key = ?").bind(hidden ? 0 : 1, f.product_id, rowKey).run()
       : await env.DB.prepare("UPDATE po_values SET hidden = ? WHERE factory_id = ? AND row_key = ? AND model = ? AND grp = ? AND value_key = ?").bind(hidden, f.id, rowKey, str(p.p_model), str(p.p_grp), valueKey).run();
@@ -307,9 +330,16 @@ export const routes: Routes = {
     const r = await env.DB.prepare(`DELETE FROM po_values WHERE factory_id = ? AND grp = ''
         AND row_key IN (SELECT m.row_key FROM dn_map m WHERE m.product_id = ? AND lower(m.section) = lower(?))
         AND row_key IN (SELECT g.row_key FROM po_values g WHERE g.factory_id = ? AND g.grp <> '')`).bind(f.id, f.product_id, section, f.id).run();
-    const n = r.meta.changes || 0;
+    let n = r.meta.changes || 0;
+    /* p_groups: groups of an older layout in this section ("Profile: ...", "Location: ...", 21 Oct 2026), named by the page */
+    const groups = isArray(p.p_groups) ? [...new Set(p.p_groups.map((g) => str(g)).filter(Boolean))].slice(0, 90) : [];
+    if (groups.length) {
+      const g = await env.DB.prepare(`DELETE FROM po_values WHERE factory_id = ? AND grp IN (${marks(groups.length)})
+          AND row_key IN (SELECT m.row_key FROM dn_map m WHERE m.product_id = ? AND lower(m.section) = lower(?))`).bind(f.id, ...groups, f.product_id, section).run();
+      n += g.meta.changes || 0;
+    }
     if (!n) fail("Nothing to remove there: no row of this section has values both with and without a group.");
-    await audit(env, s.id, "po_clear_ungrouped", f.id, "", { section, values: n });
+    await audit(env, s.id, "po_clear_ungrouped", f.id, "", { section, values: n, groups });
     return { ok: true, removed: n };
   },
 

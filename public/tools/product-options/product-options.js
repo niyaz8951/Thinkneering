@@ -25,6 +25,10 @@
    Approval (19 Oct 2026): a value new to the factory waits ("to approve", v.wait) until the super
    user or an admin of this tile approves it (Api.poAdminApprove); users, the Excel download and the
    AI see only approved values. A rejected value is removed; seen again, it waits again.
+   21 Oct 2026 (owner): Approve all / Reject all per row, Edit is a toggle, editors tick rows and leave them
+   out together (Api.poAdminSetRowsHidden). AHU trees are cards per kind of component (see "AHU: one card"
+   below and docs/Product-Options-Redesign.md): common options, accessories, a column per model, duty
+   figures as ranges. FCU trees keep their series tables.
    ============================================================ */
 (function () {
   'use strict';
@@ -36,6 +40,7 @@
   var productSel = $('po-product'), factorySel = $('po-factory'), search = $('po-search');
   var hint = $('po-hint'), result = $('po-result'), host = $('po-tree-host');
   var products = [], tree = null, canEdit = false, closed = {}, expanded = {}, loadNo = 0, mapper = false, onlyWait = false;
+  var editOn = false, picked = {};          // picked: row key -> row name, the rows ticked for "Leave out rows"
 
   function option(v, t) { return el('option', { value: v, text: t }); }
   function product() { return products.filter(function (p) { return p.id === productSel.value; })[0] || null; }
@@ -75,14 +80,14 @@
       hint.className = 'hint'; hint.textContent = product() ? 'Choose a factory.' : 'Choose a product and a factory.';
       return Promise.resolve();
     }
-    if (!keep) { hint.className = 'hint'; hint.textContent = 'Loading…'; closed = {}; expanded = {}; }
+    if (!keep) { hint.className = 'hint'; hint.textContent = 'Loading…'; closed = {}; expanded = {}; picked = {}; }
     return Api.poTree(window.Hub.token(), id).then(function (res) {
       if (no !== loadNo) return;
       tree = res; canEdit = !!res.can_edit;
       if (!res.waiting) onlyWait = false;
       hint.className = 'hint'; hint.textContent = res.factory.product + ', ' + res.factory.name + ' factory.';
-      $('po-edit-wrap').hidden = !canEdit;
-      if (!canEdit) $('po-edit').checked = false;
+      $('po-edit').hidden = !canEdit;
+      if (!canEdit) setEdit(false, true);
       search.disabled = false; result.hidden = false; $('po-error').hidden = true;
       render();
     }, function (err) {
@@ -164,7 +169,13 @@
   }
 
   /* ---------- drawing ---------- */
-  function editing() { return canEdit && $('po-edit').checked; }
+  function editing() { return canEdit && editOn; }
+  function setEdit(on, quiet) {
+    editOn = !!on;
+    $('po-edit').setAttribute('aria-pressed', editOn ? 'true' : 'false');
+    if (!editOn) picked = {};
+    if (!quiet) render();
+  }
   function when(iso) { var d = iso ? new Date(iso) : null; return d && !isNaN(d) ? window.Hub.date(iso) : ''; }
 
   function busy(btn, promise, done) {
@@ -177,38 +188,95 @@
 
   /* A value read from a datasheet waits for an admin (the super user or an admin of this tile) before it is a fact for
      the factory: until then users, the Excel download and the AI do not see it. */
-  function waitTag(v, r, holder) {
+  function waitTag(v, r, holder) { waitTagItems(v.v, [item(r.key, v)], holder); }
+  function item(key, v) { return { key: key, model: v.model || '', grp: v.g || '', value_key: v.k }; }
+  function waitTagItems(text, items, holder) {
     holder.classList.add('wait');
     holder.appendChild(el('b', { 'class': 'po-wait-tag', text: 'to approve' }));
     if (!tree.can_approve) return;
-    var item = [{ key: r.key, model: v.model || '', grp: v.g || '', value_key: v.k }];
-    holder.appendChild(xbtn('Approve', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: true }), 'Approved: "' + v.v + '" is now an option of the factory.'); }));
-    holder.appendChild(xbtn('Reject', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: false }), 'Rejected: "' + v.v + '" removed.'); }, true));
+    holder.appendChild(xbtn('Approve', function (e) { busy(e.currentTarget, approveMany(items, true), 'Approved: "' + text + '" is now an option of the factory.'); }));
+    holder.appendChild(xbtn('Reject', function (e) { busy(e.currentTarget, approveMany(items, false), 'Rejected: "' + text + '" removed.'); }, true));
+  }
+  /* the route takes 500 values a call */
+  function approveMany(items, approve) {
+    var chain = Promise.resolve();
+    for (var i = 0; i < items.length; i += 500) (function (part) {
+      chain = chain.then(function () { return Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: part, approve: approve }); });
+    })(items.slice(i, i + 500));
+    return chain;
+  }
+  /* Approve all / Reject all for the values of one row that wait (approvers; owner, 21 Oct 2026) */
+  function rowWaitButtons(items, name) {
+    if (!tree.can_approve || !items.length) return [];
+    var n = items.length;
+    return [
+      xbtn('Approve all ' + n, function (e) { busy(e.currentTarget, approveMany(items, true), n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' approved.'); }),
+      xbtn('Reject all', function (e) {
+        var b = e.currentTarget;
+        window.Hub.confirm('Remove the ' + n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' that wait? A value seen again on a later datasheet waits again.', { title: 'Reject all', ok: 'Reject all', danger: true }).then(function (yes) {
+          if (yes) busy(b, approveMany(items, false), n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' rejected.');
+        });
+      }, true)
+    ];
+  }
+  /* take out / bring back several values (one value shown once for two spellings of a location, say) */
+  function hideMany(list, hidden) {
+    var chain = Promise.resolve();
+    list.forEach(function (x) {
+      if (!!x.v.hidden === hidden) return;
+      chain = chain.then(function () { return Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: x.key, valueKey: x.v.k, model: x.v.model || '', grp: x.v.g || '', hidden: hidden }); });
+    });
+    return chain;
+  }
+
+  /* ---------- rows ticked for "Leave out rows" (editors) ---------- */
+  function tickBox(keys, name, node) {
+    var on = keys.every(function (k) { return picked[k]; });
+    var box = el('input', { type: 'checkbox', 'class': 'po-tick', 'aria-label': 'Tick ' + name });
+    box.checked = on;
+    if (on && node) node.classList.add('picked');
+    box.addEventListener('change', function () {
+      keys.forEach(function (k) { if (box.checked) picked[k] = name; else delete picked[k]; });
+      if (node) node.classList.toggle('picked', box.checked);
+      pickBar();
+    });
+    return box;
+  }
+  function offOf(key) { var r = tree.rows.filter(function (x) { return x.key === key; })[0]; return !!(r && r.hidden); }
+  function pickBar() {
+    var bar = $('po-pickbar'), keys = Object.keys(picked);
+    bar.textContent = '';
+    bar.hidden = !editing() || !keys.length;
+    if (bar.hidden) return;
+    var out = keys.filter(function (k) { return !offOf(k); }), back = keys.filter(offOf), all = tree.factory.product;
+    bar.appendChild(el('strong', { text: keys.length + (keys.length === 1 ? ' row ticked' : ' rows ticked') }));
+    function act(list, hidden, label, done) {
+      return el('button', { type: 'button', 'class': 'btn sm' + (hidden ? '' : ' ghost'), text: label, onclick: function (e) {
+        var b = e.currentTarget, names = list.map(function (k) { return picked[k]; });
+        window.Hub.confirm((hidden ? 'Leave out ' : 'Bring back ') + list.length + (list.length === 1 ? ' row' : ' rows') + ' for every ' + all + ' factory? ' +
+          names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : ''), { title: label, ok: label, danger: hidden }).then(function (yes) {
+          if (!yes) return;
+          b.disabled = true;
+          Api.poAdminSetRowsHidden(window.Hub.token(), { factoryId: tree.factory.id, keys: list, hidden: hidden }).then(function () {
+            picked = {}; window.Hub.toast(done); return load(true);
+          }, function (err) { b.disabled = false; window.Hub.toast((err && err.message) || String(err), true); });
+        });
+      } });
+    }
+    if (out.length) bar.appendChild(act(out, true, 'Leave out ' + out.length + (out.length === 1 ? ' row' : ' rows'), out.length + (out.length === 1 ? ' row' : ' rows') + ' left out for every ' + all + ' factory.'));
+    if (back.length) bar.appendChild(act(back, false, 'Bring back ' + back.length + (back.length === 1 ? ' row' : ' rows'), 'Rows are back in the tree.'));
+    bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Clear', onclick: function () { picked = {}; render(); } }));
   }
   function waitBar() {
     var bar = $('po-wait'), n = tree.waiting || 0;
     bar.hidden = !n; bar.textContent = '';
     if (!n) return;
     bar.appendChild(el('p', { text: n + (n === 1 ? ' value' : ' values') + ' read from datasheets ' + (n === 1 ? 'waits' : 'wait') + ' for approval (marked "to approve"). ' +
-      (tree.can_approve ? 'Until you approve them, users and the AI do not see them; check them against the datasheet first.' : 'An admin of this tile approves them; until then users and the AI do not see them.') }));
+      (tree.can_approve ? 'Until you approve them, users and the AI do not see them; check them against the datasheet first, then approve or reject them value by value or row by row.' : 'An admin of this tile approves them; until then users and the AI do not see them.') }));
     var only = el('input', { type: 'checkbox' }); only.checked = onlyWait;
     only.addEventListener('change', function () { onlyWait = only.checked; render(); });
-    var acts = [el('label', { 'class': 'check' }, [only, document.createTextNode(' Only values to approve')])];
-    if (tree.can_approve) {
-      acts.push(el('button', { type: 'button', 'class': 'btn sm', text: 'Approve all ' + n, onclick: function (e) {
-        var b = e.currentTarget;
-        window.Hub.confirm('Approve all ' + n + ' values that wait for ' + tree.factory.product + ', ' + tree.factory.name + '? They become options of the factory that users and the AI see.', { title: 'Approve all', ok: 'Approve all' }).then(function (yes) {
-          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: true }), n + ' values approved.');
-        });
-      } }));
-      acts.push(el('button', { type: 'button', 'class': 'btn ghost sm danger', text: 'Reject all', onclick: function (e) {
-        var b = e.currentTarget;
-        window.Hub.confirm('Remove all ' + n + ' values that wait? A value seen again on a later datasheet waits again.', { title: 'Reject all', ok: 'Reject all', danger: true }).then(function (yes) {
-          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: false }), n + ' values rejected.');
-        });
-      } }));
-    }
-    bar.appendChild(el('div', { 'class': 'row' }, acts));
+    // approved or rejected row by row (Approve all / Reject all on each row), never the whole factory at once (owner, 21 Oct 2026)
+    bar.appendChild(el('div', { 'class': 'row' }, [el('label', { 'class': 'check' }, [only, document.createTextNode(' Only values to approve')])]));
   }
 
   /* one form at a time: add or change a special option / note */
@@ -277,156 +345,353 @@
     return out;
   }
 
-  function rowNode(s, r, edit) {
-    var vals = el('div', { 'class': 'po-vals' }), node = el('div', { 'class': 'po-row' + (r.off ? ' off' : '') });
-    var shown = r.values, xk = (r.model || '') + '|' + r.key + '|' + (r.grp || ''), all = expanded[xk] || edit || shown.length <= FEW;
-    var rg = shown.length > FEW ? range(shown.filter(function (v) { return !v.hidden && !v.wait; })) : '';
-    if (rg) vals.appendChild(el('span', { 'class': 'po-chip range', title: 'Lowest and highest value seen so far', text: rg }));
-    (all ? shown : (rg ? [] : shown.slice(0, FEW))).forEach(function (v) {
-      var c = el('span', { 'class': 'po-chip' + (v.hidden ? ' off' : '') }, [el('span', { text: v.v }), el('small', { text: times(v.n), title: 'Seen ' + v.n + (v.n === 1 ? ' time' : ' times') + ' on the datasheets run so far. A datasheet run again is counted again.' })]);
-      if (v.wait) waitTag(v, r, c);
-      else if (edit) c.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
-        busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, valueKey: v.k, model: v.model || '', grp: v.g || '', hidden: !v.hidden }), v.hidden ? 'Value is back in the tree.' : 'Value taken out.');
-      }));
-      vals.appendChild(c);
-    });
-    if (!edit && shown.length > FEW) vals.appendChild(el('button', { type: 'button', 'class': 'po-more',
-      text: all ? 'Show fewer' : (rg ? 'Show all ' + shown.length + ' values' : '+ ' + (shown.length - FEW) + ' more'),
-      onclick: function () { expanded[xk] = !all; render(); } }));
-    var ctx = { where: s.name + ' > ' + r.name, anchor: function () { return node; } };
-    extraNodes(r.extras, ctx, edit && !r.model).forEach(function (n) { vals.appendChild(n); });
-    node.appendChild(el('div', { 'class': 'po-name', text: r.name + (r.off ? ' (left out)' : '') }));
-    node.appendChild(vals);
-    if (edit && !r.model && !r.noTools) node.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return node; }, s.name, r.key, ctx.where).concat([
-      xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
-        busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
-             r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
-      }, !r.off)
-    ])));
-    return node;
+  function leaveOut(keys, off) {
+    return xbtn(off ? 'Bring row back' : 'Leave out row', function (e) {
+      busy(e.currentTarget, Api.poAdminSetRowsHidden(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, hidden: !off }),
+           off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
+    }, !off);
   }
 
-  /* The sections of one group. model = '' : the plain tree (AHU) or, with extrasOnly, the
-     special options and notes block of an FCU tree; model = 'FWW600VA' : that model's values only. */
-  /* Rows whose values belong to another row's value (DSParse.LINKED, owner 21 Oct 2026): one tile per lead value,
-     shown right under the lead row: under Profile a tile per profile with its EN 1886 classes; under Model Box Ref. a
-     tile per model box with its panel and insulation. Their values leave their own section. */
-  function linkOf(key) { return window.DSParse && window.DSParse.linkOf ? window.DSParse.linkOf(key) : null; }
-  function leadOf(key) { return window.DSParse && window.DSParse.leadOf ? window.DSParse.leadOf(key) : null; }
-  function leadTiles(secs, edit) {
-    var out = {};
-    secs.forEach(function (s) {
-      s.rows.forEach(function (r) {
-        if (!edit && r.off) return;
-        var L = linkOf(r.key); if (!L) return;
+  /* ---------- AHU: one card per kind of component (owner, 21 Oct 2026; docs/Product-Options-Redesign.md) ----------
+     The sections of the datasheet are gathered into cards (DSParse.PO_CARDS): supply and return together, the DX and
+     chilled-water coils side by side, the casing with its EN 1886 / EN 13053 classes. In a card:
+       Common to every unit seen   the options that are the same in every column (or belong to the whole section)
+       Accessories offered         the Options List lines of the card's sections
+       one column per model        filter class, fan model (EC / DIDW), model box, wheel, humidifier, coil type:
+                                   the options that differ between them, then the duty figures seen with each
+       Duty seen                   figures of one selection (flow, pressure, size ...) as "from - to", never approved
+     The server says what each row is (row.kind: option / duty / accessory, lib/po-kind.ts, Row mapping can change it);
+     which column a value belongs to is its group, saved when the datasheet was read (DSParse.poGroups). */
+  var P = window.DSParse || null;
+  var UNIT = { casing: ['model box', 'model boxes'], filters: ['filter class', 'filter classes'], fans: ['fan model', 'fan models'],
+               recovery: ['heat wheel', 'heat wheels'], humidifiers: ['humidifier', 'humidifiers'], coils: ['coil type', 'coil types'] };
+  function cardOf(section) {
+    return P && P.poCard ? P.poCard(section) : { id: 'x:' + low(section), name: section || 'General' };
+  }
+  function tidy(t) { return low(t).replace(/\s+/g, ' ').trim(); }
+  function side(section) { var m = /\s(supply|return|exhaust|extract)$/i.exec(section || ''); return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : ''; }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+  /* the column of a value in card C: { key, label, head, family } or null (no column: belongs to the whole card) */
+  function columnOf(C, row, v) {
+    if (C.bySection) { var nm = String(row.section || '').replace(/\s+(supply|return)$/i, '').replace(/^coil\s+/i, ''); return { key: tidy(nm), label: 'Coil', head: nm, family: '' }; }
+    if (!C.column || !v.g || !P) return null;
+    var g = P.poGroupParts(v.g);
+    if (!g || !(C.label ? tidy(g.label) === tidy(C.label) : C.column.test(g.label))) return null;
+    return { key: tidy(g.family + '|' + g.value), label: g.label, head: g.value, family: g.family };
+  }
+
+  /* tree rows -> cards; extrasOnly (FCU): only the special options and notes */
+  function buildCards(edit, extrasOnly) {
+    var list = [], by = {}, rowBy = {};
+    function card(section) {
+      // the power supply leads; the notes of the whole product (section General) close the page
+      var C = /^power supply$/i.test(section || '') ? { id: 'power', name: 'Power supply' }
+            : /^general$/i.test(section || '') || !section ? { id: 'general', name: 'General' } : cardOf(section);
+      var c = by[C.id];
+      if (!c) { c = by[C.id] = { C: C, id: C.id, name: C.name, sections: [], lines: [], lineBy: {}, extras: [] }; list.push(c); }
+      if (section && c.sections.indexOf(section) < 0) c.sections.push(section);
+      return c;
+    }
+    tree.rows.forEach(function (r) {
+      if (extrasOnly) return;
+      var section = /^general\|\|power supply$/.test(r.key) ? 'Power Supply' : (r.section || 'General');
+      if (!edit && r.hidden) return;
+      var c = card(section), kind = r.kind || 'option';
+      var name = /\|options\|option$/.test(r.key) ? 'Accessories' : r.component;
+      var sub = kind === 'accessory' || /\s\d+$|^geometry$|^damper\b/i.test(r.sub || '') ? '' : r.sub || '';   // "Filter 1", "Damper One Supply": the column or the values say it      // "Filter 1": the column says which filter
+      var lk = kind + '|' + tidy(sub) + '|' + tidy(name), ln = c.lineBy[lk];
+      if (!ln) { ln = c.lineBy[lk] = { name: name, sub: sub, kind: kind, keys: [], rows: [], off: true, extras: [], sections: [] }; c.lines.push(ln); }
+      ln.keys.push(r.key); ln.rows.push(r); if (!r.hidden) ln.off = false;
+      if (ln.sections.indexOf(section) < 0) ln.sections.push(section);
+      rowBy[r.key] = ln;
+    });
+    tree.extras.forEach(function (x) {
+      if (x.key && rowBy[x.key]) rowBy[x.key].extras.push(x);
+      else card(x.section || 'General').extras.push(x);
+    });
+    list.sort(function (a, b) { return (a.id === 'power' ? -1 : a.id === 'general' ? 1 : 0) - (b.id === 'power' ? -1 : b.id === 'general' ? 1 : 0); });
+    list.forEach(function (c) { shapeCard(c, edit); });
+    return list;
+  }
+
+  /* values -> columns, cells, common / model-specific / duty / accessories */
+  function shapeCard(c, edit) {
+    var C = c.C, cols = [], colBy = {}, sides = {};
+    c.lines.forEach(function (ln) {
+      ln.cells = {}; ln.loose = [];
+      ln.rows.forEach(function (r) {
         r.values.forEach(function (v) {
-          if (!v.g || (!edit && v.hidden)) return;
-          var T = out[L.id] || (out[L.id] = { L: L, order: [], by: {}, home: s.name, placed: false });
-          if (!T.by[v.g]) { T.by[v.g] = []; T.order.push(v.g); }
-          var line = T.by[v.g].filter(function (x) { return x.r.key === r.key; })[0];
-          if (line) line.vals.push(v); else T.by[v.g].push({ s: s, r: r, vals: [v] });
+          if (!edit && v.hidden) return;
+          if (onlyWait && ln.kind !== 'duty' && !v.wait) return;
+          var col = ln.kind === 'accessory' ? null : columnOf(C, r, v);
+          var x = { key: r.key, v: v, section: r.section };
+          if (!col) { ln.loose.push(x); return; }
+          var cc = colBy[col.key];
+          if (!cc) { cc = colBy[col.key] = { key: col.key, label: col.label, head: col.head, family: col.family, spell: {}, n: 0, sides: {} }; cols.push(cc); }
+          cc.spell[col.head] = (cc.spell[col.head] || 0) + (v.n || 0) + 0.001;
+          if (ln.kind !== 'duty') cc.n = Math.max(cc.n, v.n || 0);
+          if (side(r.section)) { cc.sides[side(r.section)] = 1; sides[side(r.section)] = 1; }
+          (ln.cells[col.key] || (ln.cells[col.key] = [])).push(x);
         });
       });
+    });
+    cols.forEach(function (cc) { cc.head = Object.keys(cc.spell).sort(function (a, b) { return cc.spell[b] - cc.spell[a]; })[0]; });
+    cols.sort(function (a, b) { return a.family.localeCompare(b.family) || a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true }); });
+    c.cols = cols; c.sides = Object.keys(sides);
+    c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.stale = 0; c.staleGroups = {};
+    c.lines.forEach(function (ln) {
+      if (!lineAll(ln).length && !ln.extras.length && !(edit && !onlyWait)) return;
+      var inCols = cols.filter(function (cc) { return (ln.cells[cc.key] || []).length; });
+      if (ln.kind === 'accessory') { c.access.push(ln); return; }
+      if (cols.length && !C.bySection && C.column && C.column.test(ln.rows[0].key.split('|')[2] || '') && !ln.loose.length && !ln.extras.length) { c.heads.push(ln); return; }   // the column heading says it
+      if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); return; }
+      // an option: common when it is the same in every column (or has no column at all), else model-specific
+      var sig = function (list) { return list.filter(function (x) { return !x.v.hidden; }).map(function (x) { return tidy(x.v.k); }).filter(function (k, i, a) { return a.indexOf(k) === i; }).sort().join('\u0001'); };
+      var same = inCols.length === 0 || (cols.length > 1 && inCols.length === cols.length &&
+        inCols.every(function (cc) { return sig(ln.cells[cc.key]) === sig(ln.cells[inCols[0].key]); }) &&
+        (!ln.loose.length || sig(ln.loose) === sig(ln.cells[inCols[0].key])));
+      if (same) c.common.push(ln);
+      else {
+        c.model.push(ln);
+        // values read before the columns existed (no group, or another kind of group): admins can remove them
+        ln.loose.forEach(function (x) { c.stale++; if (x.v.g) c.staleGroups[x.v.g] = 1; });
+      }
+    });
+    c.colOld = c.model.some(function (ln) { return ln.loose.length; });
+  }
+
+  /* chips of one cell: the same value under two spellings or two rows (supply / return) is one chip */
+  function chipsOf(list) {
+    var out = [], by = {};
+    list.forEach(function (x) {
+      var k = tidy(x.v.k), ch = by[k];
+      if (!ch) { ch = by[k] = { text: x.v.v, n: 0, list: [] }; out.push(ch); }
+      ch.n += x.v.n || 0; ch.list.push(x);
     });
     return out;
   }
-  function tileNodes(T, q, edit) {
-    return T.order.map(function (g) {
-      var cut = g.indexOf(': '), label = cut > 0 ? g.slice(0, cut) : '', head = cut > 0 ? g.slice(cut + 2) : g;
-      var lines = T.by[g];
-      if (q && !lines.some(function (x) { return matches(q, x.s, { sub: x.r.sub, name: x.r.name, values: x.vals, extras: [] }); }) &&
-          !q.split(/\s+/).every(function (w) { return low(g).indexOf(w) >= 0; })) return null;
-      var box = el('div', { 'class': 'po-group po-lead' }, [el('div', { 'class': 'po-group-name' }, [label ? el('small', { text: label }) : null, el('span', { text: head })])]);
-      lines.forEach(function (x) { box.appendChild(rowNode(x.s, Object.assign({}, x.r, { values: x.vals, extras: [], grp: g, noTools: true }), edit)); });
-      return box;
-    }).filter(Boolean);
+  function chipNode(ch, edit) {
+    var hidden = ch.list.every(function (x) { return x.v.hidden; }), wait = ch.list.filter(function (x) { return x.v.wait; });
+    var c = el('span', { 'class': 'po-chip' + (hidden ? ' off' : '') }, [el('span', { text: ch.text }),
+      el('small', { text: times(ch.n), title: 'Seen ' + ch.n + (ch.n === 1 ? ' time' : ' times') + ' on the datasheets run so far. A datasheet run again is counted again.' })]);
+    if (wait.length) waitTagItems(ch.text, wait.map(function (x) { return item(x.key, x.v); }), c);
+    else if (edit) c.appendChild(xbtn(hidden ? 'Bring back' : 'Take out', function (e) {
+      busy(e.currentTarget, hideMany(ch.list, !hidden), hidden ? 'Value is back in the tree.' : 'Value taken out.');
+    }));
+    return c;
   }
-  function drawSections(secs, q, edit, model, extrasOnly) {
-    var wrap = el('div', { 'class': 'po-tree' }), drawn = 0, nRows = 0, nVals = 0, keys = {};
-    var tiles = model || extrasOnly ? {} : leadTiles(secs, edit);
-    // a lead row that is not in the tree (left out of the mapping): its tiles stay in the section of their rows
-    Object.keys(tiles).forEach(function (id) {
-      var T = tiles[id];
-      T.leadShown = secs.some(function (s) { return s.rows.some(function (r) { return T.L.lead.test(r.key) && (edit || !r.off); }); });
-      T.order.forEach(function (g) { T.by[g].forEach(function (x) { nVals += x.vals.filter(function (v) { return !v.hidden; }).length; }); });
-    });
-    secs.forEach(function (s) {
-      var live = s.rows.filter(function (r) { return edit || !r.off; }).map(function (r) {
-        // with Edit off an editor sees what users see: no values that were taken out
-        var values = extrasOnly ? [] : r.values.filter(function (v) { return (edit || !v.hidden) && (model ? v.model === model : true); });
-        var L = !model && !extrasOnly ? linkOf(r.key) : null, moved = 0;
-        if (L && tiles[L.id]) { moved = values.filter(function (v) { return v.g; }).length; values = values.filter(function (v) { return !v.g; }); }
-        return { key: r.key, sub: r.sub, name: r.name, off: r.off, values: values, extras: model ? [] : r.extras, model: model, moved: moved };
-      }).filter(function (r) {
-        if (r.moved && !r.values.length && !r.extras.length) return false;     // all its values are in the tiles
-        return r.values.length || r.extras.length || (!model && !extrasOnly && edit);
+  /* duty figures: "1.34 to 2.62 m/s", or the values themselves when they are not numbers of one unit */
+  function dutyText(list) {
+    var vals = list.filter(function (x) { return !x.v.hidden; }).map(function (x) { return x.v; });
+    var uniq = []; vals.forEach(function (v) { if (uniq.indexOf(v.v) < 0) uniq.push(v.v); });
+    if (!uniq.length) return '';
+    if (uniq.length === 1) return uniq[0];
+    var rg = range(uniq.map(function (t) { return { v: t }; }));
+    if (rg) return rg;
+    return uniq.length <= 4 ? uniq.join(' · ') : uniq.slice(0, 4).join(' · ') + ' and ' + (uniq.length - 4) + ' more';
+  }
+  function waitItems(list) { return list.filter(function (x) { return x.v.wait; }).map(function (x) { return item(x.key, x.v); }); }
+  function lineAll(ln) { var out = ln.loose.slice(); Object.keys(ln.cells).forEach(function (k) { out = out.concat(ln.cells[k]); }); return out; }
+  function lineName(ln) { return (ln.sub ? ln.sub + ' · ' : '') + ln.name + (ln.off ? ' (left out)' : ''); }
+  /* tools of one line: tick, Approve all / Reject all, special option / note, leave out */
+  function lineTools(c, ln, edit, anchor) {
+    var waits = rowWaitButtons(waitItems(lineAll(ln)), ln.name);
+    var where = c.name + ' > ' + ln.name;
+    var add = edit ? addButtons(anchor, ln.rows[0].section || c.sections[0], ln.keys[0], where) : [];
+    return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? [leaveOut(ln.keys, ln.off)] : [])) : null;
+  }
+  function lineExtras(c, ln, edit, anchor) { return extraNodes(ln.extras, { where: c.name + ' > ' + ln.name, anchor: anchor }, edit); }
+
+  function words(q) { return q ? q.split(/\s+/) : []; }
+  function hits(q, text) { var t = low(text); return words(q).every(function (w) { return t.indexOf(w) >= 0; }); }
+
+  /* one card on screen; null when the search leaves nothing */
+  function cardNode(c, q, edit) {
+    var cols = c.cols, lines = { common: c.common, model: c.model, duty: c.duty, access: c.access };
+    var extras = c.extras;
+    if (q && !hits(q, c.name + ' ' + c.sections.join(' '))) {
+      var colHit = cols.filter(function (cc) { return hits(q, cc.head + ' ' + cc.label + ' ' + cc.family); });
+      var lineHit = function (ln) { return hits(q, lineName(ln) + ' ' + lineAll(ln).map(function (x) { return x.v.v; }).join(' ') + ' ' + ln.extras.map(function (x) { return x.body; }).join(' ')); };
+      if (colHit.length) cols = colHit;
+      else lines = { common: c.common.filter(lineHit), model: c.model.filter(lineHit), duty: c.duty.filter(lineHit), access: c.access.filter(lineHit) };
+      extras = extras.filter(function (x) { return hits(q, x.body); });
+      if (!colHit.length && !lines.common.length && !lines.model.length && !lines.duty.length && !lines.access.length && !extras.length) return null;
+    }
+    var body = el('div', { 'class': 'po-body' }), ck = 'card:' + c.id;
+    var waiting = c.lines.reduce(function (n, ln) { return n + (ln.kind === 'duty' ? 0 : waitItems(lineAll(ln)).length); }, 0);
+    var u = UNIT[c.id];
+    var d = el('details', { 'class': 'po-sec po-card', id: 'po-card-' + c.id.replace(/[^a-z0-9]+/gi, '-'), open: q ? true : !closed[ck] }, [
+      el('summary', {}, [el('span', { text: c.name }), el('span', { 'class': 'count', text: [
+        cols.length && u ? plural(cols.length, u[0], u[1]) : '',
+        c.sides.length > 1 ? c.sides.join(' and ') : '',
+        waiting ? waiting + ' to approve' : ''].filter(Boolean).join(' · ') })]),
+      body]);
+    d.addEventListener('toggle', function () { if (!q) closed[ck] = !d.open; });
+
+    // special options and notes of the whole card; editors add to its first section
+    var sx = el('div', { 'class': 'po-secx' }, extraNodes(extras, { where: c.name, anchor: function () { return sx; } }, edit));
+    if (edit) {
+      var keys = [].concat.apply([], c.lines.map(function (ln) { return ln.keys; })), all = keys.length && keys.every(function (k) { return picked[k]; });
+      sx.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return sx; }, c.sections[0] || c.name, '', c.name, true).concat(keys.length ? [
+        xbtn(all ? 'Untick all rows' : 'Tick all rows', function () {
+          c.lines.forEach(function (ln) { ln.keys.forEach(function (k) { if (all) delete picked[k]; else picked[k] = ln.name; }); });
+          render();
+        })] : [])));
+    }
+    if (sx.childNodes.length) body.appendChild(sx);
+
+    if (c.stale && tree.can_approve && !q) body.appendChild(staleNotice(c));
+
+    // common to every unit seen
+    if (lines.common.length) {
+      body.appendChild(el('p', { 'class': 'po-part', text: cols.length > 1 ? 'Common to every ' + (u ? u[0] : 'column') : (cols.length ? 'Common' : 'Options seen') }));
+      var grid = el('div', { 'class': 'po-grid' });
+      lines.common.forEach(function (ln) {
+        var vals = el('div', { 'class': 'po-vals' }), row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
+        chipsOf(lineAll(ln)).forEach(function (ch) { vals.appendChild(chipNode(ch, edit)); });
+        lineExtras(c, ln, edit, function () { return row; }).forEach(function (n) { vals.appendChild(n); });
+        row.appendChild(el('div', { 'class': 'po-name' }, [edit ? tickBox(ln.keys, ln.name, row) : null, document.createTextNode(lineName(ln))]));
+        row.appendChild(vals);
+        var t = lineTools(c, ln, edit, function () { return row; }); if (t) row.appendChild(t);
+        grid.appendChild(row);
       });
-      var hereTiles = Object.keys(tiles).filter(function (id) { return !tiles[id].leadShown && tiles[id].home === s.name; });
-      var leadHere = live.some(function (r) { var L = leadOf(r.key); return L && tiles[L.id]; });
-      live.forEach(function (r) { if (!r.off) { nRows++; keys[r.key] = 1; nVals += r.values.filter(function (v) { return !v.hidden; }).length; } });
-      var secHit = q && q.split(/\s+/).every(function (w) { return low(s.name).indexOf(w) >= 0; });
-      var rows = live.filter(function (r) { return secHit || matches(q, s, r); });
-      var extras = model ? [] : s.extras.filter(function (x) { return secHit || !q || matches(q, { name: s.name, extras: [x] }); });
-      var keepForTiles = hereTiles.length || (leadHere && !rows.length);
-      if (!rows.length && !extras.length && !keepForTiles && !(edit && !q && !model)) return;
-      drawn++;
+      body.appendChild(grid);
+    }
+    // accessories offered (the Options List lines)
+    if (lines.access.length) {
+      body.appendChild(el('p', { 'class': 'po-part', text: 'Accessories offered' }));
+      var acc = []; lines.access.forEach(function (ln) { acc = acc.concat(lineAll(ln)); });
+      var av = el('div', { 'class': 'po-vals po-acc' });
+      chipsOf(acc).forEach(function (ch) { av.appendChild(chipNode(ch, edit)); });
+      var aln = { name: 'Accessories', sub: '', keys: [].concat.apply([], lines.access.map(function (l) { return l.keys; })), off: lines.access.every(function (l) { return l.off; }),
+                  rows: lines.access[0].rows, extras: [].concat.apply([], lines.access.map(function (l) { return l.extras; })), loose: acc, cells: {} };
+      lineExtras(c, aln, edit, function () { return av; }).forEach(function (n) { av.appendChild(n); });
+      body.appendChild(av);
+      var at = lineTools(c, aln, edit, function () { return av; }); if (at) body.appendChild(at);
+    }
+    // one table per family (EC Fans, DIDW Fans) or one for the card: a column per model
+    var families = []; cols.forEach(function (cc) { if (families.indexOf(cc.family) < 0) families.push(cc.family); });
+    // duty figures are folded away until asked for (a search shows them): the options stay readable
+    var showDuty = !!expanded['duty:' + c.id] || !!q;
+    var dutyCols = showDuty ? lines.duty.filter(function (ln) { return cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }); }) : [];
+    if (cols.length) families.forEach(function (fam) {
+      var fc = cols.filter(function (cc) { return cc.family === fam; });
+      if (fam) body.appendChild(el('p', { 'class': 'po-part', text: fam }));
+      body.appendChild(modelTable(c, fc, lines.model, dutyCols, edit));
+    });
+    if (lines.duty.length && !q) body.appendChild(el('button', { type: 'button', 'class': 'po-more po-duty-toggle', 'aria-expanded': showDuty ? 'true' : 'false',
+      text: showDuty ? 'Hide duty figures' : 'Show duty figures (' + lines.duty.length + ')', title: 'Flows, pressures, sizes ... seen on the selections so far: not options and not limits.',
+      onclick: function () { expanded['duty:' + c.id] = !showDuty; render(); } }));
+    // duty seen for the whole card (and figures read before the columns existed)
+    var dutyLoose = showDuty ? lines.duty.filter(function (ln) { return ln.loose.length || (edit && !lineAll(ln).length); }) : [];
+    if (dutyLoose.length) {
+      body.appendChild(el('p', { 'class': 'po-part', text: 'Duty seen', title: 'Figures of one selection: what was selected so far, not a limit of the factory.' }));
+      var dg = el('div', { 'class': 'po-grid duty' });
+      dutyLoose.forEach(function (ln) {
+        var row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
+        row.appendChild(el('div', { 'class': 'po-name' }, [edit ? tickBox(ln.keys, ln.name, row) : null, document.createTextNode(lineName(ln))]));
+        var dv = el('div', { 'class': 'po-vals' }, [el('span', { 'class': 'po-duty', text: dutyText(ln.loose) || '-' })]);
+        lineExtras(c, ln, edit, function () { return row; }).forEach(function (n) { dv.appendChild(n); });
+        row.appendChild(dv);
+        if (edit) { var t = lineTools(c, ln, edit, function () { return row; }); if (t) row.appendChild(t); }
+        dg.appendChild(row);
+      });
+      body.appendChild(dg);
+    }
+    if (!body.childNodes.length) body.appendChild(el('p', { 'class': 'hint', text: 'Nothing here yet.' }));
+    return d;
+  }
 
-      var body = el('div', { 'class': 'po-body' }), ck = (model ? 'm:' + low(model) + ':' : '') + low(s.name);
-      var d = el('details', { 'class': 'po-sec', open: q ? true : !closed[ck] }, [
-        el('summary', {}, [el('span', { text: s.name }), el('span', { 'class': 'count',
-          text: [rows.length ? rows.length + (rows.length === 1 ? ' component' : ' components') : '',
-                 (model ? 0 : s.extras.length) + live.reduce(function (n, r) { return n + r.extras.length; }, 0) ? 'special options and notes' : ''].filter(Boolean).join(' · ') })]),
-        body
-      ]);
-      d.addEventListener('toggle', function () { if (!q) closed[ck] = !d.open; });
-
-      if (!model) {
-        var ctx = { where: s.name, anchor: function () { return sx; } };
-        var sx = el('div', { 'class': 'po-secx' }, extraNodes(extras, ctx, edit));
-        if (edit) sx.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return sx; }, s.name, '', s.name, true)));
-        if (sx.childNodes.length) body.appendChild(sx);
+  /* the columns of one card: the options that differ, then the duty figures seen with each column */
+  function modelTable(c, cols, model, duty, edit) {
+    var narrow = window.matchMedia('(max-width: 560px)').matches, first = narrow ? 140 : 210, w = cols.length > 6 ? 170 : 200;
+    var head = el('tr', {}, [el('th', { text: c.cols.length && cols[0] ? cols[0].label : 'Component' })].concat(cols.map(function (cc) {
+      // the column's own name (fan model, filter class ...) may wait for approval too
+      var headWait = []; c.heads.forEach(function (ln) { headWait = headWait.concat(waitItems(ln.cells[cc.key] || [])); });
+      var th = el('th', { 'class': 'unit' }, [el('div', { text: cc.head }), el('small', { text: cc.n ? times(cc.n) : '' }),
+        headWait.length ? el('b', { 'class': 'po-wait-tag', text: ' to approve' }) : null]);
+      if (tree.can_approve) {
+        var w8 = headWait.slice(); model.forEach(function (ln) { w8 = w8.concat(waitItems(ln.cells[cc.key] || [])); });
+        if (w8.length) th.appendChild(xbtn('Approve ' + w8.length, function (e) { busy(e.currentTarget, approveMany(w8, true), w8.length + (w8.length === 1 ? ' value' : ' values') + ' of ' + cc.head + ' approved.'); }));
       }
+      return th;
+    })));
+    var body = el('tbody');
+    function cellsRow(ln, dutyRow) {
+      var tr = el('tr', { 'class': (ln.off ? 'off' : '') + (dutyRow ? ' duty' : '') || null });
+      var name = el('td', { 'class': 'comp' }, [edit ? tickBox(ln.keys, ln.name, tr) : null, document.createTextNode(lineName(ln))]);
+      lineExtras(c, ln, edit, function () { return name; }).forEach(function (n) { name.appendChild(n); });
+      var t = dutyRow ? (edit ? el('div', { 'class': 'po-tools' }, [leaveOut(ln.keys, ln.off)]) : null) : lineTools(c, ln, edit, function () { return name; });
+      if (t) name.appendChild(t);
+      tr.appendChild(name);
+      cols.forEach(function (cc) {
+        var list = ln.cells[cc.key] || [], td = el('td');
+        if (!list.length) td.appendChild(el('span', { 'class': 'muted', text: '-' }));
+        else if (dutyRow) td.appendChild(el('span', { 'class': 'po-duty', text: dutyText(list) }));
+        else chipsOf(list).forEach(function (ch) { td.appendChild(chipNode(ch, edit)); });
+        tr.appendChild(td);
+      });
+      return tr;
+    }
+    model.forEach(function (ln) { if (cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }) || edit) body.appendChild(cellsRow(ln, false)); });
+    if (c.sides.length > 1) {
+      body.appendChild(el('tr', { 'class': 'used' }, [el('td', { 'class': 'comp', text: 'Used in' })].concat(cols.map(function (cc) {
+        return el('td', { text: Object.keys(cc.sides).join(' · ') || '-' });
+      }))));
+    }
+    var dl = duty.filter(function (ln) { return cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }); });
+    if (dl.length) {
+      body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(cols.length + 1), text: 'Duty seen with each ' + ((UNIT[c.id] || ['column'])[0]) + ': figures of the selections so far, not limits' })]));
+      dl.forEach(function (ln) { body.appendChild(cellsRow(ln, true)); });
+    }
+    var table = el('table', { 'class': 'table po-matrix', style: 'width:' + (first + w * cols.length) + 'px' }, [
+      el('colgroup', {}, [first].concat(cols.map(function () { return w; })).map(function (x) { return el('col', { style: 'width:' + x + 'px' }); })),
+      el('thead', {}, [head]), body]);
+    return el('div', { 'class': 'po-cols' }, [el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': c.name + ', one column per ' + ((UNIT[c.id] || ['column'])[0]) }, [table])]);
+  }
 
-      // values of one item kept together (owner, 20 Oct 2026): Filter 1 (its class, name, material, sizes, pressure
-      // drops) and Filter 2 are two groups; the EN 1886 classes are grouped under the profile they belong to
-      var groups = [];
-      if (!model) rows.forEach(function (r) { r.values.forEach(function (v) { if (v.g && groups.indexOf(v.g) < 0) groups.push(v.g); }); });
-      // values read before the groups (20 Oct 2026) in rows that now have groups: admins can remove them
-      var stale = 0;
-      if (groups.length) rows.forEach(function (r) { if (r.values.some(function (v) { return v.g; })) stale += r.values.filter(function (v) { return !v.g; }).length; });
-      rows.forEach(function (r) { if (r.moved) stale += r.values.length; });
-      if (stale && tree.can_approve) body.appendChild(el('div', { 'class': 'notice warn po-stale' }, [
-        el('span', { text: stale + (stale === 1 ? ' value' : ' values') + ' of this section were saved before values were grouped (20 Oct 2026), so they belong to no filter or profile. Read the datasheets again to have them grouped, then remove the old ones. ' }),
-        el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove values without a group', onclick: function (e) {
-          var btn = e.currentTarget;
-          window.Hub.confirm('Remove the ' + stale + ' values of ' + s.name + ' (' + tree.factory.name + ') that have no group? The grouped values stay. A datasheet read again brings them back in their group.', { title: 'Remove values without a group', ok: 'Remove', danger: true }).then(function (yes) {
-            if (yes) busy(btn, Api.poAdminClearUngrouped(window.Hub.token(), { factoryId: tree.factory.id, section: s.name }), 'Removed.');
-          });
-        } })]));
-      var sub = '', tooled = {};
-      rows.forEach(function (r) {
-        var plain = groups.length ? r.values.filter(function (v) { return !v.g; }) : r.values;
-        if (groups.length && !plain.length && !r.extras.length && r.values.length) return;   // shown in its groups only
-        if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('div', { 'class': 'po-sub', text: sub })); }
-        tooled[r.key] = 1;
-        body.appendChild(rowNode(s, groups.length ? Object.assign({}, r, { values: plain }) : r, edit));
-        var L = leadOf(r.key);
-        if (L && tiles[L.id]) tileNodes(tiles[L.id], q, edit).forEach(function (t) { body.appendChild(t); });
-      });
-      hereTiles.forEach(function (id) { tileNodes(tiles[id], q, edit).forEach(function (t) { body.appendChild(t); }); });
-      groups.forEach(function (g) {
-        var box = el('div', { 'class': 'po-group' }, [el('div', { 'class': 'po-group-name', text: g })]);
-        rows.forEach(function (r) {
-          var vals = r.values.filter(function (v) { return v.g === g; });
-          if (!vals.length) return;
-          box.appendChild(rowNode(s, Object.assign({}, r, { values: vals, extras: [], grp: g, noTools: !!tooled[r.key] }), edit));
-          tooled[r.key] = 1;
+  /* values saved before the columns of this card existed (21 Oct 2026): read the datasheets again, then remove them */
+  function staleNotice(c) {
+    var groups = Object.keys(c.staleGroups);
+    return el('div', { 'class': 'notice warn po-stale' }, [
+      el('span', { text: plural(c.stale, 'value', 'values') + ' of ' + c.name + ' were read before the values were kept per ' + ((UNIT[c.id] || ['model'])[0]) +
+        ', so they belong to no column. Read the datasheets again to have them placed, then remove the old ones. ' }),
+      el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove old readings', onclick: function (e) {
+        var btn = e.currentTarget;
+        window.Hub.confirm('Remove the values of ' + c.name + ' (' + tree.factory.name + ') that belong to no column? The values in columns stay. A datasheet read again brings them back in their column.',
+          { title: 'Remove old readings', ok: 'Remove', danger: true }).then(function (yes) {
+          if (!yes) return;
+          var chain = Promise.resolve();
+          c.sections.forEach(function (sec) { chain = chain.then(function () { return Api.poAdminClearUngrouped(window.Hub.token(), { factoryId: tree.factory.id, section: sec, groups: groups }).then(null, function () { /* nothing there */ }); }); });
+          busy(btn, chain, 'Removed.');
         });
-        body.appendChild(box);
-      });
-      wrap.appendChild(d);
+      } })]);
+  }
+
+  /* the cards of a factory, in datasheet order; extrasOnly (FCU): only the special options and notes */
+  function drawCards(q, edit, extrasOnly, skip) {
+    var wrap = el('div', { 'class': 'po-cards' }), cards = buildCards(edit, extrasOnly), drawn = 0, nVals = 0, names = [];
+    cards.forEach(function (c) {
+      if (skip && skip(c)) return;
+      c.lines.forEach(function (ln) { if (ln.kind !== 'duty') nVals += lineAll(ln).filter(function (x) { return !x.v.hidden; }).length; });
+      var n = cardNode(c, q, edit);
+      if (!n) return;
+      drawn++; names.push(c); wrap.appendChild(n);
     });
-    return { wrap: wrap, drawn: drawn, rows: nRows, values: nVals, keys: keys };
+    return { wrap: wrap, drawn: drawn, values: nVals, cards: names };
+  }
+  /* jump to a card */
+  function cardStrip(cards) {
+    return el('nav', { 'class': 'po-strip', 'aria-label': 'Sections' }, cards.map(function (c) {
+      var u = UNIT[c.id];
+      return el('button', { type: 'button', 'class': 'po-jump', text: c.name + (c.cols.length && u ? ' · ' + c.cols.length : ''), onclick: function () {
+        var d = $('po-card-' + c.id.replace(/[^a-z0-9]+/gi, '-'));
+        if (!d) return;
+        d.open = true; closed['card:' + c.id] = false;
+        d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } });
+    }));
   }
 
   /* FCU: one table per series. Rows = section > component, one column per model, so the models
@@ -485,12 +750,11 @@
         if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(nCols), text: sub })])); }
         var xcell = el('div', { 'class': 'po-vals' }), ctx = { where: s.name + ' > ' + r.name, anchor: function () { return xcell; } };
         extraNodes(r.extras, ctx, edit).forEach(function (n) { xcell.appendChild(n); });
-        if (edit) xcell.appendChild(el('div', { 'class': 'po-tools' }, [].concat(addButtons(function () { return xcell; }, s.name, r.key, ctx.where), [
-          xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
-            busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
-                 r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
-          }, !r.off)])));
-        var tr = el('tr', { 'class': (r.off ? 'off' : '') + (ln.differs ? ' differs' : '') || null }, [el('td', { 'class': 'comp', text: r.name + (r.off ? ' (left out)' : '') })]);
+        // Approve all / Reject all: the values of this row that wait, in the models of this series
+        var waits = rowWaitButtons(r.values.filter(function (v) { return v.wait && names.indexOf(v.model) >= 0; }).map(function (v) { return item(r.key, v); }), r.name + ' (series ' + sr.name + ')');
+        if (edit || waits.length) xcell.appendChild(el('div', { 'class': 'po-tools' }, (edit ? addButtons(function () { return xcell; }, s.name, r.key, ctx.where) : []).concat(waits, edit ? [leaveOut([r.key], r.off)] : [])));
+        var tr = el('tr', { 'class': (r.off ? 'off' : '') + (ln.differs ? ' differs' : '') || null });
+        tr.appendChild(el('td', { 'class': 'comp' }, [edit ? tickBox([r.key], r.name, tr) : null, document.createTextNode(r.name + (r.off ? ' (left out)' : ''))]));
         ln.cells.forEach(function (vals, i) {
           var mk = ln.marks[i], td = el('td', { 'class': mk ? 'diff d' + ((mk - 1) % 5 + 1) : null, title: mk ? 'Differs from ' + cols[0].model : null });
           var xk = cols[i].model + '|' + r.key, all = expanded[xk] || edit || vals.length <= 4;
@@ -547,11 +811,14 @@
     host.textContent = '';
     $('po-edit-note').hidden = !edit;
     waitBar();
+    pickBar();
 
-    var parts = [], series = modelMode() ? seriesList() : [];
+    var parts = [], series = modelMode() ? seriesList() : [], cardsShown = [];
     if (!modelMode()) {
-      var g = drawSections(secs, q, edit, '', false);
-      drawn = g.drawn; nRows = g.rows; nVals = g.values; parts.push(g.wrap);
+      var g = drawCards(q, edit, false);
+      drawn = g.drawn; nVals = g.values; cardsShown = g.cards;
+      if (g.cards.length > 1 && !q) parts.push(cardStrip(g.cards));
+      parts.push(g.wrap);
     } else {
       var words = q ? q.split(/\s+/) : [], only = $('po-only').checked, inTable = {};
       series.forEach(function (sr) {
@@ -572,7 +839,7 @@
       });
       nRows = Object.keys(distinct).length;
       // sections that have only special options and notes (no datasheet values in any series)
-      var x = drawSections(secs.filter(function (s) { return !inTable[low(s.name)]; }), q, edit, '', true);
+      var x = drawCards(q, edit, true, function (c) { return c.sections.length && c.sections.every(function (n) { return inTable[low(n)]; }); });
       if (x.drawn) {
         drawn += x.drawn;
         var xk = 'series:all';
@@ -587,8 +854,8 @@
     $('po-only-wrap').hidden = !modelMode();
 
     var facts = $('po-facts'); facts.textContent = '';
-    [modelMode() ? series.length + (series.length === 1 ? ' series' : ' series') + ', ' + tree.models.length + (tree.models.length === 1 ? ' model' : ' models') : secs.length + (secs.length === 1 ? ' section' : ' sections'),
-     nRows + (nRows === 1 ? ' component' : ' components'), nVals + (nVals === 1 ? ' value' : ' values'),
+    [modelMode() ? series.length + (series.length === 1 ? ' series' : ' series') + ', ' + tree.models.length + (tree.models.length === 1 ? ' model' : ' models') : cardsShown.length + (cardsShown.length === 1 ? ' section' : ' sections'),
+     modelMode() ? nRows + (nRows === 1 ? ' component' : ' components') : '', nVals + (nVals === 1 ? (modelMode() ? ' value' : ' option seen') : (modelMode() ? ' values' : ' options seen')),
      nExtra ? nExtra + ' special options and notes' : '', tree.waiting ? tree.waiting + ' to approve' : '', tree.updated ? 'Last datasheet ' + when(tree.updated) : '']
       .filter(Boolean).forEach(function (t) { facts.appendChild(el('span', { 'class': 'badge', text: t })); });
 
@@ -611,7 +878,8 @@
     if (drawn || edit) {
       host.appendChild(el('div', { 'class': 'po-root' }, [
         el('span', { text: tree.factory.product }), el('span', { 'class': 'badge', text: tree.factory.name + ' factory' }),
-        modelMode() ? el('span', { 'class': 'hint', text: 'One table per series, one column per model, with the values its units had on the datasheets run so far. Scroll sideways to see every model.' }) : null]));
+        el('span', { 'class': 'hint', text: modelMode() ? 'One table per series, one column per model, with the values its units had on the datasheets run so far. Scroll sideways to see every model.'
+          : 'Each section shows what is common to every unit seen, the accessories offered, one column per model (filter class, fan model, model box ...) and the duty figures seen. Both factories can offer any option; a value not listed is not known yet.' })]));
       parts.forEach(function (n) { host.appendChild(n); });
     }
     if (edit && !q) host.appendChild(addSection(secs));
@@ -651,7 +919,7 @@
   /* ---------- controls ---------- */
   var timer;
   search.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(render, 150); });
-  $('po-edit').addEventListener('change', render);
+  $('po-edit').addEventListener('click', function () { setEdit(!editOn); });
   $('po-only').addEventListener('change', render);
   function setAll(open) {
     if (!tree) return;
@@ -661,10 +929,35 @@
       sr.models.forEach(function (m) { closed['model:' + low(m.model)] = !open; build().forEach(function (s) { closed['m:' + low(m.model) + ':' + low(s.name)] = !open; }); });
     });
     closed['series:all'] = !open;
+    buildCards(false, false).forEach(function (c) { closed['card:' + c.id] = !open; });
     render();
   }
   $('po-open').addEventListener('click', function () { setAll(true); });
   $('po-close').addEventListener('click', function () { setAll(false); });
+
+  /* AHU Excel: the cards as a user sees them (nothing taken out, nothing waiting): one row per component and column */
+  function ahuRows(txt) {
+    var keep = onlyWait, out = [['Section', 'Column', 'Component', 'What it is', 'Seen on datasheets', 'Special options', 'Notes']];
+    onlyWait = false;
+    var cards = buildCards(false, false);
+    onlyWait = keep;
+    function ok(list) { return list.filter(function (x) { return !x.v.hidden && !x.v.wait; }); }
+    function seen(list) { return cellText(chipsOf(ok(list)).map(function (ch) { return { v: ch.text, n: ch.n }; })); }
+    function colName(cc) { return (cc.family ? cc.family + ' · ' : '') + cc.label + ': ' + cc.head; }
+    cards.forEach(function (c) {
+      if (c.extras.length) out.push([c.name, '', '(whole section)', '', '', txt(c.extras, 'option'), txt(c.extras, 'note')]);
+      c.common.forEach(function (ln) { var v = seen(lineAll(ln)); if (v || ln.extras.length) out.push([c.name, 'All', lineName(ln), 'Common', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
+      var acc = []; c.access.forEach(function (ln) { acc = acc.concat(lineAll(ln)); });
+      if (ok(acc).length) out.push([c.name, 'All', 'Accessories', 'Accessory', seen(acc), '', '']);
+      c.cols.forEach(function (cc) {
+        c.model.forEach(function (ln) { var v = seen(ln.cells[cc.key] || []); if (v) out.push([c.name, colName(cc), lineName(ln), 'Model-specific', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
+        c.duty.forEach(function (ln) { var v = dutyText(ok(ln.cells[cc.key] || [])); if (v) out.push([c.name, colName(cc), lineName(ln), 'Duty (seen)', v, '', '']); });
+      });
+      c.duty.forEach(function (ln) { var v = dutyText(ok(ln.loose)); if (v) out.push([c.name, 'All', lineName(ln), 'Duty (seen)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
+      c.model.forEach(function (ln) { var v = seen(ln.loose); if (v) out.push([c.name, 'Read before columns', lineName(ln), 'Model-specific', v, '', '']); });
+    });
+    return out;
+  }
 
   /* Excel: what a user sees (nothing that was taken out, nothing that waits for approval), one row per component */
   $('po-download').addEventListener('click', function () {
@@ -696,10 +989,11 @@
         gs.forEach(function (g) { byG[g].forEach(function (x) { rows.push(lead.concat([s.name, g, x.r.name, cellText(x.vals), '', ''])); }); });
       });
     }
+    var widths = (byModel ? [12, 16] : []).concat([26, 24, 32, 44, 36, 44]);
     if (byModel) { seriesList().forEach(function (sr) { sr.models.forEach(function (m) { block(m.model, sr.name); }); }); block('', 'All models'); }
-    else block('', '');
+    else { rows = ahuRows(txt); widths = [20, 30, 32, 16, 44, 36, 44]; }
     var name = tree.factory.product + ' ' + tree.factory.name + ' - Product Options.xlsx';
-    var blob = window.POXlsx.build(rows, 'Product Options', (byModel ? [12, 16] : []).concat([26, 24, 32, 44, 36, 44]));
+    var blob = window.POXlsx.build(rows, 'Product Options', widths);
     var a = el('a', { href: URL.createObjectURL(blob), download: name });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);

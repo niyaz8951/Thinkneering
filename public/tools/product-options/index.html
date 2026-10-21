@@ -103,8 +103,51 @@
   .po-matrix .po-tools { gap: 10px; }
   .po-matrix .po-form { min-width: 0; }
   .po-add { margin: 10px 0 0 27px; }
+  /* Edit: a toggle button like Expand all / Collapse all; pressed = editing (21 Oct 2026) */
+  .btn.po-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--brand) 14%, var(--surface)); border-color: var(--brand); color: var(--brand-strong); }
+  .btn.po-toggle[aria-pressed="true"]::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
+  /* rows ticked for "Leave out rows" */
+  .po-tick { width: 16px; height: 16px; margin: 0 7px 0 0; vertical-align: -3px; accent-color: var(--brand); cursor: pointer; }
+  .po-row.picked, .po-matrix tr.picked td { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+  .po-pickbar { position: sticky; bottom: 12px; z-index: 6; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                padding: 10px 14px; border: 1px solid var(--brand); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-lift); }
+  .po-pickbar strong { margin-right: auto; }
+  /* a group shown as one table, one column per value (locations, fan models) */
+  .po-cols { margin-top: 10px; }
+  .po-cols .po-matrix-wrap { max-height: none; }
+  .po-matrix th.unit small.lbl { display: block; font-size: 11px; font-weight: 600; color: var(--text-soft); text-transform: none; }
+  .po-matrix td.comp .po-tools { margin-top: 6px; gap: 8px; font-weight: 400; }
+  .po-cols .po-chip { margin: 0 4px 4px 0; flex-wrap: wrap; row-gap: 2px; }
+  .po-cols .po-chip .po-x { white-space: nowrap; }
+  /* AHU cards (21 Oct 2026): common, accessories, a column per model, duty seen */
+  .po-cards { margin-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .po-card { margin-top: 0; min-width: 0; }
+  .po-cols .po-matrix .po-chip { border-radius: 10px; }
+  .po-x { white-space: nowrap; }
+  .po-chip.wait { flex-wrap: wrap; border-radius: 12px; row-gap: 2px; }
+  .po-card::before { display: none; }
+  .po-part { margin: 14px 0 6px; font-size: 12px; font-weight: 650; color: var(--text-soft); }
+  .po-grid { display: grid; }
+  .po-line { display: grid; grid-template-columns: minmax(140px, 230px) 1fr; gap: 4px 14px; padding: 7px 0; border-top: 1px solid var(--border); }
+  .po-line:first-child { border-top: 0; }
+  .po-line.off { opacity: .6; }
+  .po-line > .po-tools { grid-column: 1 / -1; }
+  .po-line.picked { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+  .po-duty { font-size: 14px; color: var(--text-soft); }
+  .po-grid.duty .po-name { font-weight: 500; color: var(--text-soft); }
+  .po-acc { margin-bottom: 4px; }
+  .po-matrix tr.duty td { color: var(--text-soft); }
+  .po-matrix tr.used td { font-size: 13px; color: var(--text-soft); }
+  .po-matrix th.unit .po-x { display: block; margin-top: 4px; padding: 0; }
+  .po-matrix td.comp .po-note { margin-top: 4px; font-weight: 400; }
+  .po-duty-toggle { display: block; margin-top: 10px; padding-left: 0; }
+  .po-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .po-jump { font: inherit; font-size: 13px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  .po-jump:hover { border-color: var(--brand); color: var(--brand-strong); }
+  .po-jump:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   @media (max-width: 560px) {
     .po-row { grid-template-columns: 1fr; }
+    .po-line { grid-template-columns: 1fr; }
     .po-tree { margin-left: 2px; padding-left: 10px; }
     .po-sec::before { left: -11px; width: 10px; }
     .po-add { margin-left: 14px; }
@@ -147,18 +190,19 @@
         </div>
         <div class="row">
           <label class="check" id="po-only-wrap" hidden><input type="checkbox" id="po-only"> Only rows that differ</label>
-          <label class="check" id="po-edit-wrap" hidden><input type="checkbox" id="po-edit"> Edit</label>
+          <button type="button" class="btn ghost sm po-toggle" id="po-edit" aria-pressed="false" title="Edit the tree: special options, notes, take out values, leave out rows" hidden>Edit</button>
           <button type="button" class="btn ghost sm" id="po-open">Expand all</button>
           <button type="button" class="btn ghost sm" id="po-close">Collapse all</button>
           <button type="button" class="btn sm" id="po-download">Download Excel</button>
         </div>
       </div>
-      <div class="notice" id="po-edit-note" hidden>Edit is on. Add a special option or a note to a section or a row, and take out values or rows that are not options (airflow, pressure drop). "Leave out row" applies to every factory of this product; everything else is for this factory only.</div>
+      <div class="notice" id="po-edit-note" hidden>Edit is on. Add a special option or a note to a section or a row, and take out values or rows that are not options (airflow, pressure drop). Tick several rows to leave them out together. "Leave out row" applies to every factory of this product; everything else is for this factory only. Whether a row is an option or a duty figure is set on the Row mapping page (Kind).</div>
       <div class="notice warn" id="po-wait" role="status" hidden></div>
       <div class="notice error" id="po-error" role="alert" hidden></div>
       <div class="empty" id="po-empty" hidden></div>
       <div id="po-tree-host"></div>
-      <p class="hint">Values are as printed on the datasheets run so far, for the rows the product's row mapping shows (one mapping per product, the same for every factory and every user). "Seen n times" is how often the value turned up; a datasheet run again is counted again.
+      <div class="po-pickbar" id="po-pickbar" role="region" aria-label="Ticked rows" hidden></div>
+      <p class="hint">Values are as printed on the datasheets run so far, for the rows the product's row mapping shows (one mapping per product, the same for every factory and every user). "Seen n times" is how often the value turned up; a datasheet run again is counted again. Duty figures (flows, pressures, sizes ...) are what was selected so far, shown from lowest to highest; they are not options and not limits.
         A value not listed here is not known yet, it does not mean the factory cannot offer it. Confirm special requests with the factory.</p>
     </section>
   </div>

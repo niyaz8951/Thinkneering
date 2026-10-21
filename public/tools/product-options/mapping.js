@@ -34,9 +34,10 @@
       sample: onSheet ? src.value : null, onSheet: onSheet, saved: !!rule, isNew: !!(rule && rule['new']),
       show: rule ? rule.show !== false : unmappedSel.value === 'show',
       label: rule ? rule.label || '' : '', strip: rule ? rule.strip || '' : '', response: rule ? rule.response || '' : '',
-      keywords: rule ? rule.keywords || '' : ''
+      keywords: rule ? rule.keywords || '' : '',
+      kind: rule ? rule.kind || '' : '', auto: rule ? rule.auto_kind || '' : ''     // Product Options: option / duty (21 Oct 2026)
     };
-    r.orig = { show: r.show, label: r.label, strip: r.strip, response: r.response, keywords: r.keywords };
+    r.orig = { show: r.show, label: r.label, strip: r.strip, response: r.response, keywords: r.keywords, kind: r.kind };
     return r;
   }
 
@@ -70,7 +71,7 @@
   /* A row a user's datasheet added (marked New) is already saved, so it is not a change: it does not
      count and does not trigger the leave warning. Save stays possible while there are New rows, so the
      admin can confirm them (saving clears the New mark). */
-  function changed(r) { return !r.saved || r.show !== r.orig.show || r.label.trim() !== r.orig.label || r.strip.trim() !== r.orig.strip || r.response.trim() !== r.orig.response || r.keywords.trim() !== r.orig.keywords; }
+  function changed(r) { return !r.saved || r.show !== r.orig.show || r.label.trim() !== r.orig.label || r.strip.trim() !== r.orig.strip || r.response.trim() !== r.orig.response || r.keywords.trim() !== r.orig.keywords || r.kind !== r.orig.kind; }
   function pending() {
     var n = list.filter(changed).length + removed.length;
     if ((unmappedSel.value === 'show') !== savedUnmapped) n++;
@@ -101,7 +102,7 @@
         group = r.group;
         var g = group;
         r_count[g] = el('span', { 'class': 'small muted', text: groupCount(g) });
-        frag.appendChild(el('tr', { 'class': 'group', 'data-group': g }, el('td', { colspan: '7' }, el('div', { 'class': 'dm-group' }, [
+        frag.appendChild(el('tr', { 'class': 'group', 'data-group': g }, el('td', { colspan: '8' }, el('div', { 'class': 'dm-group' }, [
           el('span', {}, [g + '  ', r_count[g]]),
           el('span', { 'class': 'row' }, [
             el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Show all', onclick: function () { setGroup(g, true); } }),
@@ -126,6 +127,14 @@
     var tr = el('tr', { 'data-group': r.group });
     var strip = el('input', { 'class': 'input', maxlength: '300', placeholder: 'Nothing', 'aria-label': 'Text to remove from the value of ' + name });
     var keys = el('textarea', { 'class': 'input dm-keys', maxlength: '600', rows: '1', placeholder: 'None', 'aria-label': 'Specification keywords for ' + name });
+    // what the row is in Product Options: Auto (by its name), an option of the unit, or a duty figure shown as a range
+    var AUTO = { option: 'option', duty: 'duty figure', accessory: 'accessory', project: 'not shown (project)', hide: 'not shown (note)' };
+    var kind = el('select', { 'class': 'input', 'aria-label': 'In Product Options, ' + name }, [
+      option('', 'Auto' + (r.auto ? ': ' + AUTO[r.auto] : '')), option('option', 'Option'), option('duty', 'Duty figure')]);
+    kind.value = r.kind;
+    kind.disabled = r.auto === 'accessory' || r.auto === 'hide';
+    kind.title = kind.disabled ? 'Options List lines and printed notes keep their place.' : 'Option: waits for approval and shows per model. Duty figure: shown as lowest to highest, never waits.';
+    kind.addEventListener('change', function () { r.kind = kind.value; refreshSave(); });
     check.checked = r.show; label.value = r.label; strip.value = r.strip; resp.value = r.response; keys.value = r.keywords;
 
     function paint() {
@@ -158,6 +167,7 @@
     tr.appendChild(el('td', {}, resp));
     tr.appendChild(result);
     tr.appendChild(el('td', {}, keys));
+    tr.appendChild(el('td', {}, kind));
     paint();
     return tr;
   }
@@ -240,10 +250,10 @@
     if (busy || !productId) return;
     busy = true; saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; fail('');
     var id = productId, show = unmappedSel.value === 'show';
-    var rules = list.map(function (r) { return { key: r.key, section: r.group, sub: r.sub, component: r.component, show: r.show, label: r.label.trim(), strip: r.strip.trim(), response: r.response.trim(), keywords: r.keywords.trim() }; });
+    var rules = list.map(function (r) { return { key: r.key, section: r.group, sub: r.sub, component: r.component, show: r.show, label: r.label.trim(), strip: r.strip.trim(), response: r.response.trim(), keywords: r.keywords.trim(), kind: r.kind }; });
     window.Api.dnAdminSaveRules(window.Hub.token(), { productId: id, showUnmapped: show, rules: rules, remove: removed }).then(function () {
       if (productId !== id) return;
-      list.forEach(function (r) { r.saved = true; r.isNew = false; r.label = r.label.trim(); r.strip = r.strip.trim(); r.response = r.response.trim(); r.keywords = r.keywords.trim(); r.orig = { show: r.show, label: r.label, strip: r.strip, response: r.response, keywords: r.keywords }; });
+      list.forEach(function (r) { r.saved = true; r.isNew = false; r.label = r.label.trim(); r.strip = r.strip.trim(); r.response = r.response.trim(); r.keywords = r.keywords.trim(); r.orig = { show: r.show, label: r.label, strip: r.strip, response: r.response, keywords: r.keywords, kind: r.kind }; });
       removed = []; savedUnmapped = show;
       render(); describe();
       window.Hub.toast('Mapping saved.');
