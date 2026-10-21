@@ -8,6 +8,8 @@
    header row filled, every cell bordered and wrapped, Remarks left
    empty to fill in. With several units, one line under the table
    says what the coloured cells mean (the table itself is not moved).
+   A row whose value is the same for every unit is one merged, centred cell across the unit columns
+   (owner, 21 Oct 2026); only rows that differ show a value per unit.
    Print: row 1 repeats on every page. Up to FIT_UNITS unit columns
    the sheet prints one page wide; with more, it prints at full size
    and Section and Component repeat on every page.
@@ -60,6 +62,8 @@
     return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  // values compared as Datasheet Notes compares them: case and spacing do not count
+  function norm(v) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase(); }
   function cell(col, row, style, text) {
     var ref = colName(col) + row;
     if (text === '' || text == null) return '<c r="' + ref + '" s="' + style + '"/>';
@@ -69,7 +73,9 @@
   var X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
   var NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
-  /* cell styles: 1 header, 2 section name, 3 body, 4 sub-heading, 5.. body with a "differs" fill */
+  /* cell styles: 1 header, 2 section name, 3 body, 4 sub-heading, 5.. body with a "differs" fill, then the body centred
+     (one merged value for every unit) */
+  var MERGED = 5 + DIFF_FILLS.length;
   function stylesXml() {
     var side = '<left style="thin"><color rgb="' + LINE + '"/></left><right style="thin"><color rgb="' + LINE + '"/></right>' +
                '<top style="thin"><color rgb="' + LINE + '"/></top><bottom style="thin"><color rgb="' + LINE + '"/></bottom><diagonal/>';
@@ -87,9 +93,10 @@
         DIFF_FILLS.map(function (c) { return '<fill><patternFill patternType="solid"><fgColor rgb="' + c + '"/></patternFill></fill>'; }).join('') + '</fills>' +
       '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border>' + side + '</border></borders>' +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-      '<cellXfs count="' + (5 + DIFF_FILLS.length) + '"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<cellXfs count="' + (6 + DIFF_FILLS.length) + '"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
         xf(2, 2) + xf(1, 0) + xf(0, 0) + xf(1, 3) +
-        DIFF_FILLS.map(function (c, i) { return xf(0, 4 + i); }).join('') + '</cellXfs>' +
+        DIFF_FILLS.map(function (c, i) { return xf(0, 4 + i); }).join('') +
+        xf(0, 0).replace('<alignment vertical="center"', '<alignment horizontal="center" vertical="center"') + '</cellXfs>' +
       '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
   }
 
@@ -99,8 +106,21 @@
     var unitWidth = units === 1 ? 56 : units <= 3 ? 40 : 32;
     var WIDTHS = [26, 36].concat(grid.columns.map(function () { return unitWidth; }), [36]);
     var out = ['<row r="1" ht="24" customHeight="1">' + HEAD.map(function (h, i) { return cell(i, 1, 1, h); }).join('') + '</row>'];
+    var merges = [];
+    function same(cells) {
+      if (units < 2 || cells.length !== units) return false;
+      var first = norm(cells[0]);
+      return first !== '' && cells.every(function (v) { return norm(v) === first; });
+    }
     grid.rows.forEach(function (r, i) {
       var n = i + 2, st = r.kind === 'sub' ? 4 : 3;
+      if (r.kind !== 'sub' && !(r.marks && r.marks.some(Boolean)) && same(r.cells || [])) {
+        // the same value for every unit: one merged cell (the other cells keep their borders)
+        merges.push(colName(2) + n + ':' + colName(1 + units) + n);
+        out.push('<row r="' + n + '">' + cell(0, n, 2, r.section) + cell(1, n, st, r.component) +
+                 r.cells.map(function (v, u) { return cell(2 + u, n, MERGED, u === 0 ? v : ''); }).join('') + cell(2 + units, n, st, '') + '</row>');
+        return;
+      }
       out.push('<row r="' + n + '">' + cell(0, n, 2, r.section) + cell(1, n, st, r.component) +
                r.cells.map(function (v, u) {
                  var mk = r.marks ? r.marks[u] : 0;
@@ -110,7 +130,7 @@
     if (units > 1) {            // legend, one empty row below the table: plain cell, no wrap, so the table keeps its place
       out.push('<row r="' + (grid.rows.length + 3) + '">' + cell(0, grid.rows.length + 3, 0,
         'Coloured cells differ from ' + grid.columns[0] + ' (the first unit). One colour for each different value in a row; after ' +
-        DIFF_FILLS.length + ' different values the colours start again.') + '</row>');
+        DIFF_FILLS.length + ' different values the colours start again. A value that is the same for every unit is shown once, across the unit columns.') + '</row>');
     }
     var fit = units <= FIT_UNITS;
     return X + '<worksheet xmlns="' + NS + '">' +
@@ -122,6 +142,7 @@
       '<sheetFormatPr defaultRowHeight="15"/>' +
       '<cols>' + WIDTHS.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join('') + '</cols>' +
       '<sheetData>' + out.join('') + '</sheetData>' +
+      (merges.length ? '<mergeCells count="' + merges.length + '">' + merges.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>' : '') +
       '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>' +
       '<pageSetup paperSize="9" orientation="' + (units > 1 ? 'landscape' : 'portrait') + '"' + (fit ? ' fitToWidth="1" fitToHeight="0"' : '') + '/></worksheet>';
   }
