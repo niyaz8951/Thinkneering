@@ -180,6 +180,16 @@
         </table>
       </div>
       <p class="small muted" id="runInfo"></p>
+      <!-- super user: clean the library of the product and factory chosen above, with its history (cm_reset_library) -->
+      <div class="card stack" id="cleanCard" hidden style="max-width:760px">
+        <h2>Clean this library and its history</h2>
+        <p class="muted small" id="cleanWhat">Choose a product and a factory above.</p>
+        <p class="small">Clears every answer and Internal Comment of the library, its answer history and its conversion and upload history, and removes every clause no project uses. It cannot be undone: download the library first if you may need it.</p>
+        <label class="check"><input type="checkbox" id="cleanProjects"> Also delete the specifications of this product and factory saved in projects, with the answers users typed on them</label>
+        <p class="hint">Without the tick, specifications saved in projects stay and still open; their answers go back to "waiting for review".</p>
+        <div class="row"><button type="button" class="btn danger" id="cleanGo" disabled>Clean this library</button></div>
+        <div class="notice" id="cleanMsg" role="status" hidden></div>
+      </div>
     </section>
 
     <!-- AI RULES: the maps (in Maps) the AI reads for this product and factory; admins and the super user -->
@@ -639,8 +649,33 @@
         ]));
       });
       $("runInfo").textContent = res.total > res.runs.length ? "Latest " + res.runs.length + " of " + res.total + " shown." : "";
+      cleanState();
     }, fail);
   }
+
+  // ---------- clean a library (super user; also on Admin > Compliance Library) ----------
+  var isSuperUser = false;
+  function cleanState() {
+    $("cleanCard").hidden = !isSuperUser;
+    var ok = !!productId() && !!factoryId();
+    $("cleanGo").disabled = !ok;
+    $("cleanWhat").textContent = ok ? "Library: " + productName() + ", " + factoryName() + " factory." : "Choose a product and a factory above.";
+  }
+  $("cleanGo").addEventListener("click", function () {
+    var name = productName(), what = name + ", " + factoryName() + " factory", all = $("cleanProjects").checked, btn = $("cleanGo"), msg = $("cleanMsg");
+    Hub.ask("This empties the compliance library of " + what + " and its history" + (all ? " AND deletes the specifications of this product and factory saved in projects." : ". Specifications saved in projects stay.") + " It cannot be undone.",
+      { title: "Clean " + what + "?", hint: "Type " + name + " to confirm.", placeholder: name, ok: "Clean", danger: true }).then(function (typed) {
+      if (typed === null) return;
+      if (String(typed).trim().toLowerCase() !== name.toLowerCase()) { Hub.toast("Nothing was cleaned: the name typed was not " + name + ".", true); return; }
+      btn.disabled = true; msg.hidden = true;
+      Api.cmResetLibrary(Hub.token(), { productId: productId(), factoryId: factoryId(), withProjects: all }).then(function (r) {
+        btn.disabled = false; msg.hidden = false; msg.className = "notice ok";
+        msg.textContent = what + " is clean: " + r.lines_removed + " clauses removed, " + r.lines_kept + " kept without an answer because a project uses them, " +
+          r.history_removed + " history entries removed" + (all ? ", " + r.records_removed + " project specifications deleted" : "") + ".";
+        Hub.toast("Library cleaned."); loadRuns(); $("factory").dispatchEvent(new Event("change"));
+      }, function (err) { btn.disabled = false; msg.hidden = false; msg.className = "notice error"; msg.textContent = (err && err.message) || String(err); });
+    });
+  });
 
   // ---------- AI rules: the maps the AI reads ----------
   /* The server decides who may see and change this (admins of the tile, the super user); this tab is only
@@ -942,6 +977,8 @@
       return c.admin && c.tools.some(function (t) { return t.id === "compliance-maker"; });
     });
     $("tabRules").hidden = !rulesEditor;
+    isSuperUser = Hub.isSuper(profile.user);
+    $("product").addEventListener("change", cleanState); $("factory").addEventListener("change", cleanState); cleanState();
     Hub.autoHide($("workbar"));
     Hub.more($("btnMore"), [$("btnExport")], "Compliance review");
     return CMHighlight.load(); })

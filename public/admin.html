@@ -308,6 +308,9 @@
     var n = data.users.filter(function (u) { return u.status === "pending"; }).length;
     $("pendingCount").hidden = !n; $("pendingCount").textContent = n;
     var ur = $("userRows"); ur.textContent = ""; data.users.forEach(function (u) { ur.appendChild(userRow(u)); });
+    // no team tile came back: say so instead of an empty column (Admin > Team tiles lists them)
+    if (!data.categories.length) ur.insertBefore(el("tr", {}, [el("td", { colspan: "7" }, [el("div", { "class": "notice warn",
+      text: "No team tiles were found, so tile access cannot be set. Open the Team tiles tab (super user) to check them." })])]), ur.firstChild);
     var tr = $("toolRows"); tr.textContent = "";
     if (!data.tools.length) tr.appendChild(el("tr", {}, [el("td", { colspan: "6", "class": "muted", text: "No tools yet." })]));
     data.tools.forEach(function (t) { tr.appendChild(toolRow(t)); });
