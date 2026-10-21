@@ -65,6 +65,7 @@
     aiVocabCreate: function (t, d) { return rpc("ai_vocab_create", { p_token: t, p_product_id: d.productId, p_name: d.name || "" }); },
     prRunSelection: function (t, runId) { return rpc("pr_run_selection", { p_token: t, p_run_id: runId }); },
     poAdminApprove: function (t, d) { return rpc("po_admin_approve", { p_token: t, p_factory_id: d.factoryId, p_items: d.items || null, p_all: !!d.all, p_approve: !!d.approve }); },
+    poReset: function (t, d) { return rpc("po_reset", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_with_extras: !!d.withExtras, p_with_ai: !!d.withAi }); },
     poAdminClearUngrouped: function (t, d) { return rpc("po_admin_clear_ungrouped", { p_token: t, p_factory_id: d.factoryId, p_section: d.section }); },
     poAdminSetHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: d.key, p_value_key: d.valueKey || "", p_hidden: !!d.hidden, p_model: d.model || "", p_grp: d.grp || "" }); },
     // Projects (every piece of work is saved under one) and the review of users' compliance answers

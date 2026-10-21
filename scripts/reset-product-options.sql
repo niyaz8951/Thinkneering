@@ -1,4 +1,5 @@
 -- Reset Product Options (owner, 21 Oct 2026). Paste into Cloudflare > D1 > thinkneering-db > Console.
+-- The same is on the site: Admin > Products > "Reset product options" (super user). This script is the fallback.
 -- D1 Time Travel can bring the database back to any minute of the last 30 days if needed.
 -- The compliance library is reset on the site instead: Admin > Compliance Library > "Reset a compliance library".
 

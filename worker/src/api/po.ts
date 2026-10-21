@@ -311,6 +311,31 @@ export const routes: Routes = {
     if (!n) fail("Nothing to remove there: no row of this section has values both with and without a group.");
     await audit(env, s.id, "po_clear_ungrouped", f.id, "", { section, values: n });
     return { ok: true, removed: n };
+  },
+
+  /* Reset Product Options (super user, 21 Oct 2026), as "Reset a compliance library" in Admin: every value read from
+     datasheets for the product (or one factory of it) is deleted; the next datasheet read brings them back, grouped,
+     waiting for approval. p_with_extras also deletes the special options and notes typed by editors, p_with_ai the AI
+     notes. The row mapping, the compliance library and the projects' datasheet tables are never touched. */
+  async po_reset(env, p) {
+    const s = (await sessionUser(env, p.p_token)).requireSuper();
+    const productId = str(p.p_product_id);
+    const prod = await env.DB.prepare("SELECT id FROM cm_products WHERE id = ?").bind(productId).first<{ id: string }>();
+    if (!prod) fail("Choose a product.");
+    const factoryId = str(p.p_factory_id) || null;
+    const facs = await all<{ id: string }>(env.DB.prepare("SELECT id FROM cm_factories WHERE product_id = ?" + (factoryId ? " AND id = ?" : "")).bind(...(factoryId ? [productId, factoryId] : [productId])));
+    if (factoryId && !facs.length) fail("That factory does not belong to the product.");
+    if (!facs.length) return { ok: true, values_removed: 0, extras_removed: 0, ai_removed: 0 };
+    const ids = facs.map((x) => x.id), inF = marks(ids.length);
+    const withExtras = bool(p.p_with_extras), withAi = bool(p.p_with_ai);
+    const res = await env.DB.batch([
+      env.DB.prepare(`DELETE FROM po_values WHERE factory_id IN (${inF})`).bind(...ids),
+      env.DB.prepare(`DELETE FROM po_extras WHERE factory_id IN (${inF}) AND kind IN ('option', 'note') AND ? = 1`).bind(...ids, withExtras ? 1 : 0),
+      env.DB.prepare(`DELETE FROM po_extras WHERE factory_id IN (${inF}) AND kind = 'ai' AND ? = 1`).bind(...ids, withAi ? 1 : 0)
+    ]);
+    const [values, extras, ai] = res.map((r) => r.meta.changes || 0);
+    await audit(env, s.id, "po_reset", productId + (factoryId ? "/" + factoryId : ""), "", { with_extras: withExtras, with_ai: withAi, values_removed: values, extras_removed: extras, ai_removed: ai });
+    return { ok: true, values_removed: values, extras_removed: extras, ai_removed: ai };
   }
 
 };

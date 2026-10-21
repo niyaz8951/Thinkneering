@@ -107,6 +107,19 @@
         <div class="meta">Built from the mapped rows</div>
       </a>
     </div>
+    <!-- super user only: empty Product Options after testing (po_reset) -->
+    <div class="card stack" id="poResetCard" hidden style="margin-top:20px;max-width:720px">
+      <h2>Reset product options</h2>
+      <p class="muted">For starting clean after testing. It deletes every value read from datasheets for the product and factory you choose, approved or waiting. The next datasheets read bring them back, grouped, waiting for approval. The row mapping, the compliance library and the datasheet tables saved in projects are not touched. It cannot be undone: download the options to Excel first if you may need them.</p>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <label class="field" style="flex:1 1 200px"><span>Product</span><select class="input" id="poProduct"></select></label>
+        <label class="field" style="flex:1 1 200px"><span>Factory</span><select class="input" id="poFactory"></select></label>
+      </div>
+      <label class="check"><input type="checkbox" id="poExtras"> Also delete the special options and notes typed by editors</label>
+      <label class="check"><input type="checkbox" id="poAi"> Also delete the AI notes</label>
+      <div class="row"><button type="button" class="btn danger" id="poGo" disabled>Reset these options</button></div>
+      <div class="notice" id="poMsg" role="status" hidden></div>
+    </div>
   </section>
 
   <!-- PROJECTS -->
@@ -378,6 +391,41 @@
       sort: parseInt(f.elements.sort.value, 10) || 100, is_default: f.elements.is_default.checked }), "Tile saved").then(function () { f.reset(); });
   });
 
+  /* ---------- reset product options (super user) ---------- */
+  function setupPoReset(products) {
+    var prod = $("poProduct"), fac = $("poFactory"), go = $("poGo"), msg = $("poMsg");
+    function product() { return products.filter(function (x) { return x.id === prod.value; })[0]; }
+    function fill() {
+      var p = product(); fac.textContent = "";
+      fac.appendChild(el("option", { value: "", text: p ? "All factories of " + p.name : "Choose a product first" }));
+      if (p) p.factories.forEach(function (f) { fac.appendChild(el("option", { value: f.id, text: f.name })); });
+      fac.disabled = !p; go.disabled = !p;
+    }
+    prod.appendChild(el("option", { value: "", text: "Choose a product" }));
+    products.forEach(function (x) { prod.appendChild(el("option", { value: x.id, text: x.name })); });
+    fill(); $("poResetCard").hidden = false;
+    prod.addEventListener("change", fill);
+    go.addEventListener("click", function () {
+      var p = product(); if (!p) return;
+      var f = p.factories.filter(function (x) { return x.id === fac.value; })[0], extras = $("poExtras").checked, ai = $("poAi").checked;
+      var what = p.name + (f ? ", " + f.name + " factory" : ", all factories");
+      var also = [extras ? "the special options and notes" : "", ai ? "the AI notes" : ""].filter(Boolean).join(" and ");
+      Hub.ask("This deletes every datasheet value of the product options of " + what + (also ? ", AND " + also : "") + ". It cannot be undone.",
+        { title: "Reset options of " + what + "?", hint: "Type " + p.name + " to confirm.", placeholder: p.name, ok: "Reset", danger: true }).then(function (typed) {
+        if (typed === null) return;
+        if (String(typed).trim().toLowerCase() !== p.name.toLowerCase()) { Hub.toast("Nothing was reset: the name typed was not " + p.name + ".", true); return; }
+        go.disabled = true; msg.hidden = true;
+        Api.poReset(Hub.token(), { productId: p.id, factoryId: fac.value, withExtras: extras, withAi: ai }).then(function (r) {
+          go.disabled = false; msg.hidden = false; msg.className = "notice ok";
+          msg.textContent = "Product options of " + what + " are reset. " + plural(r.values_removed, "value", "values") + " removed" +
+            (extras ? ", " + plural(r.extras_removed, "option or note", "options and notes") + " removed" : "") +
+            (ai ? ", " + plural(r.ai_removed, "AI note", "AI notes") + " removed" : "") + ".";
+          Hub.toast("Product options reset.");
+        }, function (err) { go.disabled = false; msg.hidden = false; msg.className = "notice error"; msg.textContent = (err && err.message) || String(err); });
+      });
+    });
+  }
+
   /* ---------- reset a compliance library (super user) ---------- */
   function setupReset() {
     var products = [], prod = $("rsProduct"), fac = $("rsFactory"), go = $("rsGo"), msg = $("rsMsg");
@@ -393,6 +441,7 @@
       prod.appendChild(el("option", { value: "", text: "Choose a product" }));
       products.forEach(function (x) { prod.appendChild(el("option", { value: x.id, text: x.name })); });
       fill(); $("resetCard").hidden = false;
+      setupPoReset(products);
     }, function () { /* no products: nothing to reset */ });
     prod.addEventListener("change", fill);
     go.addEventListener("click", function () {

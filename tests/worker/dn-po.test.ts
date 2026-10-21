@@ -397,6 +397,21 @@ describe("po_* routes", () => {
     expect(after).toEqual([N, TB]);
   });
 
+  it("po_reset (21 Oct 2026): super user only; values of one factory or every factory; options, notes and AI notes only when asked", async () => {
+    const put = (f: string, v: string) => env.DB.prepare("INSERT INTO po_values (factory_id, row_key, model, grp, value_key, value, times, approved) VALUES (?, 'unit data||panel', '', '', ?, ?, 1, 1)").bind(f, v.toLowerCase(), v);
+    const extra = (f: string, kind: string) => env.DB.prepare("INSERT INTO po_extras (id, factory_id, section, row_key, kind, body) VALUES (?, ?, 'Unit data', '', ?, 'x')").bind(crypto.randomUUID(), f, kind);
+    await env.DB.batch([put("ahu-riyadh", "62 mm"), put("ahu-riyadh", "50 mm"), put("ahu-dubai", "62 mm"), put("fcu-riyadh", "x"),
+      extra("ahu-riyadh", "option"), extra("ahu-riyadh", "note"), extra("ahu-riyadh", "ai"), extra("ahu-dubai", "ai")]);
+    const ta = await login("teamAdmin"), a = await login("admin");
+    expect(await refused("po_reset", { p_token: ta, p_product_id: "ahu" })).toMatch(/super user/);
+    expect(await refused("po_reset", { p_token: a, p_product_id: "ahu", p_factory_id: "fcu-riyadh" })).toMatch(/does not belong/);
+    expect(await ok("po_reset", { p_token: a, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).toMatchObject({ values_removed: 2, extras_removed: 0, ai_removed: 0 });
+    expect(await ok("po_reset", { p_token: a, p_product_id: "ahu", p_with_extras: true })).toMatchObject({ values_removed: 1, extras_removed: 2, ai_removed: 0 });
+    expect(await ok("po_reset", { p_token: a, p_product_id: "ahu", p_with_ai: true })).toMatchObject({ values_removed: 0, extras_removed: 0, ai_removed: 2 });
+    const left = await env.DB.prepare("SELECT count(*) AS n FROM po_values WHERE factory_id = 'fcu-riyadh'").first<any>();
+    expect(left.n).toBe(1);   // other products untouched
+  });
+
   it("approval: a value new to the factory waits; only the super user or a General admin approves or rejects it; users and the AI see approved values only", async () => {
     const t = await login("sbu");
     await mapping(t);
