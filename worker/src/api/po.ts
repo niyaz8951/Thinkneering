@@ -251,9 +251,23 @@ export const routes: Routes = {
        p_value_key '' = the whole row, for every factory of the product (dn_map.in_tree);
        otherwise that one value for this factory (and model, '' for AHUs). */
   async po_admin_set_hidden(env, p) {
-    (await sessionUser(env, p.p_token)).requireEditor("product-options");
+    const s = await sessionUser(env, p.p_token);
+    s.requireEditor("product-options");
     const f = await cmFactory(env, p.p_factory_id);
     const rowKey = str(p.p_row_key), valueKey = str(p.p_value_key), hidden = bool(p.p_hidden) ? 1 : 0;
+    /* p_row_keys: several whole rows at once (rows ticked on the tree, 21 Oct 2026), for every factory of the product. */
+    if (p.p_row_keys !== undefined && p.p_row_keys !== null) {
+      if (!isArray(p.p_row_keys)) fail("The rows could not be read. Refresh the page.");
+      const keys = [...new Set(p.p_row_keys.map((k) => str(k)).filter(Boolean))];
+      if (!keys.length) fail("Tick the rows first.");
+      if (keys.length > 500) fail("Leave out up to 500 rows at a time.");
+      const res = await env.DB.batch(keys.map((k) =>
+        env.DB.prepare("UPDATE dn_map SET in_tree = ? WHERE product_id = ? AND row_key = ?").bind(hidden ? 0 : 1, f.product_id, k)));
+      const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+      if (!n) fail("Those rows no longer exist. Refresh the page.");
+      await audit(env, s.id, hidden ? "po_rows_left_out" : "po_rows_back", f.id, "", { rows: keys });
+      return { ok: true, changed: n };
+    }
     const r = valueKey === ""
       ? await env.DB.prepare("UPDATE dn_map SET in_tree = ? WHERE product_id = ? AND row_key = ?").bind(hidden ? 0 : 1, f.product_id, rowKey).run()
       : await env.DB.prepare("UPDATE po_values SET hidden = ? WHERE factory_id = ? AND row_key = ? AND model = ? AND grp = ? AND value_key = ?").bind(hidden, f.id, rowKey, str(p.p_model), str(p.p_grp), valueKey).run();

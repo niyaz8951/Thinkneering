@@ -68,6 +68,7 @@
     poReset: function (t, d) { return rpc("po_reset", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_with_extras: !!d.withExtras, p_with_ai: !!d.withAi }); },
     poAdminClearUngrouped: function (t, d) { return rpc("po_admin_clear_ungrouped", { p_token: t, p_factory_id: d.factoryId, p_section: d.section }); },
     poAdminSetHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: d.key, p_value_key: d.valueKey || "", p_hidden: !!d.hidden, p_model: d.model || "", p_grp: d.grp || "" }); },
+    poAdminSetRowsHidden: function (t, d) { return rpc("po_admin_set_hidden", { p_token: t, p_factory_id: d.factoryId, p_row_key: "", p_row_keys: d.keys || [], p_value_key: "", p_hidden: !!d.hidden }); },
     // Projects (every piece of work is saved under one) and the review of users' compliance answers
     prOptions: function (t) { return rpc("pr_options", { p_token: t }); },
     prList: function (t) { return rpc("pr_list", { p_token: t }); },

@@ -169,8 +169,10 @@
      - a numbered item of a section ("Filter 1", "Filter 2" ...): its rows are grouped under its class row (else its
        first row), "Filter Class: ISO Coarse 60%(G4)", so a filter's name, material, dimensions and pressure drops stay with its class;
      - rows whose values depend on another row (DSParse.LINKED): the EN 1886 classes under the profile ("Profile:
-       Aluminium Natural Thermal Break"), the panel and insulation under the model box ("Model Box Ref.: Energy F2"). */
-  function groupsOf(rows, strip) {
+       Aluminium Natural Thermal Break"), the panel and insulation under the model box ("Model Box Ref.: Energy F2");
+     - the type, model and materials of a fan, one group per fan model in its family ("EC Fans · Model: ...",
+       DSParse.fanGroups, owner 21 Oct 2026); not for products kept per unit model (FCU). */
+  function groupsOf(rows, strip, fans) {
     var out = [], lead = {}, byKey = {};
     var item = function (r) { return r.sub && /\s\d+$/.test(r.sub) && r.key.split('|')[1] === '' ? r.group + '|' + r.nth + '|' + r.sub : ''; };
     rows.forEach(function (r) { if (!byKey[r.key]) byKey[r.key] = r; });
@@ -190,6 +192,7 @@
       }
       out[i] = g;
     });
+    if (fans && window.DSParse.fanGroups) window.DSParse.fanGroups(rows, strip).forEach(function (g, i) { if (g && !out[i]) out[i] = g; });
     return out;
   }
   function collect(c, m, units) {
@@ -199,7 +202,7 @@
       var rows = window.DSParse.rows(unit, c), modelKey = MODEL_ROW[unit.type], model = '';
       if (modelKey) rows.forEach(function (r) { if (r.key === modelKey && !model) model = window.DSParse.fill('', r.value); });
       var valueOf = function (r) { var rule = m.rules[r.key]; return window.DSParse.fill('', r.value, rule && rule.strip); };
-      var grp = groupsOf(rows, valueOf);
+      var grp = groupsOf(rows, valueOf, !modelKey);
       rows.forEach(function (r, i) {
         var rule = m.rules[r.key];
         if (PROJECT_ROWS.test(r.key) || (rule ? rule.show === false : !m.showUnmapped)) return;

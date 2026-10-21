@@ -490,15 +490,56 @@
      (Datasheet Notes) and shown there as one tile under the lead row (Product Options). Add an entry for another pair.
        - the EN 1886 classes depend on the casing profile: one tile per profile ("Aluminium Natural Thermal Break")
        - the panel and its insulation make a model box: one tile per model box ("Energy ThermiC° S2": 62 mm, Foam)
-       - the air density and the altitude belong to the location ("JEDDAH KING ABDULAZIZ INTL, Saudi Arabia") */
+       - the air density and the altitude belong to the location ("JEDDAH KING ABDULAZIZ INTL, Saudi Arabia")
+     columns: true = Product Options shows the group as one table, one column per lead value (owner, 21 Oct 2026),
+     instead of one tile each. */
   var LINKED = [
     { id: 'profile', lead: /^unit data\|\|profile$/, member: function (key) { return /^mechanical characteristic \(en ?1886\)\|/.test(key); } },
     { id: 'model box', lead: /^unit data\|\|model box ref\.?$/, member: function (key) { return /^unit data\|\|(panel|insulation)$/.test(key); } },
-    { id: 'location', lead: /^unit data\|\|location$/, member: function (key) { return /^unit data\|\|(air density|altitude)$/.test(key); } }
+    { id: 'location', lead: /^unit data\|\|location$/, member: function (key) { return /^unit data\|\|(air density|altitude)$/.test(key); }, columns: true }
   ];
   function linkOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].member(key)) return LINKED[i]; return null; }
   function leadOf(key) { for (var i = 0; i < LINKED.length; i++) if (LINKED[i].lead.test(key)) return LINKED[i]; return null; }
 
+  /* Fans (owner, 21 Oct 2026). In a fan section (Fan Supply, Fan Return) the rows that describe the fan itself - its
+     Type, Model and materials (FAN.member) - are saved as one group per fan model, named after the fan family:
+       "DIDW Fans · Model: ADH 450"   Type Centrifugal Backward Blades / Forward Curved
+       "EC Fans · Model: GR45C-ZID"   Type "EC Centrifugal Fan Including Electrical Panel & Main ..." (any type with EC)
+     Product Options shows each family as its own section, one column per model. Motor data, air flow, pressures and
+     efficiencies stay as they are. With no model row on the datasheet the type names the column.
+     A datasheet read before this keeps its fan values without a group until it is read again. */
+  var FAN = {
+    section: /^(fan\b[^|]*|[^|]*\bfan)\|/,
+    type: /^(fan )?type$/i,
+    model: /^(fan )?(model|size)$/i,
+    member: /\b(type|model|size|materials?|impeller|wheel|blades?|casing|scroll|housing|diameter|arrangement|construction)\b/i,
+    island: /^(EC|DIDW|Other) Fans · (.+)$/,
+    family: function (type) {
+      if (/\bEC\b/i.test(type)) return 'EC Fans';
+      if (/centrifugal|backward|forward|didw/i.test(type)) return 'DIDW Fans';
+      return 'Other Fans';
+    }
+  };
+  /* rows = DSParse.rows of one unit, value(r) = the value as saved; returns the fan group of each row ('' = none) */
+  function fanGroups(rows, value) {
+    var at = {}, out = [];
+    function where(r) { return r.group + '|' + r.nth; }
+    function fanRow(r) { return FAN.section.test(r.key) && !r.sub; }
+    rows.forEach(function (r) {
+      if (!fanRow(r)) return;
+      var v = value(r), w = at[where(r)] || (at[where(r)] = {});
+      if (!v || v === '-') return;
+      if (FAN.type.test(r.component) && !w.type) w.type = v;
+      if (FAN.model.test(r.component) && !w.model) w.model = { name: r.component, v: v };
+    });
+    rows.forEach(function (r, i) {
+      var w = fanRow(r) && FAN.member.test(r.component) ? at[where(r)] : null;
+      out[i] = w && (w.type || w.model) ? FAN.family(w.type || '') + ' · ' + (w.model ? w.model.name + ': ' + w.model.v : 'Type: ' + w.type) : '';
+    });
+    return out;
+  }
+
   window.DSParse = { readers: readers, detect: detect, clean: clean, lines: lines, parse: parse, parseAll: parseAll,
-                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey, LINKED: LINKED, linkOf: linkOf, leadOf: leadOf };
+                     rows: rows, grid: grid, fill: fill, expand: expand, rowKey: rowKey, LINKED: LINKED, linkOf: linkOf, leadOf: leadOf,
+                     FAN: FAN, fanGroups: fanGroups };
 })();

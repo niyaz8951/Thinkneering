@@ -462,4 +462,24 @@ describe("po_* routes", () => {
     expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "99 mm", p_hidden: true })).toMatch(/no longer exists/);
     expect(await refused("po_admin_set_hidden", { p_token: "nope", p_factory_id: "ahu-dubai", p_row_key: "unit data||panel", p_value_key: "", p_hidden: true })).toBe("SESSION_EXPIRED");
   });
+
+  it("po_admin_set_hidden with p_row_keys (21 Oct 2026): several rows left out or brought back at once; editors only; audited", async () => {
+    const e = await poEditor();
+    await mapping(e);
+    const keys = ["unit data||panel", "unit data||insulation", "unit data||panel"];      // a repeated key counts once
+    const plain = await login("sales");
+    expect(await refused("po_admin_set_hidden", { p_token: plain, p_factory_id: "ahu-dubai", p_row_keys: keys, p_hidden: true })).toMatch(/Edit access/);
+    expect(await refused("po_admin_set_hidden", { p_token: "nope", p_factory_id: "ahu-dubai", p_row_keys: keys, p_hidden: true })).toBe("SESSION_EXPIRED");
+    expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: [], p_hidden: true })).toMatch(/Tick the rows/);
+    expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: "unit data||panel", p_hidden: true })).toMatch(/could not be read/);
+    expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: new Array(501).fill(0).map((_, i) => "k" + i), p_hidden: true })).toMatch(/up to 500/);
+    expect(await refused("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: ["no||row"], p_hidden: true })).toMatch(/no longer exist/);
+    expect((await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_hidden: true })).changed).toBe(2);
+    const rules = (await ok("dn_get_rules", { p_token: plain, p_product_id: "ahu" })).rules;
+    const inTree = (k: string) => rules.find((r: any) => r.key === k).in_tree;
+    expect([inTree("unit data||panel"), inTree("unit data||insulation"), inTree("unit data||supply air flow")]).toEqual([false, false, true]);
+    expect((await ok("po_admin_set_hidden", { p_token: e, p_factory_id: "ahu-riyadh", p_row_keys: ["unit data||panel"], p_hidden: false })).changed).toBe(1);
+    const a = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action IN ('po_rows_left_out', 'po_rows_back')").first<any>();
+    expect(a.n).toBe(2);
+  });
 });

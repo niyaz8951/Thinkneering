@@ -84,6 +84,7 @@ Phase 2, so Phase 3's first part came first. `docs/AI-Review.md` explains the re
 
 ## Decisions log
 
+- 21 Oct 2026 (evening): Product Options: Approve all / Reject all per row instead of for the whole factory; Edit is a toggle button; tick rows and leave them out together (`po_admin_set_hidden` p_row_keys); locations as one table with a column per location (A to Z); fans grouped per model into two sections, EC Fans and DIDW Fans (`DSParse.fanGroups`). AHU datasheets must be read again for the fan groups.
 - 21 Oct 2026 (later): Product Options shows profile tiles (EN 1886 classes) and model box tiles (panel, insulation) under their lead rows; Power Supply has its own section; Datasheet Notes opened from a project is locked to it; Admin users table tidied; `scripts/reset-product-options.sql`.
 - 21 Oct 2026 (last): Datasheet Notes reads the Location (site + country from the energy label) as a Unit Data row; Product Options shows Air Density and Altitude in a tile under each location. Admin > Products: "Reset product options" (super user, `po_reset`).
 - 21 Oct 2026: one vocabulary map per product (migration 0010): what specifications ask, read by code to recognise every clause by its landmarks (`docs/Compliance-Process.md`); AHU / FCU / Chiller templates on AI rules. Maps page redesigned: free flow, pan, zoom, full screen, the note opens like focus mode; images dropped (text first).

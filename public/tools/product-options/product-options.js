@@ -25,6 +25,11 @@
    Approval (19 Oct 2026): a value new to the factory waits ("to approve", v.wait) until the super
    user or an admin of this tile approves it (Api.poAdminApprove); users, the Excel download and the
    AI see only approved values. A rejected value is removed; seen again, it waits again.
+   21 Oct 2026 (owner): Approve all / Reject all per row (before "Leave out row"), none for the whole
+   factory at the top; Edit is a toggle button; editors tick several rows and leave them out together
+   (Api.poAdminSetRowsHidden); the locations are one table with a column per location (A to Z); the
+   fans are two sections of their own, EC Fans and DIDW Fans, with a column per fan model holding its
+   type and materials (groups made by DSParse.fanGroups when the datasheet is read).
    ============================================================ */
 (function () {
   'use strict';
@@ -36,6 +41,7 @@
   var productSel = $('po-product'), factorySel = $('po-factory'), search = $('po-search');
   var hint = $('po-hint'), result = $('po-result'), host = $('po-tree-host');
   var products = [], tree = null, canEdit = false, closed = {}, expanded = {}, loadNo = 0, mapper = false, onlyWait = false;
+  var editOn = false, picked = {};          // picked: row key -> row name, the rows ticked for "Leave out rows"
 
   function option(v, t) { return el('option', { value: v, text: t }); }
   function product() { return products.filter(function (p) { return p.id === productSel.value; })[0] || null; }
@@ -75,14 +81,14 @@
       hint.className = 'hint'; hint.textContent = product() ? 'Choose a factory.' : 'Choose a product and a factory.';
       return Promise.resolve();
     }
-    if (!keep) { hint.className = 'hint'; hint.textContent = 'Loading…'; closed = {}; expanded = {}; }
+    if (!keep) { hint.className = 'hint'; hint.textContent = 'Loading…'; closed = {}; expanded = {}; picked = {}; }
     return Api.poTree(window.Hub.token(), id).then(function (res) {
       if (no !== loadNo) return;
       tree = res; canEdit = !!res.can_edit;
       if (!res.waiting) onlyWait = false;
       hint.className = 'hint'; hint.textContent = res.factory.product + ', ' + res.factory.name + ' factory.';
-      $('po-edit-wrap').hidden = !canEdit;
-      if (!canEdit) $('po-edit').checked = false;
+      $('po-edit').hidden = !canEdit;
+      if (!canEdit) setEdit(false, true);
       search.disabled = false; result.hidden = false; $('po-error').hidden = true;
       render();
     }, function (err) {
@@ -164,7 +170,13 @@
   }
 
   /* ---------- drawing ---------- */
-  function editing() { return canEdit && $('po-edit').checked; }
+  function editing() { return canEdit && editOn; }
+  function setEdit(on, quiet) {
+    editOn = !!on;
+    $('po-edit').setAttribute('aria-pressed', editOn ? 'true' : 'false');
+    if (!editOn) picked = {};
+    if (!quiet) render();
+  }
   function when(iso) { var d = iso ? new Date(iso) : null; return d && !isNaN(d) ? window.Hub.date(iso) : ''; }
 
   function busy(btn, promise, done) {
@@ -177,38 +189,100 @@
 
   /* A value read from a datasheet waits for an admin (the super user or an admin of this tile) before it is a fact for
      the factory: until then users, the Excel download and the AI do not see it. */
-  function waitTag(v, r, holder) {
+  function waitTag(v, r, holder) { waitTagItems(v.v, [item(r.key, v)], holder); }
+  function item(key, v) { return { key: key, model: v.model || '', grp: v.g || '', value_key: v.k }; }
+  function waitTagItems(text, items, holder) {
     holder.classList.add('wait');
     holder.appendChild(el('b', { 'class': 'po-wait-tag', text: 'to approve' }));
     if (!tree.can_approve) return;
-    var item = [{ key: r.key, model: v.model || '', grp: v.g || '', value_key: v.k }];
-    holder.appendChild(xbtn('Approve', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: true }), 'Approved: "' + v.v + '" is now an option of the factory.'); }));
-    holder.appendChild(xbtn('Reject', function (e) { busy(e.currentTarget, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: item, approve: false }), 'Rejected: "' + v.v + '" removed.'); }, true));
+    holder.appendChild(xbtn('Approve', function (e) { busy(e.currentTarget, approveMany(items, true), 'Approved: "' + text + '" is now an option of the factory.'); }));
+    holder.appendChild(xbtn('Reject', function (e) { busy(e.currentTarget, approveMany(items, false), 'Rejected: "' + text + '" removed.'); }, true));
+  }
+  /* the route takes 500 values a call */
+  function approveMany(items, approve) {
+    var chain = Promise.resolve();
+    for (var i = 0; i < items.length; i += 500) (function (part) {
+      chain = chain.then(function () { return Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, items: part, approve: approve }); });
+    })(items.slice(i, i + 500));
+    return chain;
+  }
+  /* Approve all / Reject all for the values of one row that wait (approvers; owner, 21 Oct 2026) */
+  function rowWaitButtons(items, name) {
+    if (!tree.can_approve || !items.length) return [];
+    var n = items.length;
+    return [
+      xbtn('Approve all ' + n, function (e) { busy(e.currentTarget, approveMany(items, true), n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' approved.'); }),
+      xbtn('Reject all', function (e) {
+        var b = e.currentTarget;
+        window.Hub.confirm('Remove the ' + n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' that wait? A value seen again on a later datasheet waits again.', { title: 'Reject all', ok: 'Reject all', danger: true }).then(function (yes) {
+          if (yes) busy(b, approveMany(items, false), n + (n === 1 ? ' value' : ' values') + ' of ' + name + ' rejected.');
+        });
+      }, true)
+    ];
+  }
+  /* every value of a row that waits, in every group (AHU) */
+  function waitingOf(key) {
+    var r = tree.rows.filter(function (x) { return x.key === key; })[0];
+    return r ? (r.values || []).filter(function (v) { return v.wait; }).map(function (v) { return item(key, v); }) : [];
+  }
+  /* take out / bring back several values (one value shown once for two spellings of a location, say) */
+  function hideMany(list, hidden) {
+    var chain = Promise.resolve();
+    list.forEach(function (x) {
+      if (!!x.v.hidden === hidden) return;
+      chain = chain.then(function () { return Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: x.key, valueKey: x.v.k, model: x.v.model || '', grp: x.v.g || '', hidden: hidden }); });
+    });
+    return chain;
+  }
+
+  /* ---------- rows ticked for "Leave out rows" (editors) ---------- */
+  function tickBox(keys, name, node) {
+    var on = keys.every(function (k) { return picked[k]; });
+    var box = el('input', { type: 'checkbox', 'class': 'po-tick', 'aria-label': 'Tick ' + name });
+    box.checked = on;
+    if (on && node) node.classList.add('picked');
+    box.addEventListener('change', function () {
+      keys.forEach(function (k) { if (box.checked) picked[k] = name; else delete picked[k]; });
+      if (node) node.classList.toggle('picked', box.checked);
+      pickBar();
+    });
+    return box;
+  }
+  function offOf(key) { var r = tree.rows.filter(function (x) { return x.key === key; })[0]; return !!(r && r.hidden); }
+  function pickBar() {
+    var bar = $('po-pickbar'), keys = Object.keys(picked);
+    bar.textContent = '';
+    bar.hidden = !editing() || !keys.length;
+    if (bar.hidden) return;
+    var out = keys.filter(function (k) { return !offOf(k); }), back = keys.filter(offOf), all = tree.factory.product;
+    bar.appendChild(el('strong', { text: keys.length + (keys.length === 1 ? ' row ticked' : ' rows ticked') }));
+    function act(list, hidden, label, done) {
+      return el('button', { type: 'button', 'class': 'btn sm' + (hidden ? '' : ' ghost'), text: label, onclick: function (e) {
+        var b = e.currentTarget, names = list.map(function (k) { return picked[k]; });
+        window.Hub.confirm((hidden ? 'Leave out ' : 'Bring back ') + list.length + (list.length === 1 ? ' row' : ' rows') + ' for every ' + all + ' factory? ' +
+          names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : ''), { title: label, ok: label, danger: hidden }).then(function (yes) {
+          if (!yes) return;
+          b.disabled = true;
+          Api.poAdminSetRowsHidden(window.Hub.token(), { factoryId: tree.factory.id, keys: list, hidden: hidden }).then(function () {
+            picked = {}; window.Hub.toast(done); return load(true);
+          }, function (err) { b.disabled = false; window.Hub.toast((err && err.message) || String(err), true); });
+        });
+      } });
+    }
+    if (out.length) bar.appendChild(act(out, true, 'Leave out ' + out.length + (out.length === 1 ? ' row' : ' rows'), out.length + (out.length === 1 ? ' row' : ' rows') + ' left out for every ' + all + ' factory.'));
+    if (back.length) bar.appendChild(act(back, false, 'Bring back ' + back.length + (back.length === 1 ? ' row' : ' rows'), 'Rows are back in the tree.'));
+    bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Clear', onclick: function () { picked = {}; render(); } }));
   }
   function waitBar() {
     var bar = $('po-wait'), n = tree.waiting || 0;
     bar.hidden = !n; bar.textContent = '';
     if (!n) return;
     bar.appendChild(el('p', { text: n + (n === 1 ? ' value' : ' values') + ' read from datasheets ' + (n === 1 ? 'waits' : 'wait') + ' for approval (marked "to approve"). ' +
-      (tree.can_approve ? 'Until you approve them, users and the AI do not see them; check them against the datasheet first.' : 'An admin of this tile approves them; until then users and the AI do not see them.') }));
+      (tree.can_approve ? 'Until you approve them, users and the AI do not see them; check them against the datasheet first, then approve or reject them value by value or row by row.' : 'An admin of this tile approves them; until then users and the AI do not see them.') }));
     var only = el('input', { type: 'checkbox' }); only.checked = onlyWait;
     only.addEventListener('change', function () { onlyWait = only.checked; render(); });
-    var acts = [el('label', { 'class': 'check' }, [only, document.createTextNode(' Only values to approve')])];
-    if (tree.can_approve) {
-      acts.push(el('button', { type: 'button', 'class': 'btn sm', text: 'Approve all ' + n, onclick: function (e) {
-        var b = e.currentTarget;
-        window.Hub.confirm('Approve all ' + n + ' values that wait for ' + tree.factory.product + ', ' + tree.factory.name + '? They become options of the factory that users and the AI see.', { title: 'Approve all', ok: 'Approve all' }).then(function (yes) {
-          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: true }), n + ' values approved.');
-        });
-      } }));
-      acts.push(el('button', { type: 'button', 'class': 'btn ghost sm danger', text: 'Reject all', onclick: function (e) {
-        var b = e.currentTarget;
-        window.Hub.confirm('Remove all ' + n + ' values that wait? A value seen again on a later datasheet waits again.', { title: 'Reject all', ok: 'Reject all', danger: true }).then(function (yes) {
-          if (yes) busy(b, Api.poAdminApprove(window.Hub.token(), { factoryId: tree.factory.id, all: true, approve: false }), n + ' values rejected.');
-        });
-      } }));
-    }
-    bar.appendChild(el('div', { 'class': 'row' }, acts));
+    // approved or rejected row by row (Approve all / Reject all on each row), never the whole factory at once (owner, 21 Oct 2026)
+    bar.appendChild(el('div', { 'class': 'row' }, [el('label', { 'class': 'check' }, [only, document.createTextNode(' Only values to approve')])]));
   }
 
   /* one form at a time: add or change a special option / note */
@@ -295,15 +369,20 @@
       onclick: function () { expanded[xk] = !all; render(); } }));
     var ctx = { where: s.name + ' > ' + r.name, anchor: function () { return node; } };
     extraNodes(r.extras, ctx, edit && !r.model).forEach(function (n) { vals.appendChild(n); });
-    node.appendChild(el('div', { 'class': 'po-name', text: r.name + (r.off ? ' (left out)' : '') }));
+    var tools = !r.model && !r.noTools, label = r.name + (r.off ? ' (left out)' : '');
+    node.appendChild(el('div', { 'class': 'po-name' }, [edit && tools ? tickBox([r.key], r.name, node) : null, document.createTextNode(label)]));
     node.appendChild(vals);
-    if (edit && !r.model && !r.noTools) node.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return node; }, s.name, r.key, ctx.where).concat([
-      xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
-        busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
-             r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
-      }, !r.off)
-    ])));
+    // Approve all / Reject all of the row come before "Leave out row" (owner, 21 Oct 2026); approvers get them with Edit off too
+    var waits = tools ? rowWaitButtons(waitingOf(r.key), r.name) : [];
+    if (tools && (edit || waits.length)) node.appendChild(el('div', { 'class': 'po-tools' },
+      (edit ? addButtons(function () { return node; }, s.name, r.key, ctx.where) : []).concat(waits, edit ? [leaveOut([r.key], r.off)] : [])));
     return node;
+  }
+  function leaveOut(keys, off) {
+    return xbtn(off ? 'Bring row back' : 'Leave out row', function (e) {
+      busy(e.currentTarget, Api.poAdminSetRowsHidden(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, hidden: !off }),
+           off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
+    }, !off);
   }
 
   /* The sections of one group. model = '' : the plain tree (AHU) or, with extrasOnly, the
@@ -331,6 +410,12 @@
     return out;
   }
   function tileNodes(T, q, edit) {
+    if (T.L.columns) {                         // the locations: one table, a column per location (owner, 21 Oct 2026)
+      var entries = [];
+      T.order.forEach(function (g) { T.by[g].forEach(function (x) { x.vals.forEach(function (v) { entries.push({ s: x.s, r: x.r, v: v }); }); }); });
+      var t = colTable(entries, { q: q, edit: edit, head: plainHead, aria: 'Values per ' + low(T.L.id) });
+      return t ? [t] : [];
+    }
     return T.order.map(function (g) {
       var cut = g.indexOf(': '), label = cut > 0 ? g.slice(0, cut) : '', head = cut > 0 ? g.slice(cut + 2) : g;
       var lines = T.by[g];
@@ -341,8 +426,94 @@
       return box;
     }).filter(Boolean);
   }
+  /* A group shown as one table (owner, 21 Oct 2026): one column per group value (a location, a fan model), A to Z, the
+     same value printed in other capitals one column; one row per component, rows of the same name from two sections
+     (Fan Supply, Fan Return) one row. Scrolls sideways; the component column stays in view.
+     entries: [{ s, r, v }] with v.g the group; o: { q, edit, head(g) -> { label, head }, skip(r), first, aria }. */
+  function plainHead(g) { var cut = g.indexOf(': '); return cut > 0 ? { label: g.slice(0, cut), head: g.slice(cut + 2) } : { label: '', head: g }; }
+  function fanHead(g) { var m = window.DSParse.FAN.island.exec(g); return plainHead(m ? m[2] : g); }
+  function fanFamily(g) { var F = window.DSParse && window.DSParse.FAN, m = F ? F.island.exec(g || '') : null; return m ? m[1] + ' Fans' : ''; }
+  function tidyKey(t) { return low(t).replace(/\s+/g, ' ').trim(); }
+  function colTable(entries, o) {
+    var cols = [], colBy = {}, lines = [], lineBy = {}, words = o.q ? o.q.split(/\s+/) : [];
+    entries.forEach(function (e) {
+      if (o.skip && o.skip(e.r)) return;
+      if (!o.edit && (e.v.hidden || e.r.off)) return;
+      var h = o.head(e.v.g), ck = tidyKey(h.head);
+      var c = colBy[ck];
+      if (!c) { c = colBy[ck] = { key: ck, label: h.label, spell: {} }; cols.push(c); }
+      c.spell[h.head] = (c.spell[h.head] || 0) + (e.v.n || 0) + 0.001;
+      var lk = tidyKey(e.r.name), ln = lineBy[lk];
+      if (!ln) { ln = lineBy[lk] = { name: e.r.name, s: e.s, keys: [], off: true, cells: {} }; lines.push(ln); }
+      if (ln.keys.indexOf(e.r.key) < 0) ln.keys.push(e.r.key);
+      if (!e.r.off) ln.off = false;
+      var cell = ln.cells[ck] || (ln.cells[ck] = []), vk = tidyKey(e.v.k);
+      var chip = cell.filter(function (x) { return x.k === vk; })[0];
+      if (!chip) { chip = { k: vk, text: e.v.v, n: 0, list: [] }; cell.push(chip); }
+      chip.n += e.v.n || 0; chip.list.push({ key: e.r.key, v: e.v });
+    });
+    cols.forEach(function (c) { c.head = Object.keys(c.spell).sort(function (a, b) { return c.spell[b] - c.spell[a]; })[0]; });
+    cols.sort(function (a, b) { return a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true }); });
+    function texts(ln, c) { return (ln.cells[c.key] || []).map(function (x) { return x.text; }).join(' '); }
+    if (words.length) {
+      // a column whose name matches keeps every row; otherwise the cells whose row name or values match
+      var hit = function (t) { t = low(t); return words.every(function (w) { return t.indexOf(w) >= 0; }); };
+      if (o.title && hit(o.title)) words = [];
+      var cHit = words.length ? cols.filter(function (c) { return hit(c.head + ' ' + c.label); }) : cols;
+      if (cHit.length) cols = cHit;
+      else {
+        var keepC = {}, keepL = [];
+        lines.forEach(function (ln) {
+          var any = false;
+          cols.forEach(function (c) { if (ln.cells[c.key] && hit(ln.name + ' ' + ln.s.name + ' ' + texts(ln, c))) { keepC[c.key] = 1; any = true; } });
+          if (any) keepL.push(ln);
+        });
+        cols = cols.filter(function (c) { return keepC[c.key]; }); lines = keepL;
+      }
+    }
+    lines = lines.filter(function (ln) { return cols.some(function (c) { return ln.cells[c.key]; }); });
+    if (!cols.length || !lines.length) return null;
+
+    var head = el('tr', {}, [el('th', { text: o.first || 'Component' })].concat(cols.map(function (c) {
+      return el('th', { 'class': 'unit' }, [c.label ? el('small', { 'class': 'lbl', text: c.label }) : null, el('div', { text: c.head })]);
+    })));
+    var body = el('tbody');
+    lines.forEach(function (ln) {
+      var tr = el('tr', { 'class': ln.off ? 'off' : null }), waits = [];
+      cols.forEach(function (c) { (ln.cells[c.key] || []).forEach(function (ch) { ch.list.forEach(function (x) { if (x.v.wait) waits.push(item(x.key, x.v)); }); }); });
+      var name = el('td', { 'class': 'comp' }, [o.edit ? tickBox(ln.keys, ln.name, tr) : null, document.createTextNode(ln.name + (ln.off ? ' (left out)' : ''))]);
+      var tools = rowWaitButtons(waits, ln.name).concat(o.edit ? [leaveOut(ln.keys, ln.off)] : []);
+      if (tools.length) name.appendChild(el('div', { 'class': 'po-tools' }, tools));
+      tr.appendChild(name);
+      cols.forEach(function (c) {
+        var td = el('td'), cell = ln.cells[c.key] || [];
+        if (!cell.length) td.appendChild(el('span', { 'class': 'muted', text: '-' }));
+        cell.forEach(function (ch) {
+          var hidden = ch.list.every(function (x) { return x.v.hidden; }), wait = ch.list.filter(function (x) { return x.v.wait; });
+          var chip = el('span', { 'class': 'po-chip' + (hidden ? ' off' : '') }, [el('span', { text: ch.text }),
+            el('small', { text: times(ch.n), title: 'Seen ' + ch.n + (ch.n === 1 ? ' time' : ' times') + ' on the datasheets run so far. A datasheet run again is counted again.' })]);
+          if (wait.length) waitTagItems(ch.text, wait.map(function (x) { return item(x.key, x.v); }), chip);
+          else if (o.edit) chip.appendChild(xbtn(hidden ? 'Bring back' : 'Take out', function (e) {
+            busy(e.currentTarget, hideMany(ch.list, !hidden), hidden ? 'Value is back in the tree.' : 'Value taken out.');
+          }));
+          td.appendChild(chip);
+        });
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    var narrow = window.matchMedia('(max-width: 560px)').matches, first = narrow ? 140 : 220, w = 210;
+    var table = el('table', { 'class': 'table po-matrix', style: 'min-width:' + (first + w * cols.length) + 'px' }, [
+      el('colgroup', {}, [first].concat(cols.map(function () { return w; })).map(function (x) { return el('col', { style: 'width:' + x + 'px' }); })),
+      el('thead', {}, [head]), body]);
+    var box = el('div', { 'class': 'po-cols' }, [el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': o.aria || 'Values side by side' }, [table])]);
+    box.nCols = cols.length;
+    return box;
+  }
+
   function drawSections(secs, q, edit, model, extrasOnly) {
     var wrap = el('div', { 'class': 'po-tree' }), drawn = 0, nRows = 0, nVals = 0, keys = {};
+    var islands = {}, islandAt = null;          // fan families (EC Fans, DIDW Fans): their own sections after the first fan section
     var tiles = model || extrasOnly ? {} : leadTiles(secs, edit);
     // a lead row that is not in the tree (left out of the mapping): its tiles stay in the section of their rows
     Object.keys(tiles).forEach(function (id) {
@@ -368,7 +539,18 @@
       var rows = live.filter(function (r) { return secHit || matches(q, s, r); });
       var extras = model ? [] : s.extras.filter(function (x) { return secHit || !q || matches(q, { name: s.name, extras: [x] }); });
       var keepForTiles = hereTiles.length || (leadHere && !rows.length);
-      if (!rows.length && !extras.length && !keepForTiles && !(edit && !q && !model)) return;
+      // the type, model and materials of each fan go to their family's section (owner, 21 Oct 2026)
+      var fanHere = false;
+      if (!model && !extrasOnly) live.forEach(function (r) {
+        r.values.forEach(function (v) {
+          var fam = fanFamily(v.g); if (!fam) return;
+          fanHere = true; (islands[fam] || (islands[fam] = [])).push({ s: s, r: r, v: v });
+        });
+      });
+      var mark = fanHere && !islandAt ? (islandAt = document.createComment('fans')) : null;
+      // rows whose every value is in a fan family are shown there only; a section left empty is not drawn
+      rows = rows.filter(function (r) { return !(r.values.length && !r.extras.length && r.values.every(function (v) { return fanFamily(v.g); })); });
+      if (!rows.length && !extras.length && !keepForTiles && !(edit && !q && !model)) { if (mark) wrap.appendChild(mark); return; }
       drawn++;
 
       var body = el('div', { 'class': 'po-body' }), ck = (model ? 'm:' + low(model) + ':' : '') + low(s.name);
@@ -383,20 +565,28 @@
       if (!model) {
         var ctx = { where: s.name, anchor: function () { return sx; } };
         var sx = el('div', { 'class': 'po-secx' }, extraNodes(extras, ctx, edit));
-        if (edit) sx.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return sx; }, s.name, '', s.name, true)));
+        if (edit) {
+          var secKeys = live.map(function (r) { return r.key; }), allTicked = secKeys.length && secKeys.every(function (k) { return picked[k]; });
+          sx.appendChild(el('div', { 'class': 'po-tools' }, addButtons(function () { return sx; }, s.name, '', s.name, true).concat(secKeys.length ? [
+            xbtn(allTicked ? 'Untick all rows' : 'Tick all rows', function () {
+              live.forEach(function (r) { if (allTicked) delete picked[r.key]; else picked[r.key] = r.name; });
+              render();
+            })] : [])));
+        }
         if (sx.childNodes.length) body.appendChild(sx);
       }
 
       // values of one item kept together (owner, 20 Oct 2026): Filter 1 (its class, name, material, sizes, pressure
       // drops) and Filter 2 are two groups; the EN 1886 classes are grouped under the profile they belong to
       var groups = [];
-      if (!model) rows.forEach(function (r) { r.values.forEach(function (v) { if (v.g && groups.indexOf(v.g) < 0) groups.push(v.g); }); });
-      // values read before the groups (20 Oct 2026) in rows that now have groups: admins can remove them
+      if (!model) rows.forEach(function (r) { r.values.forEach(function (v) { if (v.g && !fanFamily(v.g) && groups.indexOf(v.g) < 0) groups.push(v.g); }); });
+      var grouped = function (r) { return !model && r.values.some(function (v) { return v.g; }); };
+      // values read before the groups (20 Oct 2026; fans 21 Oct 2026) in rows that now have groups: admins can remove them
       var stale = 0;
-      if (groups.length) rows.forEach(function (r) { if (r.values.some(function (v) { return v.g; })) stale += r.values.filter(function (v) { return !v.g; }).length; });
+      rows.forEach(function (r) { if (grouped(r)) stale += r.values.filter(function (v) { return !v.g; }).length; });
       rows.forEach(function (r) { if (r.moved) stale += r.values.length; });
       if (stale && tree.can_approve) body.appendChild(el('div', { 'class': 'notice warn po-stale' }, [
-        el('span', { text: stale + (stale === 1 ? ' value' : ' values') + ' of this section were saved before values were grouped (20 Oct 2026), so they belong to no filter or profile. Read the datasheets again to have them grouped, then remove the old ones. ' }),
+        el('span', { text: stale + (stale === 1 ? ' value' : ' values') + ' of this section were saved before values were grouped, so they belong to no filter, profile, location or fan model. Read the datasheets again to have them grouped, then remove the old ones. ' }),
         el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Remove values without a group', onclick: function (e) {
           var btn = e.currentTarget;
           window.Hub.confirm('Remove the ' + stale + ' values of ' + s.name + ' (' + tree.factory.name + ') that have no group? The grouped values stay. A datasheet read again brings them back in their group.', { title: 'Remove values without a group', ok: 'Remove', danger: true }).then(function (yes) {
@@ -405,11 +595,11 @@
         } })]));
       var sub = '', tooled = {};
       rows.forEach(function (r) {
-        var plain = groups.length ? r.values.filter(function (v) { return !v.g; }) : r.values;
-        if (groups.length && !plain.length && !r.extras.length && r.values.length) return;   // shown in its groups only
+        var g = grouped(r), plain = g ? r.values.filter(function (v) { return !v.g; }) : r.values;
+        if (g && !plain.length && !r.extras.length) return;   // shown in its groups, its fan family or its location table only
         if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('div', { 'class': 'po-sub', text: sub })); }
         tooled[r.key] = 1;
-        body.appendChild(rowNode(s, groups.length ? Object.assign({}, r, { values: plain }) : r, edit));
+        body.appendChild(rowNode(s, g ? Object.assign({}, r, { values: plain }) : r, edit));
         var L = leadOf(r.key);
         if (L && tiles[L.id]) tileNodes(tiles[L.id], q, edit).forEach(function (t) { body.appendChild(t); });
       });
@@ -425,6 +615,21 @@
         body.appendChild(box);
       });
       wrap.appendChild(d);
+      if (mark) wrap.appendChild(mark);
+    });
+    // the fan families, right after the first fan section: one column per fan model with its type and materials
+    if (islandAt) ['EC Fans', 'DIDW Fans', 'Other Fans'].forEach(function (fam) {
+      if (!islands[fam]) return;
+      var F = window.DSParse.FAN;
+      var t = colTable(islands[fam], { q: q, edit: edit, head: fanHead, title: fam, aria: fam + ', one column per fan model',
+        skip: function (r) { return F.model.test(r.key.split('|')[2] || ''); } });     // the model is the column heading
+      if (!t) return;
+      drawn++;
+      var ck = low(fam), d = el('details', { 'class': 'po-sec', open: q ? true : !closed[ck] }, [
+        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: t.nCols + (t.nCols === 1 ? ' fan model' : ' fan models') })]),
+        el('div', { 'class': 'po-body' }, [t])]);
+      d.addEventListener('toggle', function () { if (!q) closed[ck] = !d.open; });
+      wrap.insertBefore(d, islandAt);
     });
     return { wrap: wrap, drawn: drawn, rows: nRows, values: nVals, keys: keys };
   }
@@ -485,12 +690,11 @@
         if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(nCols), text: sub })])); }
         var xcell = el('div', { 'class': 'po-vals' }), ctx = { where: s.name + ' > ' + r.name, anchor: function () { return xcell; } };
         extraNodes(r.extras, ctx, edit).forEach(function (n) { xcell.appendChild(n); });
-        if (edit) xcell.appendChild(el('div', { 'class': 'po-tools' }, [].concat(addButtons(function () { return xcell; }, s.name, r.key, ctx.where), [
-          xbtn(r.off ? 'Bring row back' : 'Leave out row', function (e) {
-            busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, hidden: !r.off }),
-                 r.off ? 'Row is back in the tree.' : 'Row left out for every ' + tree.factory.product + ' factory.');
-          }, !r.off)])));
-        var tr = el('tr', { 'class': (r.off ? 'off' : '') + (ln.differs ? ' differs' : '') || null }, [el('td', { 'class': 'comp', text: r.name + (r.off ? ' (left out)' : '') })]);
+        // Approve all / Reject all: the values of this row that wait, in the models of this series
+        var waits = rowWaitButtons(r.values.filter(function (v) { return v.wait && names.indexOf(v.model) >= 0; }).map(function (v) { return item(r.key, v); }), r.name + ' (series ' + sr.name + ')');
+        if (edit || waits.length) xcell.appendChild(el('div', { 'class': 'po-tools' }, (edit ? addButtons(function () { return xcell; }, s.name, r.key, ctx.where) : []).concat(waits, edit ? [leaveOut([r.key], r.off)] : [])));
+        var tr = el('tr', { 'class': (r.off ? 'off' : '') + (ln.differs ? ' differs' : '') || null });
+        tr.appendChild(el('td', { 'class': 'comp' }, [edit ? tickBox([r.key], r.name, tr) : null, document.createTextNode(r.name + (r.off ? ' (left out)' : ''))]));
         ln.cells.forEach(function (vals, i) {
           var mk = ln.marks[i], td = el('td', { 'class': mk ? 'diff d' + ((mk - 1) % 5 + 1) : null, title: mk ? 'Differs from ' + cols[0].model : null });
           var xk = cols[i].model + '|' + r.key, all = expanded[xk] || edit || vals.length <= 4;
@@ -547,6 +751,7 @@
     host.textContent = '';
     $('po-edit-note').hidden = !edit;
     waitBar();
+    pickBar();
 
     var parts = [], series = modelMode() ? seriesList() : [];
     if (!modelMode()) {
@@ -651,7 +856,7 @@
   /* ---------- controls ---------- */
   var timer;
   search.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(render, 150); });
-  $('po-edit').addEventListener('change', render);
+  $('po-edit').addEventListener('click', function () { setEdit(!editOn); });
   $('po-only').addEventListener('change', render);
   function setAll(open) {
     if (!tree) return;
@@ -661,6 +866,7 @@
       sr.models.forEach(function (m) { closed['model:' + low(m.model)] = !open; build().forEach(function (s) { closed['m:' + low(m.model) + ':' + low(s.name)] = !open; }); });
     });
     closed['series:all'] = !open;
+    ['ec fans', 'didw fans', 'other fans'].forEach(function (k) { closed[k] = !open; });     // the fan families
     render();
   }
   $('po-open').addEventListener('click', function () { setAll(true); });
