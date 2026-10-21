@@ -506,11 +506,16 @@
                  else the section), default the section
        shared    rows of the section that belong to every column (never grouped)
        family    fans: the row that gives the family (EC, DIDW), put before the column: "EC Fans · Model: ..."
+       members   only these rows (row keys) belong to a column; the card's other rows are general
+       keepInColumns  member rows stay in the columns even when every column has the same value
        bySection coils: one column per section kind (cooling DX, cooling water), no group needed
      A section no card names is a card of its own, supply and return together. */
   var PO_CARDS = [
     { id: 'power', name: 'Power supply', sections: /^general$/ },
-    { id: 'casing', name: 'Casing', sections: /^(unit data|mechanical characteristic \(en ?1886\)|en ?13053)$/, column: /^model box ref\.?$/i, scope: 'unit' },
+    // owner, 21 Oct 2026: a column per model box with its panel, insulation, profile and EN 1886 classes; skins, base,
+    // roof ... are general (project choices, not part of the model box)
+    { id: 'casing', name: 'Casing', sections: /^(unit data|mechanical characteristic \(en ?1886\)|en ?13053)$/, column: /^model box ref\.?$/i, scope: 'unit',
+      members: /^unit data\|\|(model box ref\.?|panel|insulation|profile)$|^mechanical characteristic \(en ?1886\)\|/, keepInColumns: true },
     { id: 'dampers', name: 'Dampers', sections: /^(damper\b|mixing box\b)/ },
     { id: 'filters', name: 'Filters', sections: /^filter\b/, column: /^filter class$/i, scope: 'item', shared: /^(mounting|air velocity|pressure drop design)$/i },
     { id: 'recovery', name: 'Heat recovery', sections: /heat wheel|recuperator|heat recovery|plate exchanger/, column: /^part number$/i },
@@ -550,6 +555,7 @@
     function grouped(r, C) {
       var p = parts(r);
       if (!C.column || p[1] === 'options' || p[2] === 'note') return false;
+      if (C.members && !C.members.test(r.key)) return false;
       return !(C.shared && !r.sub && C.shared.test(r.component));
     }
     rows.forEach(function (r) {
