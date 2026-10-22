@@ -213,7 +213,8 @@
                                                  factory: facs.length === 1 ? facs[0] : '' }).then(function (res) {
       tell('Saved in ' + project.name + (res && res.replaced ? ', in place of the earlier table of the same units' : '') +
            '. Go back to the project to see it beside the specification.' +
-           (facs.length > 1 ? ' These datasheets name more than one factory (' + facs.join(', ') + '): read each factory\'s datasheets on their own.' : ''), facs.length > 1 ? 'warn' : 'ok');
+           (facs.length > 1 ? ' These datasheets name more than one factory (' + facs.join(', ') + '): read each factory\'s datasheets on their own.' : '') +
+           (res && res.warning ? ' ' + res.warning : ''), facs.length > 1 || (res && res.warning) ? 'warn' : 'ok');
     }, function (err) {
       tell('The table was not saved in the project: ' + ((err && err.message) || err) + ' Download the Excel now and read the datasheet again later.', 'error');
     });

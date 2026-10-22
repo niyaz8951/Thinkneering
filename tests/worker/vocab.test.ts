@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { ok, refused, login, resetLogins } from "./helpers";
 import { vocabSeed, parseVocab, identify } from "../../worker/src/ai/vocab";
+import { VOCAB_2026_10_21 } from "../../worker/src/ai/vocab-history";
 import type { MapNode, Seed } from "../../worker/src/ai/map";
 
 function nodesOf(seeds: Seed[]): MapNode[] {
@@ -121,5 +122,26 @@ describe("vocabulary: links and template routes", () => {
     await ok("ai_vocab_link", { p_token: t, p_product_id: "ahu", p_map_id: null });
     expect((await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-riyadh" })).vocab).toBeNull();
     expect(await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action IN ('ai_vocab_create', 'ai_vocab_link')").first<any>()).toMatchObject({ n: 3 });
+  });
+
+  it("Update from template: unedited types get the new rows, edited ones stay, missing ones come back; only someone who can edit the map", async () => {
+    const t = await login("teamAdmin");
+    const v = await ok("ai_vocab_create", { p_token: t, p_product_id: "ahu" });
+    expect((await ok("ai_vocab_upgrade", { p_token: t, p_product_id: "ahu" })).done).toEqual([]);           // fresh: nothing to do
+    const node = async (title: string) => (await env.DB.prepare("SELECT id, special FROM mp_nodes WHERE map_id = ? AND title = ?").bind(v.id, title).first<any>());
+    // a map made on 21 Oct: Fan type still holds the old wording, Tube thickness was edited by a person, Rows was deleted
+    await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(VOCAB_2026_10_21["Fans › Fan type"].special), (await node("Fan type")).id).run();
+    await env.DB.prepare("UPDATE mp_nodes SET special = ? WHERE id = ?").bind(JSON.stringify(["Kind: value", "Terms: tube wall", "Unit: mm", "Direction: higher is better"]), (await node("Tube thickness")).id).run();
+    await env.DB.prepare("DELETE FROM mp_nodes WHERE id = ?").bind((await node("Rows")).id).run();
+    expect(await refused("ai_vocab_upgrade", { p_token: await login("sales"), p_product_id: "ahu" })).toMatch(/Only an admin/);
+    expect(await refused("ai_vocab_upgrade", { p_token: await login("admin"), p_product_id: "ahu" })).toMatch(/cannot edit that map/);
+    const done = (await ok("ai_vocab_upgrade", { p_token: t, p_product_id: "ahu" })).done;
+    expect(done).toEqual(["Fans › Fan type (updated)", "Coils › Rows (added)"]);
+    expect(JSON.parse((await node("Fan type")).special)).toContain("Row: fan supply||type; fan return||type");
+    expect(JSON.parse((await node("Tube thickness")).special)).toContain("Terms: tube wall");
+    const tried = await ok("ai_try", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai", p_clause: "Fans shall be plug type with backward curved blades.", p_section: "FANS", p_part: 2 });
+    expect(tried.asks[0].rows).toEqual(["fan supply||type", "fan return||type"]);
+    expect((await ok("ai_vocab_upgrade", { p_token: t, p_product_id: "ahu" })).done).toEqual([]);
+    expect(await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'ai_vocab_upgrade'").first<any>()).toMatchObject({ n: 3 });
   });
 });

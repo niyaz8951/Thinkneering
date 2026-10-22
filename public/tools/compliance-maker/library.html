@@ -800,6 +800,17 @@
     var box = el("div", { "class": "map-link" }, [el("b", { text: "All " + productName() + " factories" }),
       el("div", { "class": "map-pick" }, [el("span", { "class": "small", style: "font-weight:650", text: "Vocabulary" }), el("div", { "class": "row" }, [sel, open, make]), el("div", { "class": "sum", text: sum })])]);
     if (v && v.problems.length) box.appendChild(el("div", { "class": "notice warn", style: "white-space:pre-line", text: "The code cannot read everything in the vocabulary:\n" + v.problems.join("\n") }));
+    // the template gets better (datasheet rows of DX coils and supply fans, Filter 1 / Filter 2): brings the linked
+    // vocabulary up to date without touching a type someone edited; the server checks the person may edit the map
+    if (v && res.can_maps) box.appendChild(el("div", { "class": "notice" }, [
+      el("span", { text: "Update “" + v.name + "” from the template: adds missing types and updates the template types nobody has edited. Types you changed stay as they are. " }),
+      el("button", { type: "button", "class": "btn ghost sm", text: "Update from template", onclick: function (e) {
+        var b = e.currentTarget; b.disabled = true;
+        Api.aiVocabUpgrade(Hub.token(), { productId: productId() }).then(function (r) {
+          Hub.toast(r.done.length ? "Done: " + r.done.length + (r.done.length === 1 ? " change" : " changes") + " (" + r.done.slice(0, 4).join(", ") + (r.done.length > 4 ? " …" : "") + ")." : "The vocabulary is up to date.");
+          loadRules.scope = ""; loadRules();
+        }, function (err) { b.disabled = false; fail(err); });
+      } })]));
     return box;
   }
   function upgrade(scope) {

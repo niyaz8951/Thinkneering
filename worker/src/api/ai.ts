@@ -16,6 +16,7 @@
                                                   the AI rule book (Maps) of one factory; maps hold rules only,
                                                   product facts are AI notes in Product Options (20 Oct 2026)
    ai_map_upgrade(token, product_id, factory_id)  adds the template's Instructions / Decision steps / Learned to a linked map
+   ai_vocab_upgrade(token, product_id)           brings the product's linked vocabulary up to the template
    ai_vocab_link(token, product_id, map_id) / ai_vocab_create(token, product_id)
                                                   the vocabulary map of a product (one for every factory): what
                                                   specifications ask, read by code to recognise clauses (ai/vocab.ts)
@@ -41,7 +42,7 @@ import { decideClause, modelAllowed, neuronsOf, neuronsToday, pool } from "../ai
 import { aiMapFor, createAiMap, upgradeAiMap, instructionsText } from "../ai/map";
 import { learnToMaps } from "../ai/learn";
 import { mpRights, kindOf, canVerify, type MapRow } from "./mp";
-import { vocabFor, identify, identifiedJson, createVocabMap } from "../ai/vocab";
+import { vocabFor, identify, identifiedJson, createVocabMap, upgradeVocabMap } from "../ai/vocab";
 import { pickRules, directRule, splitComments, notesMatching } from "../ai/rules";
 import { standardChoice, systemPrompt, userPrompt, promptVersionOf } from "../ai/draft";
 import { pickLines, runEval, tally } from "../ai/eval";
@@ -451,6 +452,20 @@ export const routes: Routes = {
     const made = await createVocabMap(env, s.id, prod, canVerify(s), trimmed(p.p_name, 80) || undefined);
     await audit(env, s.id, "ai_vocab_create", made.id, "", { product: prod.id, name: made.name, types: made.types });
     return { ok: true, ...made };
+  },
+
+  /* Brings the product's linked vocabulary up to the template: new components and types added, template types nobody
+     edited updated (vocab.ts upgradeVocabMap). The person must be able to edit that map in Maps. */
+  async ai_vocab_upgrade(env, p) {
+    const s = requireRulesEditor(await sessionUser(env, p.p_token));
+    const prod = await productRow(env, p.p_product_id);
+    const link = await env.DB.prepare("SELECT m.* FROM ai_vocab_links l JOIN mp_maps m ON m.id = l.map_id WHERE l.product_id = ?").bind(prod.id).first<MapRow>();
+    if (!link) fail("Link a vocabulary first.");
+    const r = mpRights(s, link);
+    if (r !== "own" && r !== "edit") fail("You cannot edit that map in Maps: ask its owner to share it with editing.");
+    const done = await upgradeVocabMap(env, s.id, link.id, prod.name, canVerify(s));
+    await audit(env, s.id, "ai_vocab_upgrade", link.id, "", { done });
+    return { ok: true, done };
   },
 
   /* Adds the parts of the template a linked map does not have yet (Instructions, Decision steps, Learned). The person

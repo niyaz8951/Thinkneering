@@ -18,6 +18,7 @@
 import { poKind } from "../lib/po-kind";
 import type { Env } from "../env";
 import { placeRows, cmNorm } from "../lib/cm";
+import { tableSiteWarnings } from "../lib/site";
 import { all, sha256 } from "../lib/sql";
 import { match, clauses, rowTopics, unitLookup, hasValue, sectionName, type MapRule, type NoteTable } from "../lib/rows";
 import { sectionKinds, sectionKey, type SectionInfo } from "./sections";
@@ -25,7 +26,7 @@ import { measurements, type Measure } from "./guard";
 import { classRequirements, comparable, propertyOf, judge, fmt, familyOfUnit, classIn, compareClass, sameMetric } from "./compare";
 import { ClauseSearch, GramIndex, lexicalScore, type Similar } from "./search";
 import { aiMapFor, type AiSettings, type Section } from "./map";
-import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
+import { pickRules, directRule, splitComments, parentOf, headingOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
 import type { AiUsage } from "./models";
 
 export interface RunInfo { id: string; product_id: string; factory_id: string; project_id: string | null; product: string; factory: string }
@@ -53,6 +54,7 @@ export interface Context {
   corrections: Correction[];                 // what people changed in the AI's answers for this factory (newest 400)
   correctionIndex?: GramIndex<Correction>;
   absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
+  absentParts: Map<number, string[]>;       // of those, whole parts of the unit (heat pipe, heating coil ...) by the clause's heading
   sheetWarning: string;                      // why the project's datasheet was not used (another factory), or ""
   hasSheet: boolean;                         // the project has a datasheet of this product and factory
   optRows: Map<number, OptRow[]>;            // the mapping rows each clause is about (the same match as the chips)
@@ -118,7 +120,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const specRows = rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text }));
   const place = placeRows(specRows);
   type MapRow = MapRule & { row_key: string };
-  const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
+  const [mapRes, notesRes, valRes, extraRes, projRes, corrRes, regionRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),      // * : kind (0011) when present
     env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
     env.DB.prepare("SELECT row_key, value, times, grp FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
@@ -132,7 +134,8 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     env.DB.prepare(`SELECT l.spec_text AS spec, f.section, f.suggested, f.suggested_remarks, f.final, f.final_remarks, f.outcome
                       FROM ai_feedback f JOIN cm_lines l ON l.id = f.line_id
                      WHERE f.factory_id = ? AND f.outcome IN ('edited', 'replaced') AND f.final <> ''
-                     ORDER BY f.created_at DESC LIMIT 400`).bind(run.factory_id)
+                     ORDER BY f.created_at DESC LIMIT 400`).bind(run.factory_id),
+    env.DB.prepare("SELECT region FROM pr_projects WHERE id = ?").bind(run.project_id || "")
   ]);
   const rules = (mapRes.results as unknown as MapRow[]).map((r) => ({ ...r, key: r.row_key }));
   // the project's saved datasheet tables of this product (R2)
@@ -151,13 +154,16 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
       tables.push({ columns: (JSON.parse(n.columns || "[]") as unknown[]).map((c) => String(c ?? "")), rows });
     } catch (e) { console.warn("datasheet table could not be read", e); }
   }
-  const sheetWarning = otherFactory.size ? `The project's datasheet is for another factory (${[...otherFactory].map(factoryName).join(", ")}), not ${run.factory}: it was not used. Read the ${run.factory} datasheet, or convert the specification for the datasheet's factory.` : "";
+  const region = (regionRes.results[0] as { region?: string } | undefined)?.region || "";
+  // the selection location and frequency against the project's region (22 Oct 2026): a warning, the table is still used
+  const site = [...new Set(tables.flatMap((t) => tableSiteWarnings(region, t.rows as { section?: unknown; component?: unknown; cells?: unknown[] }[])))];
+  const sheetWarning = [otherFactory.size ? `The project's datasheet is for another factory (${[...otherFactory].map(factoryName).join(", ")}), not ${run.factory}: it was not used. Read the ${run.factory} datasheet, or convert the specification for the datasheet's factory.` : "", ...site].filter(Boolean).join(" ");
   const look = unitLookup(tables);
   // the unit sections the project's datasheet has (any value in them): a clause about another one is about a
   // part the selected unit may not include (Thinkneering v3, "what this unit is made of")
   const present = new Set<string>();
   for (const t of tables) { let sec = ""; for (const r of t.rows) { if (r.section) sec = r.section; if (hasValue((r.cells || []).map((c) => String(c ?? "")))) present.add(sectionName(sec)); } }
-  const absent = new Map<number, string[]>();
+  const absent = new Map<number, string[]>(), absentParts = new Map<number, string[]>();
   // 4. a clause about a part the datasheet has no section for (a heat pipe, a heating coil, an attenuator ...) gets no
   // datasheet rows (the topic gate in lib/rows.ts) and is marked "not in this unit" (22 Oct 2026, Arcadis 237413: heat
   // pipe fins had been compared with the DX coil fins). Only physical parts that are datasheet sections of their own.
@@ -166,7 +172,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     for (const sec of present) for (const t of rowTopics({ section: sec, sub: "", component: "" })) have.add(t);
     for (const c of clauses(specRows)) {
       const part = PART_NAMES[c.topic];
-      if (part && !have.has(c.topic)) absent.set(specRows[c.row].seq, [part]);
+      if (part && !have.has(c.topic)) { absent.set(specRows[c.row].seq, [part]); absentParts.set(specRows[c.row].seq, [part]); }
     }
   }
   // Product Options of the factory, per mapping row and per section
@@ -234,7 +240,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions,
-           search: new ClauseSearch(env, usage), project, names, kinds, absent, hasSheet: tables.length > 0, optRows, poValues,
+           search: new ClauseSearch(env, usage), project, names, kinds, absent, absentParts, hasSheet: tables.length > 0, optRows, poValues,
            makes: [...new Set(extras.filter((x) => x.kind === "make").map((x) => x.body.trim()).filter((b) => b.length >= 3))],
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
@@ -249,7 +255,7 @@ const PART_NAMES: Record<string, string> = {
 /* ---------- the match, worked out once per record ---------- */
 
 interface Matched { key: string; section: string; component: string; found: boolean; seqs: number[]; entries: string[][]; rule: MapRule }
-const MATCH_VERSION = "2026-10-22 parts";
+const MATCH_VERSION = "2026-10-22 tables";   // table rows under their heading (22 Oct 2026)
 const matchMemo = new Map<string, { stamp: string; byKey: Record<string, number[]> }>();
 
 async function matchFor(env: Env, runId: string, specRows: { seq: number; type: string; sr: string; spec: string }[], rules: MapRule[], cache = true): Promise<Matched[]> {
@@ -619,7 +625,7 @@ export interface ClauseEvidence {
   cmpFrom: "datasheet" | "options" | ""; picks: OptionPick[];
   options: OptionInfo; notes: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; facts: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
-  sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
+  sectionKind: SectionInfo | null; absent: string[]; absentParts: string[]; corrections: Correction[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
   const pl = ctx.place.get(x.seq) || { part: 0, section: "" };
@@ -633,7 +639,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   const optCmp = sheetCmp ? null : compareOptions(x.spec_text, picks, ctx.run.factory);
   const cmp = sheetCmp || optCmp;
   const conflict = x.l_status === "answered" && sheetCmp ? libraryConflict(x.l_remarks || "", sheetCmp) : "";
-  const picked = pickRules(ctx.rules, x.spec_text + " " + parent, pl.section, pl.part);
+  const picked = pickRules(ctx.rules, x.spec_text + " " + parent, [pl.section, headingOf(parent)].filter(Boolean).join(" · "), pl.part);
   const clauseRules = splitComments(x.l_comments).rules;
   return {
     part: pl.part, section: pl.section, parent, sheet, cmp, conflict, cmpFrom: sheetCmp ? "datasheet" : optCmp ? "options" : "", picks,
@@ -641,6 +647,6 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
     rules: picked.rules, facts: picked.facts, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
-    sectionKind: kind, absent: ctx.absent.get(x.seq) || [], corrections: correctionsFor(ctx, x)
+    sectionKind: kind, absent: ctx.absent.get(x.seq) || [], absentParts: ctx.absentParts.get(x.seq) || [], corrections: correctionsFor(ctx, x)
   };
 }

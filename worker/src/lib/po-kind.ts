@@ -29,6 +29,11 @@ export function poAutoKind(rowKey: string): PoKind {
   if (/^options$/.test(sub) && component === "option") return "accessory";
   if (component === "note" || /[[\]*]/.test(component)) return "hide";
   if (PROJECT.test(rowKey)) return "project";
+  // the NRVU block (EU 1253/2014) and the Electrical Power Inputs table (22 Oct 2026): figures of one selection, except
+  // what the unit is (typology, drive type, HRS type, leakage and filter energy classes); outdoor conditions are the site's
+  if (section === "nrvu") return /outdoor conditions/.test(component) ? "project"
+    : /^(typology|drive type|hrs type|external leakage|filter energy|filter service)/.test(component) ? "option" : "duty";
+  if (section === "electrical power inputs") return component === "electrical connection" ? "option" : "duty";
   if (/^coil\b/.test(section) && component === "model") return "hide";     // the coil code repeats rows, tubes and fins
   if (/^en ?13053$/.test(section)) return "duty";                           // power and velocity classes follow the selection
   if (/^(fan\b|.*\bfan$)/.test(section) && component === "model") return "option";

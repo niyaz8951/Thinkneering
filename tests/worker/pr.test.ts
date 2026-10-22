@@ -90,6 +90,20 @@ describe("pr_* routes", () => {
     expect(await refused("pr_note_save", { p_token: sales, p_project_id: pid, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1"], p_rows: rows("1"), p_factory: "Riyadh" })).toMatch(/not available/);
   });
 
+  it("pr_note_save warns when the selection location or the frequency does not fit the project's region (22 Oct 2026)", async () => {
+    const sbu = await login("sbu"), sales = await login("sales");
+    const ksa = (await ok("pr_save", { p_token: sbu, p_id: null, ...PROJECT, p_name: "KSA park", p_region: "Saudi Arabia" })).id;
+    const rows = (place: string, power: string) => [{ section: "General", component: "Power Supply", cells: [power], key: "general||power supply" },
+                                                  { section: "Unit Data", component: "Location", cells: [place], key: "unit data||location" }];
+    const bad = await ok("pr_note_save", { p_token: sbu, p_project_id: ksa, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1"], p_rows: rows("ROMA URBE, Italy", "400V/3Ph/50Hz + PE") });
+    expect(bad.warning).toMatch(/selected at ROMA URBE, Italy, but the project is in Saudi Arabia/);
+    expect(bad.warning).toMatch(/uses 60 Hz/);
+    const good = await ok("pr_note_save", { p_token: sbu, p_project_id: ksa, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1"], p_rows: rows("RIYADH, Saudi Arabia", "380V/3Ph/60Hz + PE") });
+    expect(good.warning).toBe("");
+    // the warning is no way round the project rule: another user's project is still refused
+    expect(await refused("pr_note_save", { p_token: sales, p_project_id: ksa, p_product_id: "ahu", p_file_names: "a.pdf", p_columns: ["U1"], p_rows: rows("ROMA URBE, Italy", "400V/3Ph/50Hz") })).toMatch(/not available/);
+  });
+
   it("pr_options lists the two dropdowns; refused without a session", async () => {
     const t = await login("sbu");
     const o = await ok("pr_options", { p_token: t });

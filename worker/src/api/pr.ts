@@ -1,6 +1,7 @@
 /* pr_* : Projects (standards B.2i). Same names, parameters and results as the DAME database functions.
    A project holds compliance records (cm_runs with project_id) and datasheet tables (pr_notes; the rows
    live in R2). Who may open a project: its creator, its members, admins of the Projects tile. */
+import { tableSiteWarnings } from "../lib/site";
 import type { Env, Params } from "../env";
 import type { Routes } from "../router";
 import { fail } from "../errors";
@@ -333,7 +334,9 @@ export const routes: Routes = {
     ]);
     const old = replaced.map((n) => n.file_key).filter(Boolean);
     if (old.length) await env.FILES.delete(old);
-    return { ok: true, id, replaced: replaced.length, factory: fac ? fac.id : "" };
+    // the selection location and the frequency against the project's region: a warning only (22 Oct 2026)
+    const warning = tableSiteWarnings(pj.region, rows as { section?: unknown; component?: unknown; cells?: unknown[] }[]).join(" ");
+    return { ok: true, id, replaced: replaced.length, factory: fac ? fac.id : "", warning };
   },
 
   /* One saved Datasheet Notes table, to show or download it again. */

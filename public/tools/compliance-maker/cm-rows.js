@@ -105,12 +105,14 @@
         if (lvl1) { ref += ' ' + lvl1.sr; if (lvl1.heading) ctx += ' ' + lvl1.text; }
         if (level === 2) ref += (lvl1 ? '.' : ' ') + sr;
         if (level === 3) { if (lvl2) { ref += (lvl1 ? '.' : ' ') + lvl2.sr; if (lvl2.heading) ctx += ' ' + lvl2.text; } ref += '.' + sr; }
+        // a table row or a plain line ("EN779 RATING | G4") belongs to the heading above it ("5 PRE-FILTER SECTION")
+        if (level === 0 && lvl2 && lvl2.heading) ctx += ' ' + lvl2.text;
       }
       // a title such as "G. Air Filters" or "2. Inside Casing" is only context for the items under it
       if (hasChildren && ((level === 1 && lvl1.heading) || (level === 2 && lvl2.heading))) return;
       // the clause's topic: its own label, then the headings above it, nearest first, then the section title
-      var cands = [lead(text) || words(text).slice(0, 6).join(' '), level === 3 && lvl2 ? (lvl2.heading ? lvl2.text : lead(lvl2.text)) : '',
-                   level >= 2 && lvl1 ? (lvl1.heading ? lvl1.text : lead(lvl1.text)) : '', sec ? sec.text : ''];
+      var cands = [lead(text) || words(text).slice(0, 6).join(' '), (level === 3 || level === 0) && lvl2 ? (lvl2.heading ? lvl2.text : lead(lvl2.text)) : '',
+                   (level >= 2 || level === 0) && lvl1 ? (lvl1.heading ? lvl1.text : lead(lvl1.text)) : '', sec ? sec.text : ''];
       // a heading above that names a specific part (filters, a VFD, heat wheels ...) holds for every item under it;
       // otherwise the clause's own label or first words; then a general heading (casing); then the section title
       var heads = [topicOf(cands[1]), topicOf(cands[2])], topic = '';

@@ -3,7 +3,11 @@
    or a missed one in that run. Values as printed on the datasheet. */
 import { describe, it, expect } from "vitest";
 import { compareDatasheet, requirements, operatorOf, clauseDimension, rowDimension, type SheetHit } from "../../worker/src/ai/evidence";
-import { match, topicOf, rowTopics, type MapRule } from "../../worker/src/lib/rows";
+import { match, topicOf, rowTopics, clauses, type MapRule } from "../../worker/src/lib/rows";
+import { parentOf, headingOf, pickRules, directRule } from "../../worker/src/ai/rules";
+import { draftAnswer, CONDITIONAL } from "../../worker/src/ai/draft";
+import { parseMap, seedTree, type MapNode, type Seed } from "../../worker/src/ai/map";
+import { env } from "cloudflare:test";
 
 const UNITS = ["FAHU-RF-01", "FAHU-RF-03"];
 const hit = (section: string, component: string, cells: string[], entries: string[][]): SheetHit => ({
@@ -111,5 +115,82 @@ describe("4. a part the unit does not have", () => {
     const rules: MapRule[] = [{ key: "coil cooling dx supply|geometry|fin space", section: "Coil Cooling DX Supply", sub: "geometry", component: "Fin Space", show: true, label: "", keywords: "fins per; fin spac; fpi" }];
     const m = match(spec, rules)[0];
     expect(m.found).toBe(false);
+  });
+});
+
+const SPEC = [
+  { seq: 0, type: "part", sr: "", spec: "PART 1 - GENERAL" },
+  { seq: 1, type: "section", sr: "1.2", spec: "SECTION INCLUDES" },
+  { seq: 2, type: "letter", sr: "B", spec: "REFERENCES" },
+  { seq: 3, type: "number", sr: "2", spec: "AMCA 99 - Standards Handbook" },
+  { seq: 4, type: "number", sr: "9", spec: "SMACNA - HVAC Duct Construction Standards—Metal and Flexible." },
+  { seq: 5, type: "part", sr: "", spec: "PART 2 – PRODUCTS" },
+  { seq: 6, type: "number", sr: "5", spec: "PRE-FILTER SECTION" },
+  { seq: 7, type: "letter", sr: "c", spec: "Initial resistance to Airflow as listed below" },
+  { seq: 8, type: "text", sr: "", spec: "EN779 RATING | G4" },
+  { seq: 9, type: "number", sr: "17", spec: "HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)" },
+  { seq: 10, type: "letter", sr: "a", spec: "The heat pipes shall consist of a precool and reheat fin block." }
+];
+
+describe("8. a table row belongs to the heading above it", () => {
+  it("gives a table row its numbered heading as parent, and its topic", () => {
+    expect(parentOf(SPEC, 8)).toBe("PRE-FILTER SECTION");
+    const c = clauses(SPEC).find((x) => x.row === 8)!;
+    expect(c.topic).toBe("filter");
+    expect(c.ctx).toEqual(["pre", "filter", "section"]);
+  });
+});
+
+function nodesOf(seeds: Seed[]): MapNode[] {
+  const out: MapNode[] = [{ id: "root", parent_id: null, title: "AI rules", notes: "", special: "[]", sort: 0, verified: 1 }];
+  let n = 0;
+  const add = (x: Seed, parent: string, sort: number) => { const id = "n" + n++; out.push({ id, parent_id: parent, title: x.title, notes: x.notes || "", special: JSON.stringify(x.special || []), sort, verified: x.off ? 0 : 1 }); (x.kids || []).forEach((k, i) => add(k, id, i)); };
+  seeds.forEach((x, i) => add(x, "root", i));
+  return out;
+}
+
+describe("9. reference lists and parts the unit does not have", () => {
+  const book = parseMap(nodesOf(seedTree("AHU", "Dubai")), "dubai").rules;
+  const direct = (seq: number) => {
+    const parent = parentOf(SPEC, seq);
+    return directRule(pickRules(book, SPEC[seq].spec + " " + parent, ["SECTION INCLUDES", headingOf(parent)].filter(Boolean).join(" · "), 1).rules);
+  };
+
+  it("a heading inside a section counts as a section title for the rules", () => {
+    expect(headingOf("REFERENCES")).toBe("REFERENCES");
+    expect(headingOf("HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)")).not.toBe("");
+    expect(headingOf("The units shall be tested and certified to EN 1886.")).toBe("");
+  });
+
+  it("answers the items of a references list Noted (AMCA 99 and SMACNA went to the model before)", () => {
+    expect(direct(3)?.rule.title).toBe("Reference list");
+    expect(direct(3)?.rule.answer).toBe("Noted");
+    expect(direct(4)?.rule.answer).toBe("Noted");
+  });
+
+  it("knows the wording that makes a part conditional", () => {
+    expect(CONDITIONAL.test("HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)")).toBe(true);
+    expect(CONDITIONAL.test("Hot water-heating coil of capacities as indicated on schedules shall be fabricated from copper")).toBe(true);
+    expect(CONDITIONAL.test("The heat pipes shall consist of a precool and reheat fin block.")).toBe(false);
+  });
+
+  const base = { sr: "a", part: 2, section: "", product: "AHU", factory: "Dubai", similar: [], comments: "" };
+  it("a missing part asked only where applicable: Not Applicable, no model", async () => {
+    const d = await draftAnswer(env, { ...base, clause: SPEC[10].spec, parent: SPEC[9].spec, absent: ["heat pipe"], absentParts: ["heat pipe"], allowModel: false });
+    expect(d).toMatchObject({ compliance: "Not Applicable", source: "datasheet", confidence: "medium" });
+    expect(d.remarks).toBe("Not included in the selected units (no heat pipe on the AHU datasheet).");
+  });
+
+  it("asked without such words, or only a datasheet section missing: no Not Applicable by code", async () => {
+    await expect(draftAnswer(env, { ...base, clause: "The heat pipes shall consist of a precool and reheat fin block.", parent: "HEAT PIPES", absent: ["heat pipe"], absentParts: ["heat pipe"], allowModel: false })).rejects.toThrow();
+    await expect(draftAnswer(env, { ...base, clause: "Chilled water coils as indicated on schedules.", parent: "", absent: ["Coil Cooling Water Supply"], allowModel: false })).rejects.toThrow();
+  });
+
+  it("a clause asking for the part itself under a conditional heading is a deviation for a person, not Not Applicable", async () => {
+    const parent = "SOUND ATTENUATOR (Wherever Applicable, as per equipment schedule)";
+    await expect(draftAnswer(env, { ...base, clause: "AHUs to be equipped with sound attenuator at supply & return fan.", parent, absent: ["sound attenuator"], absentParts: ["sound attenuator"], allowModel: false })).rejects.toThrow();
+    // the same wish worded as conditional in the clause itself stays Not Applicable
+    const d = await draftAnswer(env, { ...base, clause: "Provide sound attenuators where scheduled.", parent: "", absent: ["sound attenuator"], absentParts: ["sound attenuator"], allowModel: false });
+    expect(d.compliance).toBe("Not Applicable");
   });
 });

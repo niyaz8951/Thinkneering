@@ -82,11 +82,13 @@ export function clauses(rows: SpecRowIn[]): Clause[] {
       if (l1) { ref += " " + l1.sr; if (l1.heading) ctx += " " + l1.text; }
       if (level === 2) ref += (l1 ? "." : " ") + sr;
       if (level === 3) { if (l2) { ref += (l1 ? "." : " ") + l2.sr; if (l2.heading) ctx += " " + l2.text; } ref += "." + sr; }
+      // a table row or a plain line ("EN779 RATING | G4") belongs to the heading above it ("5 PRE-FILTER SECTION")
+      if (level === 0 && l2 && l2.heading) ctx += " " + l2.text;
     }
     if (hasChildren && ((level === 1 && l1!.heading) || (level === 2 && l2!.heading))) return;
     // the clause's topic: its own label, then the headings above it, nearest first, then the section title
     const own = lead(text) || words(text).slice(0, 6).join(" ");      // its label, or its first words when it has none
-    const above = [level === 3 && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", level >= 2 && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
+    const above = [(level === 3 || level === 0) && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", (level >= 2 || level === 0) && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
     // a heading above that names a specific part (filters, a VFD, heat wheels ...) holds for every item under it
     // ("Mounting Frames" under "Panel Filters", "Motor output voltage" under "Variable Frequency Controllers");
     // otherwise the clause's own label or first words; then a general heading (casing); then the section title

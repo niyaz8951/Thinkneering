@@ -60,6 +60,33 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 22 Oct 2026 - rule test run, fixes 6-10 (built, PR #11)
+- Vocabulary Row keys: fan type / count / efficiency / motor class on supply and return fans, coil types on water and DX
+  coils, pre-filter `filter supply||filter class #1`, final `#2`, drain pan and damper rows of this datasheet, Cross leakage
+  on the NRVU EATR / OACF rows. Several rows with ";", "#n" = the n-th row of that key.
+- Generic words (rating, capacity, diameter, length, lock, depth, width, bare "stainless steel") recognise a type only with
+  their component in the clause or heading: 19 false types gone on the pair (Coil rating on "EN779 RATING G4" ...).
+- Existing vocabulary maps: AI rules > Vocabulary > "Update from template" (`ai_vocab_upgrade`, rules editor who can edit the
+  map) adds missing types and updates a type still worded as the template of 21 Oct (`vocab-history.ts`); edited types stay.
+- Spec table rows ("EN779 RATING | G4") take the heading above as parent and topic context (lib/rows.ts and cm-rows.js,
+  parity checked); `MATCH_VERSION` "2026-10-22 tables". Rules see the short heading above as section context.
+- Rule book Part 1 "Reference list": a line under REFERENCES / reference standards that only names standards = Noted
+  (rule books: AI rules > "Update from template").
+- Not Applicable by code: a part the datasheet has no section for, asked "wherever applicable / as per schedule / as
+  indicated on schedules", gets Not Applicable with "Not included in the selected units (no <part> on the AHU datasheet)".
+  A clause that asks for the part itself ("to be equipped with sound attenuator") under a conditional heading does not:
+  it stays "not in this unit" for a person.
+- Datasheet Notes reads the NRVU block (drive type, HRS, EATR, OACF, external leakage +/-400 Pa, SFP internal, face
+  velocity, pressure drops ...) and Electrical Power Inputs (per motor: connection, absorbed kW, absorbed A) as rows;
+  maker's name and serial number left out. Product Options kinds set for them (outdoor conditions = project).
+- Site check: Datasheet Notes (on save) and Review (warning) say when the selection location's country or the power supply
+  frequency does not fit the project's region (KSA = 60 Hz, GCC / Egypt = 50 Hz). A warning only.
+On the pair: decided right 42 -> 52, Not Applicable by code 0 -> 9, false types 19 fewer, wrong 2 (a heading set Not
+Applicable where Noted was expected; "Roof curb by contractor" read as a scope statement, unchanged). 208 Vitest tests,
+parity and `scripts/ds-parse-check.mjs` clean (part of `npm test`). Not done: item 5 (starter keywords for DX coil, damper,
+NRVU rows: add them on Row mapping, or a migration when wanted). Next: link by vocabulary Row (with the part gate), choice /
+presence comparison, composite cells, per-unit verdicts, Sound Report rows.
+
 ### 22 Oct 2026 - rule test run, fixes 1-4 (built, PR #11 `fix/comparison-gates`)
 Test run of the rules alone (no library, no model) on Arcadis 237413 x ASTRAWEB HILTOP (7 units): report and workbook
 `Rule-Test-Run-2026-10-22.md`. Code made 5 wrong datasheet verdicts (3 a false Comply / CwR). Fixed:

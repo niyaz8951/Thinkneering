@@ -18,7 +18,8 @@
                  ! Anchors: L1, L2, L3                                       (tokens that point at it alone)
                  ! Unit: mm      ! Direction: higher | lower | exact       ! Scale: L3 < L2 < L1 (worst to best)
                  ! Standard: EN 1886   ! Options: aluminium, stainless (choice)   ! Not: door, damper
-                 ! Row: mechanical characteristic (en1886)||casing leakage    (the datasheet row that answers it)
+                 ! Row: mechanical characteristic (en1886)||casing leakage    (the datasheet row that answers it; several
+                        rows with ";", "#2" = the second row of that key in a section, e.g. Filter 2)
                  ! Equivalent: MERV 13 = F7     ! Example: Casing air leakage shall be class L2 or better ...
 
    A branch "to verify" is not read. Everything here is engineering language, the same for every factory. */
@@ -27,6 +28,7 @@ import { all, now, uuid } from "../lib/sql";
 import { familyOfUnit, classTokens } from "./compare";
 import { requirements, type Requirement } from "./evidence";
 import { addSeed, type MapNode, type Seed } from "./map";
+import { VOCAB_2026_10_21 } from "./vocab-history";
 
 export type Kind = "value" | "class" | "standard" | "choice" | "presence";
 export type Dir = "higher" | "lower" | "exact";
@@ -146,6 +148,8 @@ export interface Identified {
   type: VType; score: number; confidence: "high" | "medium" | "low"; landmarks: string[]; level: Level; asked: string;
 }
 const OPS: Record<string, string> = { ">=": "at least ", "<=": "at most ", "=": "", range: "" };
+/* Words that name a property of many parts: they count only beside the type's component (identify). */
+const GENERIC = new Set(["stainless steel", "rating", "ratings", "rated", "capacity", "diameter", "length", "lock", "locks", "depth", "deep", "width", "wide"]);
 function idf(v: Vocab): Map<string, number> {
   const df = new Map<string, number>();
   for (const t of v.types) for (const w of new Set([...t.terms, ...t.anchors].map((x) => x.toLowerCase()))) df.set(w, (df.get(w) || 0) + 1);
@@ -175,14 +179,17 @@ export function identify(v: Vocab, clause: string, section = "", max = 3): Ident
   for (const t of v.types) {
     const marks: string[] = [];
     let score = 0, prop = 0;
-    const pt = find(h, t.terms);
+    const c = compHit.get(t.component) || { inClause: false, inSection: false, neg: false };
+    // a generic word ("rating", "capacity", "diameter", "length", "lock") is a landmark of a type only beside its
+    // component, in the clause or its heading (22 Oct 2026: "EN779 RATING | G4" was a coil rating, "dust holding
+    // capacity" a humidifier, "200 mm diameter" windows a heat wheel, "locked-rotor" a door latch)
+    const pt = find(h, t.terms).filter((x) => !GENERIC.has(x.term.toLowerCase()) || c.inClause || c.inSection);
     // property words: the rarest weigh most, but one rare word alone never outweighs the structure of the clause
     pt.slice().sort((a, b) => (w!.get(b.term.toLowerCase()) || 1) - (w!.get(a.term.toLowerCase()) || 1)).slice(0, 2)
       .forEach((x, i) => { const s = Math.min(w!.get(x.term.toLowerCase()) || 1, 4) * (i ? 0.6 : 2); score += s; prop += s; marks.push(x.term); });
     // anchors: an anchor of the type, or a class of its scale, written in the clause
     const scaleHits = t.kind === "class" ? t.scale.filter((s) => s.length >= 2 && termRe(s).test(h)) : [];
     const an = [...find(h, t.anchors).map((x) => x.term), ...scaleHits.filter((s) => !t.anchors.some((a) => a.toLowerCase() === s.toLowerCase()))];
-    const c = compHit.get(t.component) || { inClause: false, inSection: false, neg: false };
     if (c.inClause) { score += 2; marks.push(t.component.toLowerCase()); } else if (c.inSection) { score += 1.2; marks.push("section: " + t.component.toLowerCase()); }
     if (an.length) {
       // a short anchor (L2, T2, G4) counts in full only beside another landmark of its type: alone it may be anything
@@ -338,8 +345,8 @@ const AHU: Comp[] = [
     { t: "Inspection lights", k: "presence", terms: "inspection light, inspection lights, marine light, marine lights, internal light, lighting, lamp" }
   ] },
   { c: "Filters", terms: "filter, filters, filtration, prefilter, pre-filter, pre filter, final filter, bag filter, panel filter, filter section, filter bank", not: "water filter, strainer", types: [
-    { t: "Pre-filter class", k: "class", terms: "prefilter, pre-filter, pre filter, primary filter, panel filter, first stage, ISO coarse", anchors: "G3, G4, ISO Coarse, MERV 8, MERV 7", scale: "G1 < G2 < G3 < G4 < M5 < M6 < F7", std: "ISO 16890, EN 779, ASHRAE 52.2", row: "filter supply||filter class", eq: ["MERV 7-8 = G4", "ISO Coarse 60-65% = G4", "ePM10 50% = M5"], ex: "Pre-filters shall be ISO Coarse 60% (G4), 48 mm deep." },
-    { t: "Final filter class", k: "class", terms: "final filter, secondary filter, bag filter, second stage, high efficiency filter, rigid filter", anchors: "F7, F8, F9, ePM1, MERV 13, MERV 14", scale: "M5 < M6 < F7 < F8 < F9", std: "ISO 16890, EN 779, ASHRAE 52.2", row: "filter supply||filter class", eq: ["MERV 13 = F7", "MERV 14 = F8", "MERV 15 = F9", "ePM1 50-65% = F7", "ePM1 70-80% = F8", "ePM1 80-90% = F9"] },
+    { t: "Pre-filter class", k: "class", terms: "prefilter, pre-filter, pre filter, primary filter, panel filter, first stage, ISO coarse", anchors: "G3, G4, ISO Coarse, MERV 8, MERV 7", scale: "G1 < G2 < G3 < G4 < M5 < M6 < F7", std: "ISO 16890, EN 779, ASHRAE 52.2", row: "filter supply||filter class #1", eq: ["MERV 7-8 = G4", "ISO Coarse 60-65% = G4", "ePM10 50% = M5"], ex: "Pre-filters shall be ISO Coarse 60% (G4), 48 mm deep." },
+    { t: "Final filter class", k: "class", terms: "final filter, secondary filter, bag filter, second stage, high efficiency filter, rigid filter", anchors: "F7, F8, F9, ePM1, MERV 13, MERV 14", scale: "M5 < M6 < F7 < F8 < F9", std: "ISO 16890, EN 779, ASHRAE 52.2", row: "filter supply||filter class #2", eq: ["MERV 13 = F7", "MERV 14 = F8", "MERV 15 = F9", "ePM1 50-65% = F7", "ePM1 70-80% = F8", "ePM1 80-90% = F9"] },
     { t: "HEPA filter class", k: "class", terms: "HEPA, ULPA, absolute filter, EPA filter", anchors: "H13, H14, E11, E12, U15", scale: "E10 < E11 < E12 < H13 < H14 < U15 < U16 < U17", std: "EN 1822" },
     { t: "Filter efficiency (ISO 16890)", k: "value", terms: "ePM1, ePM2.5, ePM10, efficiency, filter efficiency", unit: "%", dir: "higher", std: "ISO 16890", row: "unit data||total supply filters eff. epm1", n: "Compare the same metric only: ePM1 with ePM1, never ePM1 with ISO Coarse." },
     { t: "Filter type", k: "choice", terms: "filter type, pleated, bag, pocket, rigid, cartridge, mini-pleat, panel type, compact, washable", opts: "pleated, bag, pocket, rigid, cartridge, mini-pleat, panel, washable, synthetic, glass fibre" },
@@ -352,10 +359,10 @@ const AHU: Comp[] = [
     { t: "Spare filters", k: "presence", terms: "spare filters, spare set, extra set of filters, replacement filters, one set of spare" }
   ] },
   { c: "Fans", terms: "fan, fans, plug fan, fan wheel, impeller, blower, fan section, fan array, fanwall", not: "fan coil, condenser fan", types: [
-    { t: "Fan type", k: "choice", terms: "fan type, plug fan, plenum fan, centrifugal, backward curved, backward inclined, forward curved, airfoil, aerofoil, EC fan, mixed flow", opts: "plug, plenum, EC, centrifugal, backward curved, forward curved, airfoil, mixed flow", row: "fan return||type" },
+    { t: "Fan type", k: "choice", terms: "fan type, plug fan, plenum fan, centrifugal, backward curved, backward inclined, forward curved, airfoil, aerofoil, EC fan, mixed flow", opts: "plug, plenum, EC, centrifugal, backward curved, forward curved, airfoil, mixed flow", row: "fan supply||type; fan return||type" },
     { t: "Fan drive", k: "choice", terms: "direct drive, direct driven, belt drive, belt driven, belts, sheaves, pulleys, V-belt", opts: "direct drive, belt drive", n: "Direct-driven EC fans make belt, sheave and belt-guard clauses Not Applicable." },
-    { t: "Number of fans", k: "value", terms: "fan array, number of fans, multiple fans, two fans, redundancy, N+1", unit: "", dir: "higher", row: "fan supply||quantity" },
-    { t: "Fan efficiency", k: "value", terms: "fan efficiency, static efficiency, total efficiency, FMEG, efficiency grade", unit: "%", dir: "higher", row: "fan return||efficiency" },
+    { t: "Number of fans", k: "value", terms: "fan array, number of fans, multiple fans, two fans, redundancy, N+1", unit: "", dir: "higher", row: "fan supply||quantity; fan return||quantity" },
+    { t: "Fan efficiency", k: "value", terms: "fan efficiency, static efficiency, total efficiency, FMEG, efficiency grade", unit: "%", dir: "higher", row: "fan supply||efficiency; fan return||efficiency" },
     { t: "Bearing life", k: "value", terms: "bearing life, L10, L50, rated life, bearing", anchors: "L10, L50, ABMA 9", unit: "h", dir: "higher" },
     { t: "Balancing grade", k: "class", terms: "balanced, balancing, balance quality, statically and dynamically balanced", anchors: "G2.5, G6.3, G 2.5, G 6.3", scale: "G16 < G6.3 < G2.5 < G1", std: "ISO 1940" },
     { t: "Vibration isolation", k: "presence", terms: "vibration isolation, anti-vibration, anti vibration, spring isolators, rubber mounts, vibration isolators, isolation mounts, flexible mounting" },
@@ -364,7 +371,7 @@ const AHU: Comp[] = [
     { t: "Fan guards", k: "presence", terms: "fan guard, inlet guard, outlet guard, belt guard, safety guard, guards", not: "filter" }
   ] },
   { c: "Motors", terms: "motor, motors, electric motor, EC motor, induction motor", types: [
-    { t: "Motor efficiency class", k: "class", terms: "motor efficiency, efficiency class, premium efficiency, NEMA premium, high efficiency motor", anchors: "IE1, IE2, IE3, IE4, IE5, NEMA Premium", scale: "IE1 < IE2 < IE3 < IE4 < IE5", std: "IEC 60034-30", row: "fan return|motor data|efficiency class", eq: ["NEMA Premium = IE3", "NEMA EPAct = IE2"] },
+    { t: "Motor efficiency class", k: "class", terms: "motor efficiency, efficiency class, premium efficiency, NEMA premium, high efficiency motor", anchors: "IE1, IE2, IE3, IE4, IE5, NEMA Premium", scale: "IE1 < IE2 < IE3 < IE4 < IE5", std: "IEC 60034-30", row: "fan supply|motor data|efficiency class; fan return|motor data|efficiency class", eq: ["NEMA Premium = IE3", "NEMA EPAct = IE2"] },
     { t: "Motor type", k: "choice", terms: "EC motor, electronically commutated, permanent magnet, induction motor, asynchronous, AC motor", opts: "EC, permanent magnet, induction, asynchronous, external rotor" },
     { t: "Motor enclosure", k: "class", terms: "enclosure, ingress protection, protection class, TEFC, totally enclosed", anchors: "IP44, IP54, IP55, IP56, IP65, IP66, TEFC", scale: "IP44 < IP54 < IP55 < IP56 < IP65 < IP66", std: "IEC 60529" },
     { t: "Motor insulation class", k: "class", terms: "insulation class, winding insulation, class F insulation", anchors: "class F, class H, class B", scale: "B < F < H" },
@@ -378,28 +385,28 @@ const AHU: Comp[] = [
   ] },
   { c: "Coils", terms: "coil, coils, cooling coil, heating coil, chilled water coil, hot water coil, DX coil, heat exchanger coil", not: "fan coil", types: [
     { t: "Coil rating", k: "standard", terms: "rated, certified, rating, ratings, coil performance", std: "AHRI 410, Eurovent", anchors: "AHRI 410, ARI 410" },
-    { t: "Tube material", k: "choice", terms: "tube, tubes, tube material, copper tubes, seamless copper", opts: "copper, seamless copper, cupronickel, stainless steel", row: "coil cooling water supply|geometry|tube material" },
-    { t: "Tube thickness", k: "value", terms: "tube thickness, tube wall, wall thickness of tube", unit: "mm", dir: "higher", row: "coil cooling water supply|geometry|tube thickness" },
-    { t: "Fin material", k: "choice", terms: "fins, fin material, aluminium fins, copper fins, coated fins, blue fin, epoxy coated, pre-coated fins, hydrophilic", opts: "aluminium, aluminum, copper, coated, epoxy, hydrophilic, blue fin, electrofin", row: "coil cooling water supply|geometry|fin material" },
-    { t: "Fin spacing", k: "value", terms: "fin spacing, fin space, fins per inch, FPI, fin pitch, fins per foot", anchors: "FPI", unit: "mm", dir: "higher", row: "coil cooling water supply|geometry|fin space", n: "Fins per inch run the other way: 12 FPI = 2.1 mm spacing; more FPI = closer fins." },
-    { t: "Rows", k: "value", terms: "rows, row coil, row deep, number of rows", unit: "", dir: "exact", row: "coil cooling water supply|geometry|rows" },
-    { t: "Coil face velocity", k: "value", terms: "face velocity, coil face velocity, velocity across the coil, air velocity", unit: "m/s", dir: "lower", row: "coil cooling water supply|geometry|air velocity", ex: "Coil face velocity shall not exceed 2.5 m/s." },
+    { t: "Tube material", k: "choice", terms: "tube, tubes, tube material, copper tubes, seamless copper", opts: "copper, seamless copper, cupronickel, stainless steel", row: "coil cooling water supply|geometry|tube material; coil cooling dx supply|geometry|tube material" },
+    { t: "Tube thickness", k: "value", terms: "tube thickness, tube wall, wall thickness of tube", unit: "mm", dir: "higher", row: "coil cooling water supply|geometry|tube thickness; coil cooling dx supply|geometry|tube thickness" },
+    { t: "Fin material", k: "choice", terms: "fins, fin material, aluminium fins, copper fins, coated fins, blue fin, epoxy coated, pre-coated fins, hydrophilic", opts: "aluminium, aluminum, copper, coated, epoxy, hydrophilic, blue fin, electrofin", row: "coil cooling water supply|geometry|fin material; coil cooling dx supply|geometry|fin material" },
+    { t: "Fin spacing", k: "value", terms: "fin spacing, fin space, fins per inch, FPI, fin pitch, fins per foot", anchors: "FPI", unit: "mm", dir: "higher", row: "coil cooling water supply|geometry|fin space; coil cooling dx supply|geometry|fin space", n: "Fins per inch run the other way: 12 FPI = 2.1 mm spacing; more FPI = closer fins." },
+    { t: "Rows", k: "value", terms: "rows, row coil, row deep, number of rows", unit: "", dir: "exact", row: "coil cooling water supply|geometry|rows; coil cooling dx supply|geometry|rows" },
+    { t: "Coil face velocity", k: "value", terms: "face velocity, coil face velocity, velocity across the coil, air velocity", unit: "m/s", dir: "lower", row: "coil cooling water supply|geometry|air velocity; coil cooling dx supply|geometry|air velocity", ex: "Coil face velocity shall not exceed 2.5 m/s." },
     { t: "Coil air pressure drop", k: "value", terms: "air pressure drop, air side pressure drop, airside resistance", unit: "pa", dir: "lower" },
     { t: "Coil water pressure drop", k: "value", terms: "water pressure drop, water side pressure drop, fluid pressure drop, waterside", unit: "kpa", dir: "lower", row: "coil cooling water supply|cooling fluid side|pressure drop" },
     { t: "Coil working and test pressure", k: "value", terms: "working pressure, test pressure, design pressure, tested at, pressure tested, operating pressure", unit: "bar", dir: "higher" },
-    { t: "Coil capacity", k: "value", terms: "cooling capacity, total capacity, heating capacity, sensible capacity, coil capacity, duty", unit: "kw", dir: "higher", row: "coil cooling water supply|cooling air side|total capacity" },
-    { t: "Coil casing", k: "choice", terms: "coil casing, coil frame, end plates, tube sheets, coil support", opts: "galvanized, stainless steel, aluminium", row: "coil cooling water supply|geometry|frame" },
-    { t: "Moisture eliminator", k: "presence", terms: "moisture eliminator, droplet eliminator, drift eliminator, mist eliminator, eliminator", row: "coil cooling water supply|geometry|moisture eliminator" },
-    { t: "Coil connections", k: "choice", terms: "connections, headers, threaded, flanged, connection size, vents and drains", opts: "threaded, flanged, BSP, NPT, same side", row: "coil cooling water supply|geometry|connection diam" }
+    { t: "Coil capacity", k: "value", terms: "cooling capacity, total capacity, heating capacity, sensible capacity, coil capacity, duty", unit: "kw", dir: "higher", row: "coil cooling water supply|cooling air side|total capacity; coil cooling dx supply|cooling|total capacity" },
+    { t: "Coil casing", k: "choice", terms: "coil casing, coil frame, end plates, tube sheets, coil support", opts: "galvanized, stainless steel, aluminium", row: "coil cooling water supply|geometry|frame; coil cooling dx supply|geometry|frame" },
+    { t: "Moisture eliminator", k: "presence", terms: "moisture eliminator, droplet eliminator, drift eliminator, mist eliminator, eliminator", row: "coil cooling water supply|geometry|moisture eliminator; coil cooling dx supply|geometry|moisture eliminator" },
+    { t: "Coil connections", k: "choice", terms: "connections, headers, threaded, flanged, connection size, vents and drains", opts: "threaded, flanged, BSP, NPT, same side", row: "coil cooling water supply|geometry|connection diam; coil cooling dx supply|geometry|connection diam in/out" }
   ] },
   { c: "Drain pan", terms: "drain pan, drain pans, condensate pan, condensate tray, drip tray, drain tray", types: [
-    { t: "Drain pan material", k: "choice", terms: "drain pan material, stainless steel, SS304, SS316, AISI 304, AISI 316", opts: "stainless steel, SS304, SS316, AISI 304, AISI 316, galvanized, aluminium", row: "coil cooling water supply|geometry|drain pan" },
+    { t: "Drain pan material", k: "choice", terms: "drain pan material, stainless steel, SS304, SS316, AISI 304, AISI 316", opts: "stainless steel, SS304, SS316, AISI 304, AISI 316, galvanized, aluminium, precoated", row: "unit data||drain pan (if present); coil cooling dx supply|options|option; coil cooling water supply|options|option", n: "The Options List (DrainPan SS304) overrides the Unit Data line (Drain Pan: Precoated)." },
     { t: "Drain pan slope", k: "presence", terms: "double slope, double sloped, sloped, slope, pitched, self-draining, no standing water", ex: "Drain pans shall be double sloped to the drain connection." },
     { t: "Drain pan insulation", k: "presence", terms: "insulated drain pan, insulated underside, insulation under the pan, double wall drain pan" }
   ] },
   { c: "Dampers", terms: "damper, dampers, mixing box, louvre, louver, shut-off damper, volume control damper", not: "fire damper, smoke damper", types: [
     { t: "Damper leakage class", k: "class", terms: "damper leakage, leakage rate, low leakage, tight closing, leakage class, leakage", anchors: "class 2, class 3, class 4, class 1A", scale: "class 0 < class 1 < class 2 < class 3 < class 4", std: "EN 1751, AMCA 500-D", eq: ["AMCA 500-D class 1A ~ EN 1751 class 3-4 (check per case)"] },
-    { t: "Damper blades", k: "choice", terms: "blades, blade, aerofoil blades, airfoil blades, opposed blade, parallel blade", opts: "aerofoil, airfoil, opposed, parallel, aluminium, galvanized", row: "mixing box supply|damper one supply|material" },
+    { t: "Damper blades", k: "choice", terms: "blades, blade, aerofoil blades, airfoil blades, opposed blade, parallel blade", opts: "aerofoil, airfoil, opposed, parallel, aluminium, galvanized", row: "mixing box supply|damper one supply|material; damper supply||material; damper return||material" },
     { t: "Damper actuator", k: "presence", terms: "actuator, actuators, motorized, motorised, spring return, modulating actuator" },
     { t: "Damper seals", k: "presence", terms: "blade seals, edge seals, side seals, jamb seals, gaskets" }
   ] },
@@ -411,7 +418,7 @@ const AHU: Comp[] = [
     { t: "Wheel coating", k: "choice", terms: "hygroscopic, sorption, molecular sieve, silica gel, desiccant, coating", opts: "molecular sieve, silica gel, hygroscopic, sorption, epoxy" },
     { t: "Wheel drive", k: "choice", terms: "wheel drive, rotor drive, variable speed, constant speed, stepper motor", opts: "variable speed, constant speed, VFD, stepper" },
     { t: "Wheel size", k: "value", terms: "wheel diameter, rotor diameter, diameter", unit: "mm", dir: "exact", row: "recuperator heat wheel supply||diameter" },
-    { t: "Cross leakage", k: "value", terms: "cross leakage, carry over, carryover, EATR, exhaust air transfer ratio, OACF", anchors: "EATR, OACF", unit: "%", dir: "lower" }
+    { t: "Cross leakage", k: "value", terms: "cross leakage, carry over, carryover, EATR, exhaust air transfer ratio, OACF", anchors: "EATR, OACF", unit: "%", dir: "lower", row: "nrvu||leakage eatr; nrvu||leakage oacf", n: "From the datasheet's NRVU block. OACF is a factor (1.05), printed with a % sign: compare EATR with EATR, OACF with OACF." }
   ] },
   { c: "Humidifier", terms: "humidifier, humidifiers, humidification, steam humidifier, evaporative humidifier", types: [
     { t: "Humidifier type", k: "choice", terms: "steam, isothermal, evaporative, adiabatic, spray, atomizing, electrode", opts: "steam, isothermal, evaporative, adiabatic, spray, electrode, resistive", row: "isothermal steam humidifier supply||type" },
@@ -573,6 +580,43 @@ export async function createVocabMap(env: Env, userId: string, product: { id: st
   for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
   const types = seeds.reduce((n, s) => n + (/^(how|standards)/i.test(s.title) ? 0 : (s.kids || []).length), 0);
   return { id: mapId, name: title, types };
+}
+
+/* Brings a linked vocabulary up to the template (22 Oct 2026): components and types the map does not have are added
+   (verified when the person may verify in Maps); a type that still holds exactly an earlier template wording
+   (vocab-history.ts) gets the current one; a type someone edited, renamed or switched off is left as it is. Returns
+   what was done, for the toast and the audit. */
+export async function upgradeVocabMap(env: Env, userId: string, mapId: string, product: string, verified: boolean): Promise<string[]> {
+  const nodes = await all<MapNode>(env.DB.prepare("SELECT id, parent_id, title, notes, special, sort, verified FROM mp_nodes WHERE map_id = ?").bind(mapId));
+  const root = nodes.filter((n) => n.parent_id === null).sort((a, b) => a.sort - b.sort)[0];
+  if (!root) return [];
+  const kids = (id: string) => nodes.filter((n) => n.parent_id === id);
+  const named = (list: MapNode[], title: string) => list.find((n) => n.title.trim().toLowerCase() === title.trim().toLowerCase());
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x.trim() === b[i].trim());
+  const at = now(), stmts: D1PreparedStatement[] = [], done: string[] = [];
+  const v = verified ? 1 : 0;
+  const tops = kids(root.id);
+  vocabSeed(product).forEach((comp, ci) => {
+    if (/^(how|standards?)\b/i.test(comp.title)) return;
+    const node = named(tops, comp.title);
+    if (!node) { addSeed(env, stmts, mapId, root.id, comp, 100 + ci, userId, at, v); done.push(`${comp.title} (added)`); return; }
+    const types = kids(node.id);
+    (comp.kids || []).forEach((t, ti) => {
+      const have = named(types, t.title);
+      if (!have) { addSeed(env, stmts, mapId, node.id, t, 100 + ti, userId, at, v); done.push(`${comp.title} › ${t.title} (added)`); return; }
+      const old = VOCAB_2026_10_21[`${comp.title} › ${t.title}`];
+      const cur = specials(have);
+      if (!old || !same(cur, old.special) || have.notes.trim() !== old.notes.trim()) return;      // edited by a person
+      if (same(cur, t.special || []) && have.notes.trim() === (t.notes || "").trim()) return;     // already current
+      stmts.push(env.DB.prepare("UPDATE mp_nodes SET notes = ?, special = ?, updated_by = ?, updated_at = ? WHERE id = ?")
+        .bind((t.notes || "").slice(0, 8000), JSON.stringify(t.special || []), userId, at, have.id));
+      done.push(`${comp.title} › ${t.title} (updated)`);
+    });
+  });
+  if (!stmts.length) return [];
+  stmts.push(env.DB.prepare("UPDATE mp_maps SET updated_by = ?, updated_at = ? WHERE id = ?").bind(userId, at, mapId));
+  for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
+  return done;
 }
 
 /* For a page: one identified type as plain data. */
