@@ -264,7 +264,7 @@
     }
     if (out.length) bar.appendChild(act(out, true, 'Leave out ' + out.length + (out.length === 1 ? ' row' : ' rows'), out.length + (out.length === 1 ? ' row' : ' rows') + ' left out for every ' + all + ' factory.'));
     if (back.length) bar.appendChild(act(back, false, 'Bring back ' + back.length + (back.length === 1 ? ' row' : ' rows'), 'Rows are back in the tree.'));
-    if (!modelMode()) [['general', 'Move to general'], ['model', 'Move to columns']].forEach(function (m) {
+    [['general', 'Move to general'], ['model', 'Move to columns']].forEach(function (m) {
       bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: m[1], onclick: function (e) {
         var b = e.currentTarget; b.disabled = true;
         Api.poAdminSetPlace(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, place: m[0] }).then(function () {
@@ -460,7 +460,8 @@
         r.values.forEach(function (v) {
           if (!edit && v.hidden) return;
           if (onlyWait && ln.kind !== 'duty' && !v.wait) return;
-          var col = ln.kind === 'accessory' || ln.pl === 'general' ? null : columnOf(C, r, v);
+          // AHU: a row moved to General is one list for the card; FCU: each model keeps its own General (owner, 22 Oct 2026)
+          var col = ln.kind === 'accessory' || (ln.pl === 'general' && !C.byModel) ? null : columnOf(C, r, v);
           var x = { key: r.key, v: v, section: r.section };
           if (!col) { ln.loose.push(x); return; }
           var cc = colBy[col.key];
@@ -479,7 +480,7 @@
         a.head.localeCompare(b.head, undefined, { sensitivity: 'base', numeric: true });
     });
     c.cols = cols; c.sides = Object.keys(sides);
-    c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.drop = [];
+    c.common = []; c.model = []; c.duty = []; c.access = []; c.heads = []; c.drop = []; c.mgen = [];
     var dropped = {};
     function drop(x) { var k = x.key + '\u0001' + (x.v.g || ''); if (!dropped[k]) { dropped[k] = 1; c.drop.push({ key: x.key, grp: x.v.g || '' }); } }
     c.lines.forEach(function (ln) {
@@ -487,6 +488,8 @@
       var inCols = cols.filter(function (cc) { return (ln.cells[cc.key] || []).length; });
       if (ln.kind === 'accessory') { c.access.push(ln); return; }
       if (cols.length && !C.bySection && C.column && C.column.test(ln.rows[0].key.split('|')[2] || '') && !ln.loose.length && !ln.extras.length) { c.heads.push(ln); return; }   // the column heading says it
+      // FCU: an option moved to General is listed under each model, not compared across the models
+      if (C.byModel && ln.pl === 'general' && ln.kind !== 'duty') { c.mgen.push(ln); ln.bucket = 'general'; return; }
       if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); ln.bucket = inCols.length ? 'model' : 'general'; return; }
       // an option: per model when moved there (or by the card's rule), in General when moved there, else common when
       // it is the same in every column (or has no column at all) and model-specific when it differs
@@ -566,6 +569,14 @@
   }
   function moveButtons(c, ln) {
     if (!canMove(c) || ln.kind === 'accessory') return [];
+    if (c.C.byModel) {      // FCU: General is each model's own (owner, 22 Oct 2026)
+      if (ln.kind === 'duty') return [];
+      var fcu = [];
+      if (ln.pl !== 'general') fcu.push(placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in the General of each model now.'));
+      if (ln.bucket !== 'model') fcu.push(placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is compared across the models now.'));
+      if (ln.place) fcu.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place.'));
+      return fcu;
+    }
     var out = [ln.bucket === 'model' ? placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in General now.')
                                     : placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is shown per ' + ((unitOf(c) || ['model'])[0]) + ' now.')];
     if (ln.place) out.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place.'));
@@ -578,15 +589,15 @@
 
   /* one card on screen; null when the search leaves nothing */
   function cardNode(c, q, edit) {
-    var cols = c.cols, lines = { common: c.common, model: c.model, duty: c.duty, access: c.access };
+    var cols = c.cols, lines = { common: c.common, model: c.model, duty: c.duty, access: c.access, mgen: c.mgen };
     var extras = c.extras;
     if (q && !hits(q, c.name + ' ' + c.sections.join(' '))) {
       var colHit = cols.filter(function (cc) { return hits(q, cc.head + ' ' + cc.label + ' ' + cc.family); });
       var lineHit = function (ln) { return hits(q, lineName(ln) + ' ' + lineAll(ln).map(function (x) { return x.v.v; }).join(' ') + ' ' + ln.extras.map(function (x) { return x.body; }).join(' ')); };
       if (colHit.length) cols = colHit;
-      else lines = { common: c.common.filter(lineHit), model: c.model.filter(lineHit), duty: c.duty.filter(lineHit), access: c.access.filter(lineHit) };
+      else lines = { common: c.common.filter(lineHit), model: c.model.filter(lineHit), duty: c.duty.filter(lineHit), access: c.access.filter(lineHit), mgen: c.mgen.filter(lineHit) };
       extras = extras.filter(function (x) { return hits(q, x.body); });
-      if (!colHit.length && !lines.common.length && !lines.model.length && !lines.duty.length && !lines.access.length && !extras.length) return null;
+      if (!colHit.length && !lines.common.length && !lines.model.length && !lines.duty.length && !lines.access.length && !lines.mgen.length && !extras.length) return null;
     }
     var body = el('div', { 'class': 'po-body' }), ck = 'card:' + c.id;
     var waiting = c.lines.reduce(function (n, ln) { return n + (ln.kind === 'duty' ? 0 : waitItems(lineAll(ln)).length); }, 0);
@@ -646,6 +657,21 @@
       body.appendChild(av);
       var at = lineTools(c, aln, edit, function () { return av; }); if (at) body.appendChild(at);
     }
+    // FCU: the rows moved to General, with their tools (the values are under each model, below each series table)
+    if (edit && lines.mgen.length) {
+      body.appendChild(el('p', { 'class': 'po-part', text: 'In General of each model', title: 'Rows moved to General: each model lists its own values, not compared across the models.' }));
+      var mg = el('div', { 'class': 'po-grid' });
+      lines.mgen.forEach(function (ln) {
+        var row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
+        row.appendChild(el('div', { 'class': 'po-name' }, [tickBox(ln.keys, ln.name, row), document.createTextNode(lineName(ln))]));
+        var vals = el('div', { 'class': 'po-vals' });
+        lineExtras(c, ln, edit, function () { return row; }).forEach(function (n) { vals.appendChild(n); });
+        row.appendChild(vals);
+        var t = lineTools(c, ln, edit, function () { return row; }); if (t) row.appendChild(t);
+        mg.appendChild(row);
+      });
+      body.appendChild(mg);
+    }
     // one table per family (EC Fans, DIDW Fans) or one for the card: a column per model
     var families = []; cols.forEach(function (cc) { if (families.indexOf(cc.family) < 0) families.push(cc.family); });
     // duty figures are folded away until asked for (a search shows them): the options stay readable
@@ -655,15 +681,16 @@
       var fc = cols.filter(function (cc) { return cc.family === fam; });
       // FCU: a series whose models differ in nothing shown here needs no table (its models are counted on the card)
       var inFam = function (ln) { return fc.some(function (cc) { return (ln.cells[cc.key] || []).length; }); };
-      if (c.C.byModel && !edit && !lines.model.some(inFam) && !dutyCols.some(inFam)) return;
-      var table = modelTable(c, fc, lines.model, dutyCols, edit);
-      if (!fam) { body.appendChild(table); return; }
+      if (c.C.byModel && !edit && !lines.model.some(inFam) && !dutyCols.some(inFam) && !lines.mgen.some(inFam)) return;
+      var table = lines.model.some(inFam) || dutyCols.some(inFam) || edit || !c.C.byModel ? modelTable(c, fc, lines.model, dutyCols, edit) : null;
+      var gen = c.C.byModel ? modelGeneral(c, fc, lines.mgen, edit) : null;
+      if (!fam) { if (table) body.appendChild(table); if (gen) body.appendChild(gen); return; }
       // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026); so does each FCU series
       var fk = 'fam:' + c.id + ':' + low(fam);
       var fmakes = c.extras.filter(function (x) { return x.kind === 'make' && x.key === 'family:' + fam; });
       var fmake = !c.C.byModel && !q && (fmakes.length || (edit && tree.can_approve)) ? el('div', { 'class': 'po-grid po-fam-make' }, [makeLine(c, fmakes, edit, fam)]) : null;
       var fd = el('details', { 'class': 'po-fam', open: q ? true : !closed[fk] }, [
-        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, table]);
+        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, table, gen]);
       fd.addEventListener('toggle', function () { if (!q) closed[fk] = !fd.open; });
       body.appendChild(fd);
     });
@@ -728,6 +755,25 @@
       i += n;
     }
     return [el('tr', { 'class': 'grades' }, cells)];
+  }
+
+  /* FCU: the General of each model (owner, 22 Oct 2026): the rows an editor moved to General, listed per model with
+     that model's own values (one panel per model, side by side, stacked on a phone). null when no model has any. */
+  function modelGeneral(c, cols, mgen, edit) {
+    var panels = cols.map(function (cc) {
+      var have = mgen.filter(function (ln) { return (ln.cells[cc.key] || []).length; });
+      if (!have.length) return null;
+      var grid = el('div', { 'class': 'po-grid' });
+      have.forEach(function (ln) {
+        var vals = el('div', { 'class': 'po-vals' });
+        chipsOf(ln.cells[cc.key]).forEach(function (ch) { vals.appendChild(chipNode(ch, edit)); });
+        grid.appendChild(el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') }, [el('div', { 'class': 'po-name', text: lineName(ln) }), vals]));
+      });
+      return el('section', { 'class': 'po-mgen-model', 'aria-label': 'General of ' + cc.head }, [
+        el('h4', {}, [document.createTextNode(cc.head), el('small', { text: cc.n ? times(cc.n) : '' })]), grid]);
+    }).filter(Boolean);
+    if (!panels.length) return null;
+    return el('div', { 'class': 'po-mgen' }, [el('p', { 'class': 'po-part', text: 'General of each model' }), el('div', { 'class': 'po-mgen-list' }, panels)]);
   }
 
   /* the columns of one card: the options that differ, then the duty figures seen with each column */
@@ -939,6 +985,7 @@
       c.cols.forEach(function (cc) {
         c.model.forEach(function (ln) { var v = seen(ln.cells[cc.key] || []); if (v) out.push([c.name, colName(cc), lineName(ln), 'Model-specific', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
         c.duty.forEach(function (ln) { var v = dutyText(ok(ln.cells[cc.key] || [])); if (v) out.push([c.name, colName(cc), lineName(ln), 'Duty (seen)', v, '', '']); });
+        c.mgen.forEach(function (ln) { var v = seen(ln.cells[cc.key] || []); if (v) out.push([c.name, colName(cc), lineName(ln), 'General (this model)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
       });
       c.duty.forEach(function (ln) { var v = dutyText(ok(ln.loose)); if (v) out.push([c.name, 'All', lineName(ln), 'Duty (seen)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
       c.model.forEach(function (ln) { var v = seen(ln.loose); if (v) out.push([c.name, 'Read before columns', lineName(ln), 'Model-specific', v, '', '']); });
