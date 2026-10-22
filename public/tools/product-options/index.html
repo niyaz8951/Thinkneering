@@ -154,8 +154,10 @@
   .po-chip.make .po-x { color: var(--surface); }
   .po-chip.make .po-x.danger { color: var(--surface); }
   .po-fam-make { margin: 2px 0 8px; }
-  /* FCU: the General of a series, above its table */
-  .po-sgen { margin: 2px 0 10px; }
+  /* FCU: a block per series; inside it General and Models, each by part (Unit, Fan and motor, Coil ...) */
+  .po-series-head { margin: 16px 0 4px; font-size: 14px; font-weight: 700; color: var(--text); padding-bottom: 4px; border-bottom: 2px solid var(--brand); }
+  .po-subpart { margin: 10px 0 0; font-size: 12px; font-weight: 650; color: var(--text-soft); }
+  .po-matrix tr.po-duty-head td { color: var(--text); padding-left: 12px; }
   /* filters: a grade heading (F7, F9 ...) over its classes */
   .po-cols .po-matrix thead tr.grades th { position: static; padding: 6px 12px 4px; text-align: center; font-size: 13px; font-weight: 700; color: var(--brand-strong);
                                            border-bottom: 2px solid var(--brand); border-left: 1px solid var(--border); background: var(--surface-2); }

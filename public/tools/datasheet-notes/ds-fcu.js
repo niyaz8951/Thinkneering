@@ -251,6 +251,7 @@
        sub    coils: "Cooling" / "Heating" for the two coil blocks, which print the same row names */
   var MOTOR = /^(unit data|configuration information)\|\|(fan |motor |running current|rated motor)/;
   var PO_CARDS = [
+    { id: 'fcu-power', name: 'Power supply', test: /^general\|\|power supply$/ },
     { id: 'fcu-unit', name: 'Unit', test: /^unit data\||^configuration information\|\|return plenum/, section: /^(unit data|configuration information)$/ },
     { id: 'fcu-fan', name: 'Fan and motor', test: MOTOR, make: true },
     { id: 'fcu-coil', name: 'Coil', test: /^cooling coil \(|^configuration information\|\|(coil |fpi|fins |pipe connection|water connection|face velocity)/,
@@ -265,11 +266,14 @@
   /* the card of a row (its key) or of a heading (notes added to a whole section); null = a card of its own */
   function poCardOf(key, section) {
     var k = String(key || '').toLowerCase(), sec = clean(section || '').toLowerCase(), i;
-    if (k && MOTOR.test(k)) return PO_CARDS[1];                       // fan rows of Unit Data belong to the fan
+    if (k && MOTOR.test(k)) return PO_CARDS[2];                       // fan rows of Unit Data belong to the fan
     if (k) for (i = 0; i < PO_CARDS.length; i++) if (PO_CARDS[i].test.test(k)) return PO_CARDS[i];
     for (i = 0; i < PO_CARDS.length; i++) if (PO_CARDS[i].section && PO_CARDS[i].section.test(sec)) return PO_CARDS[i];
+    // a row under a heading no card names (a later report) is still kept per model, in a part named by its heading
+    if (k && sec && sec !== 'general') return OTHER[sec] || (OTHER[sec] = { id: 'fcu-x:' + sec, name: clean(section), test: /$^/, byModel: true, order: 50, unit: ['model', 'models'] });
     return null;
   }
+  var OTHER = {};
 
   P.readers.fcu = { name: 'Daikin FAN COIL UNIT TECHNICAL REPORT (McQuay Smart Tools)', unitBlock: 'General',
                     sectionsName: 'sections', starts: startsUnit, parse: parse,

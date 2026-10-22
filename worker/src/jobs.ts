@@ -9,7 +9,7 @@ import { embed } from "./ai/models";
 import { learnToMaps } from "./ai/learn";
 
 const TABLES = ["app_users", "app_sessions", "app_categories", "app_user_categories", "app_tools", "app_tool_editors", "app_category_admins", "app_audit",
-  "cm_products", "cm_factories", "cm_runs", "cm_lines", "cm_run_lines", "cm_answer_log", "dn_map", "dn_map_settings", "po_values", "po_extras",
+  "cm_products", "cm_factories", "cm_runs", "cm_lines", "cm_run_lines", "cm_answer_log", "dn_map", "dn_map_settings", "po_values", "po_extras", "po_series_place",
   "pr_lists", "pr_projects", "pr_notes", "pr_members", "pr_log", "mp_maps", "mp_nodes", "mp_images", "ai_drafts", "ai_jobs", "ai_chats", "ai_chat_messages"];
 
 export async function scheduled(event: ScheduledController, env: Env): Promise<void> {
