@@ -622,6 +622,28 @@ describe("po_* routes", () => {
     expect(a.n).toBe(1);
   });
 
+  it("po_admin_set_place with a series (0014): an FCU row moves for that series only; '' brings it back; validated, audited", async () => {
+    const e = await poEditor();
+    await mapping(e, "fcu");
+    const plain = await login("sales");
+    const keys = ["unit data||panel"];
+    const args = { p_token: e, p_factory_id: "fcu-shenzhen", p_row_keys: keys, p_place: "general", p_series: "FWWVA" };
+    expect(await refused("po_admin_set_place", { ...args, p_token: plain })).toMatch(/Edit access/);
+    expect(await refused("po_admin_set_place", { ...args, p_token: "nope" })).toBe("SESSION_EXPIRED");
+    expect(await refused("po_admin_set_place", { ...args, p_row_keys: ["no||row"] })).toMatch(/no longer exist/);
+    expect((await ok("po_admin_set_place", args)).changed).toBe(1);
+    expect((await ok("po_admin_set_place", { ...args, p_series: "FWWTA", p_place: "model" })).changed).toBe(1);
+    expect((await ok("po_admin_set_place", { ...args, p_place: "model" })).changed).toBe(1);        // a second move replaces the first
+    const t = await ok("po_get_tree", { p_token: e, p_factory_id: "fcu-riyadh" });
+    expect(t.series_place).toEqual([{ series: "FWWTA", key: "unit data||panel", place: "model" }, { series: "FWWVA", key: "unit data||panel", place: "model" }]);
+    // the row's own place (every series) is not touched
+    expect((await ok("dn_get_rules", { p_token: e, p_product_id: "fcu" })).rules.find((r: any) => r.key === "unit data||panel").place).toBe("");
+    await ok("po_admin_set_place", { ...args, p_place: "" });
+    expect((await ok("po_get_tree", { p_token: e, p_factory_id: "fcu-shenzhen" })).series_place).toEqual([{ series: "FWWTA", key: "unit data||panel", place: "model" }]);
+    const a = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'po_set_place'").first<any>();
+    expect(a.n).toBe(4);
+  });
+
   it("po_admin_set_kind: editors move rows between the options and the duty figures, for every factory; validated, audited", async () => {
     const e = await poEditor();
     await mapping(e);

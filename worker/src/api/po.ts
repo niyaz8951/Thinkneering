@@ -156,13 +156,14 @@ export const routes: Routes = {
     const s = await sessionUser(env, p.p_token);
     const f = await cmFactory(env, p.p_factory_id);
     const edit = s.canEdit("product-options"), approver = poApprover(s), seeWaiting = edit || approver;
-    const [mapRes, valRes, extraRes] = await env.DB.batch([
+    const [mapRes, valRes, extraRes, splRes] = await env.DB.batch([
       // SELECT *: the kind column comes with migration 0011; a database without it reads every row by its name
       env.DB.prepare("SELECT * FROM dn_map WHERE product_id = ? AND show = 1 ORDER BY sort, row_key").bind(f.product_id),
       env.DB.prepare("SELECT rowid AS rid, row_key, model, grp, value_key, value, times, hidden, approved, last_at FROM po_values WHERE factory_id = ?").bind(f.id),
       env.DB.prepare(`SELECT x.id, x.section, x.row_key, x.kind, x.body, x.created_at, x.updated_at, x.created_by, x.updated_by, w.full_name AS by
                         FROM po_extras x LEFT JOIN app_users w ON w.id = coalesce(x.updated_by, x.created_by)
-                       WHERE x.factory_id = ? ORDER BY x.created_at, x.id`).bind(f.id)
+                       WHERE x.factory_id = ? ORDER BY x.created_at, x.id`).bind(f.id),
+      env.DB.prepare("SELECT series, row_key, place FROM po_series_place WHERE product_id = ? ORDER BY series, row_key").bind(f.product_id)
     ]);
     const map = mapRes.results as unknown as MapRow[], values = valRes.results as unknown as ValueRow[], extras = extraRes.results as unknown as ExtraRow[];
     let updated: string | null = null;
@@ -223,6 +224,8 @@ export const routes: Routes = {
       updated,
       rows,
       models,
+      // FCU: rows an editor moved in one series only (0014)
+      series_place: (splRes.results as unknown as { series: string; row_key: string; place: string }[]).map((x) => ({ series: x.series, key: x.row_key, place: x.place })),
       // AI notes (facts for the AI) are kept and seen by the admins only (owner, 20 Oct 2026)
       extras: extras.filter((x) => approver || x.kind !== "ai").map((x) => ({ id: x.id, section: x.section, key: x.row_key, kind: x.kind, body: x.body, at: x.updated_at, by: x.by })),
       sections
@@ -306,6 +309,23 @@ export const routes: Routes = {
     const keys = [...new Set(p.p_row_keys.map((k) => str(k)).filter(Boolean))];
     if (!keys.length) fail("Tick the rows first.");
     if (keys.length > 500) fail("Move up to 500 rows at a time.");
+    // FCU (owner, 22 Oct 2026): p_series = the series the editor is in (FWWVA); the move is for that series only
+    // (po_series_place, migration 0014); '' = back to the row's own place. Without p_series: the row, every series.
+    const series = trimmed(p.p_series).slice(0, 60);
+    if (series) {
+      const have = new Set<string>();
+      for (const part of chunks(keys)) {
+        const rows = await all<{ row_key: string }>(env.DB.prepare(`SELECT row_key FROM dn_map WHERE product_id = ? AND row_key IN (${marks(part.length)})`).bind(f.product_id, ...part));
+        rows.forEach((r) => have.add(r.row_key));
+      }
+      const mine = keys.filter((k) => have.has(k));
+      if (!mine.length) fail("Those rows no longer exist. Refresh the page.");
+      await env.DB.batch(mine.map((k) => place
+        ? env.DB.prepare("INSERT INTO po_series_place (product_id, series, row_key, place) VALUES (?, ?, ?, ?) ON CONFLICT (product_id, series, row_key) DO UPDATE SET place = excluded.place").bind(f.product_id, series, k, place)
+        : env.DB.prepare("DELETE FROM po_series_place WHERE product_id = ? AND series = ? AND row_key = ?").bind(f.product_id, series, k)));
+      await audit(env, s.id, "po_set_place", f.id, "", { rows: mine, place, series });
+      return { ok: true, changed: mine.length };
+    }
     const res = await env.DB.batch(keys.map((k) => env.DB.prepare("UPDATE dn_map SET place = ? WHERE product_id = ? AND row_key = ?").bind(place, f.product_id, k)));
     const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
     if (!n) fail("Those rows no longer exist. Refresh the page.");
