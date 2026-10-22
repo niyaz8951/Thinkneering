@@ -2,7 +2,8 @@
    Same names, parameters and results as the DAME database functions. */
 import type { Env, Params } from "../env";
 import type { Routes } from "../router";
-import { fail } from "../errors";
+import { fail, failWith } from "../errors";
+import { productMismatch, productKey } from "../lib/product-detect";
 import { sessionUser, audit, namesOf, type Session } from "../auth";
 import { cmFactory, type Factory } from "../lib/factory";
 import { cmNorm, cmTopic, cmLibraryOrder, libraryKey, placeRows, isBody, BODY_TYPES, choiceOf } from "../lib/cm";
@@ -103,6 +104,22 @@ function readLines(p: Params): SrcLine[] {
     const type = str(o.type, 12), spec = str(o.spec, 6000);
     return { seq: i, type, sr: str(o.sr, 40), spec, norm: libraryKey(type, spec) };
   });
+}
+
+/* The specification is clearly about another product than the one chosen (lib/product-detect.ts): refuse with the product
+   it looks like, so the page can offer to change it; a person who confirms the choice (p_product_confirmed) goes on, and
+   that is audited. Nothing is written before this check. */
+async function checkProduct(env: Env, s: Session, f: Factory, lines: { type?: string; spec?: string }[], p: Params, what: string): Promise<void> {
+  const mm = productMismatch(f.product, lines);
+  if (!mm) return;
+  if (bool(p.p_product_confirmed)) {
+    await audit(env, s.id, "cm_product_kept", f.id, "", { product: f.product, looks_like: mm.detected, what, reason: mm.reason });
+    return;
+  }
+  const prods = await all<{ id: string; name: string }>(env.DB.prepare("SELECT id, name FROM cm_products WHERE active = 1 ORDER BY sort"));
+  const other = prods.find((x) => productKey(x.name) === mm.detected) || null;
+  failWith("PRODUCT_MISMATCH", `This looks like ${other ? (/^[aeiou]/i.test(other.name) || /^[FHLMNRSX][A-Z0-9]/.test(other.name) ? "an " : "a ") + other.name : "another product's"} specification, not ${f.product}. ${mm.reason} Saved under ${f.product}, its clauses would go into the ${f.product} library and get ${f.product} answers.`,
+    { chosen: { id: f.product_id, name: f.product }, detected: other, reason: mm.reason });
 }
 
 export const routes: Routes = {
@@ -316,6 +333,7 @@ async function saveRun(env: Env, p: Params): Promise<unknown> {
   const lines = readLines(p);
   const projectId = typeof p.p_project_id === "string" && p.p_project_id ? p.p_project_id : null;
   if (projectId) await prProject(env, s, projectId);
+  await checkProduct(env, s, f, lines, p, "conversion");
   const runId = uuid();
   const fileName = str(p.p_file_name, 200);
   const source = ["pdf", "text"].includes(str(p.p_source)) ? str(p.p_source) : "";
@@ -390,6 +408,7 @@ async function adminImport(env: Env, p: Params): Promise<unknown> {
   const rows = p.p_rows;
   if (!isArray(rows) || rows.length === 0) fail("No rows were found in that file.");
   if (rows.length > 20000) fail("That file has more than 20000 rows. Split it and upload in parts.");
+  await checkProduct(env, s, f, rows.map((r) => { const o = isObject(r) ? r : {}; return { type: str(o.type, 12), spec: str(o.spec, 6000) }; }), p, "library upload");
   const runId = uuid(), at = now(), fileName = str(p.p_file_name, 200);
   type Imp = { norm: string; spec: string; c: string; r: string; cm: string; sr: string; row_type: string; part: number; section: string; section_sr: string; ord: number };
   const uniq = new Map<string, Imp>();

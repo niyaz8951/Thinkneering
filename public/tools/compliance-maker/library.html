@@ -243,6 +243,7 @@
   </div>
 </main>
 <script src="cm-focus.js"></script>
+<script src="cm-product-check.js"></script>
 <script>
 (function () {
   "use strict";
@@ -624,7 +625,15 @@
   $("btnImport").addEventListener("click", function () {
     if (!pending) return;
     var btn = $("btnImport"); btn.disabled = true;
-    Api.cmAdminImport(Hub.token(), { factoryId: factoryId(), fileName: pending.fileName, rows: pending.rows }).then(function (res) {
+    var send = function (confirmed) { return Api.cmAdminImport(Hub.token(), { factoryId: factoryId(), fileName: pending.fileName, rows: pending.rows, productConfirmed: confirmed }); };
+    // a library file of another product (an FCU library uploaded into AHU): the editor decides (cm-product-check.js)
+    send(false).then(null, function (err) {
+      if (!CMProductCheck.is(err)) throw err;
+      return CMProductCheck.ask(err).then(function (choice) {
+        if (choice === "keep") return send(true);
+        throw new Error(choice === "switch" ? "Nothing was added. Choose " + err.data.detected.name + " and its factory above, then upload the file again." : "Nothing was added.");
+      });
+    }).then(function (res) {
       btn.disabled = false; var name = pending.fileName, ignored = pending.read - pending.rows.length; resetUpload();
       $("upResultMsg").textContent = name + " added to the library for " + scopeName() + "." +
         (res.standardised ? " " + res.standardised + (res.standardised === 1 ? " answer was" : " answers were") + " put in the standard words (\u201cBy contractor\u201d \u2192 \u201cIn Contractor's Scope\u201d)." : "");

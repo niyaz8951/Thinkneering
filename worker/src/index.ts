@@ -40,7 +40,7 @@ export async function handleRpc(name: string, request: Request, env: Env, ctx: E
     const out = await route(env, params, ctx);
     return reply(out);
   } catch (e) {
-    if (e instanceof HubError) return reply({ ok: false, error: e.message }, e.status);
+    if (e instanceof HubError) return reply(e.code ? { ok: false, error: e.message, code: e.code, data: e.data || {} } : { ok: false, error: e.message }, e.status);
     console.error("rpc " + name, e);
     return reply({ ok: false, error: "Something went wrong on the server. Try again; if it keeps happening tell the admin." }, 500);
   }

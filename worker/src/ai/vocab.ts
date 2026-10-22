@@ -23,6 +23,7 @@
                  ! Equivalent: MERV 13 = F7     ! Example: Casing air leakage shall be class L2 or better ...
 
    A branch "to verify" is not read. Everything here is engineering language, the same for every factory. */
+import { productKey } from "../lib/product-detect";
 import type { Env } from "../env";
 import { all, now, uuid } from "../lib/sql";
 import { familyOfUnit, classTokens } from "./compare";
@@ -667,11 +668,8 @@ function typeSeed(x: TT): Seed {
 }
 const GUIDE = "How specifications ask for things, in their own words, so the AI can recognise every clause like Shazam recognises a song: by its landmarks, not by its sentence. One branch per component; under it one branch per requirement type.\n\nThe special notes of a type are read by code:\n- Kind: value (a figure), class (a grade on a scale), standard (a test or code), choice (one of some options), presence (provided or not)\n- Terms: how specifications name it; Anchors: tokens that point at it alone (L2, IE3, ePM1)\n- Unit, Direction (higher / lower is better, must match), Scale (worst < ... < best)\n- Standard, Options, Not (words that mean it is something else), Row (the datasheet row that answers it), Equivalent, Example\n\nA branch \"to verify\" is not read. What a factory OFFERS is not here: it is in Product Options (per factory). How the AI answers is in the factory's AI rule book.\n\nAdd a term when a specification words a requirement in a new way; add a type when it asks something new. Compliance review > AI rules > Try a clause shows what the code recognises.";
 
-/* Which template a product takes, by its name: AHU, FCU, CHILLER or "" (none). */
-export function productKey(product: string): string {
-  const p = String(product || "").toUpperCase();
-  return /AHU|AIR HANDL/.test(p) ? "AHU" : /FCU|FAN COIL/.test(p) ? "FCU" : /CHILL/.test(p) ? "CHILLER" : "";
-}
+/* Which template a product takes, by its name (lib/product-detect.ts, shared with the specification check). */
+export { productKey };
 
 export function vocabSeed(product: string): Seed[] {
   const k = productKey(product);

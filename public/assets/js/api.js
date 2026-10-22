@@ -19,7 +19,9 @@
       return res.json().catch(function () { return null; }).then(function (body) {
         if (!res.ok) {
           var msg = (body && (body.message || body.error)) || ("Request failed (" + res.status + ")");
-          throw new Error(msg);
+          var e = new Error(msg);
+          if (body && body.code) { e.code = body.code; e.data = body.data || {}; }   // a refusal the page can act on
+          throw e;
         }
         if (body && body.ok === false) throw new Error(body.error || "Request failed");
         return body;
@@ -43,13 +45,13 @@
     adminSaveTool: function (t, d) { return rpc("app_admin_save_tool", { p_token: t, p_id: d.id, p_category_id: d.category_id, p_name: d.name, p_description: d.description, p_path: d.path, p_status: d.status, p_sort: d.sort, p_editable: !!d.editable }); },
     // Compliance Maker library
     cmOptions: function (t) { return rpc("cm_options", { p_token: t }); },
-    cmSaveRun: function (t, d) { return rpc("cm_save_run", { p_token: t, p_factory_id: d.factoryId, p_source: d.source, p_file_name: d.fileName || "", p_lines: d.lines, p_project_id: d.projectId || null }); },
+    cmSaveRun: function (t, d) { return rpc("cm_save_run", { p_token: t, p_factory_id: d.factoryId, p_source: d.source, p_file_name: d.fileName || "", p_lines: d.lines, p_project_id: d.projectId || null, p_product_confirmed: !!d.productConfirmed }); },
     cmAdminLines: function (t, d) { return rpc("cm_admin_lines", { p_token: t, p_factory_id: d.factoryId, p_status: d.status || "open", p_search: d.search || "", p_limit: d.limit || 100, p_offset: d.offset || 0,
       p_part: d.part === "" || d.part == null ? null : +d.part, p_topic: d.topic || "", p_client_type: d.clientType || "", p_client_name: d.clientName || "", p_project_code: d.projectCode || "" }); },
     cmAdminSaveAnswer: function (t, id, c, r, comments) { return rpc("cm_admin_save_answer", { p_token: t, p_line_id: id, p_compliance: c, p_remarks: r, p_comments: comments == null ? null : comments }); },
     cmAdminDeleteLine: function (t, id) { return rpc("cm_admin_delete_line", { p_token: t, p_line_id: id }); },
     cmResetLibrary: function (t, d) { return rpc("cm_reset_library", { p_token: t, p_product_id: d.productId, p_factory_id: d.factoryId || null, p_with_projects: !!d.withProjects }); },
-    cmAdminImport: function (t, d) { return rpc("cm_admin_import", { p_token: t, p_factory_id: d.factoryId, p_file_name: d.fileName || "", p_rows: d.rows }); },
+    cmAdminImport: function (t, d) { return rpc("cm_admin_import", { p_token: t, p_factory_id: d.factoryId, p_file_name: d.fileName || "", p_rows: d.rows, p_product_confirmed: !!d.productConfirmed }); },
     cmAdminRuns: function (t, d) { return rpc("cm_admin_runs", { p_token: t, p_limit: (d && d.limit) || 50, p_offset: (d && d.offset) || 0 }); },
     cmAdminExport: function (t, factoryId, projectCode) { return rpc("cm_admin_export", { p_token: t, p_factory_id: factoryId, p_project_code: projectCode || "" }); },
     // Datasheet Notes row mapping

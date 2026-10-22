@@ -102,6 +102,7 @@
 <script src="../../assets/js/reflow.js"></script>
 <script src="../compliance-maker/xlsx-writer.js"></script>
 <script src="../compliance-maker/cm-engine.js"></script>
+<script src="../compliance-maker/cm-product-check.js"></script>
 <script>
 (function () {
   "use strict";
@@ -214,8 +215,23 @@
       var clauses = res.rows.filter(function (r) { return r.type === "letter" || r.type === "number" || r.type === "text"; }).length;
       if (!clauses) throw new Error("No clauses were found. Check that this is the specification text" + (skip ? ", or untick \"Skip the cover and contents pages\"" : "") + ".");
       status("Saving " + clauses + " clauses in " + project.name + "…");
-      return Api.cmSaveRun(Hub.token(), { factoryId: $("as-factory").value, source: source, fileName: name, projectId: projectId,
-        lines: res.rows.map(function (r) { return { type: r.type || "", sr: r.sr || "", spec: r.spec || "" }; }) }).then(function (saved) {
+      var lines = res.rows.map(function (r) { return { type: r.type || "", sr: r.sr || "", spec: r.spec || "" }; });
+      function save(confirmed) {
+        return Api.cmSaveRun(Hub.token(), { factoryId: $("as-factory").value, source: source, fileName: name, projectId: projectId, lines: lines, productConfirmed: confirmed });
+      }
+      // the server reads which product the text is about; when it is clearly another one, the person decides (cm-product-check.js)
+      return save(false).then(null, function (err) {
+        if (!CMProductCheck.is(err)) throw err;
+        return CMProductCheck.ask(err).then(function (choice) {
+          if (choice === "keep") return save(true);
+          if (choice === "switch") {
+            $("as-product").value = err.data.detected.id; $("as-factory").value = "";
+            fillFactories(); remember(); refresh(); checkFactory(true);
+            throw new Error("Product changed to " + err.data.detected.name + ". Check the factory and press Convert and start filling again. Nothing was saved.");
+          }
+          throw new Error("Nothing was saved. Choose the right product and convert again.");
+        });
+      }).then(function (saved) {
         var go = function () { window.location.href = "record.html?run=" + encodeURIComponent(saved.run_id); };
         var notes = (res.partial ? [res.partial] : []).concat(res.info || []);
         if (res.partial) Hub.tell(notes.join("\n"), { title: "Part of the specification was read" }).then(go);

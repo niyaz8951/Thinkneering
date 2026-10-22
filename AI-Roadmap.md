@@ -60,6 +60,11 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 22 Oct 2026 - wrong-product guard (built, PR #11)
+A spec or library file clearly about another product than the one chosen is refused before it reaches the library or the
+AI (the AHU spec as FCU would get FCU answers and FCU rules); the person changes the product or confirms (audited).
+`lib/product-detect.ts`; tests `product-detect.test.ts` and the browser test `tests/e2e/product-check.spec.ts`.
+
 ### 22 Oct 2026 - FCU and Chiller templates (built, PR #11)
 "Create from template" gave a full vocabulary and rule book for AHUs only; FCU and Chiller got a thin vocabulary and the
 rules for every product. Now each product has its own:
