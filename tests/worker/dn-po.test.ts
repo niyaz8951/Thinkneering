@@ -30,9 +30,10 @@ describe("po helpers (po__skip, po__model, po__series, po__value)", () => {
     expect(poModel("fww600van")).toBe("fww600va");
     expect(poModel(null)).toBe("");
   });
-  it("poSeries is the model without its size figure", () => {
+  it("poSeries is the model without its size figure and its -D variant", () => {
     expect(poSeries("FWW600VA")).toBe("FWWVA");
-    expect(poSeries("FWW700VA-D")).toBe("FWWVA-D");
+    expect(poSeries("FWW700VA-D")).toBe("FWWVA");
+    expect(poSeries("FWW800TA-D")).toBe("FWWTA");
     expect(poSeries("FWW1600TAN")).toBe("FWWTA");
     expect(poSeries("")).toBe("");
   });
@@ -82,6 +83,35 @@ describe("po kinds (lib/po-kind.ts), on every row of the HILTOP and Qiddiya data
   });
 });
 
+/* FCU technical report, Kifaf Phase-5 Plot-2 FCU/GF/16 (FWW1400VA, 22 Oct 2026): every row the reader gives
+   (scripts/ds-parse-check.mjs reads the same report). What is fixed for a model is an option; one selection is duty. */
+describe("po kinds of an FCU (lib/po-kind.ts)", () => {
+  const k = (key: string) => [key, poAutoKind(key)];
+  it("options: fixed for a model, construction, materials", () => {
+    for (const key of ["unit data||unit model", "unit data||net dimension w*d*h (mm)", "unit data||shipping dimension w*h*d (mm)", "unit data||unit net weight (kg)",
+      "unit data||fan control type", "configuration information||drain pan type", "configuration information||drain pan material",
+      "configuration information||drain pan insulation", "configuration information||coil area (m²)", "configuration information||fpi",
+      "configuration information||pipe connection", "configuration information||motor type", "configuration information||rated motor speed (rpm)",
+      "configuration information||return plenum type", "configuration information||return plenum insulation", "configuration information||filter type",
+      "configuration information||fins material", "configuration information||water connection size", "configuration information||fan qty",
+      "configuration information||motor qty", "cooling coil (cooling mode)||coil rows", "general||power supply"]) expect(k(key)).toEqual([key, "option"]);
+  });
+  it("duty: what one selection gives", () => {
+    for (const key of ["unit data||application air flow(m³/h)", "unit data||design air flow(m³/h)", "unit data||application esp (pa)", "unit data||design esp (pa)",
+      "unit data||fan power input (w)", "unit data||running current (a)", "unit data||fan speed", "configuration information||face velocity(m/s)",
+      "cooling coil (cooling mode)||total cooling capacity(kw)", "cooling coil (cooling mode)||on coil db (°c)", "cooling coil (cooling mode)||off coil wb (°c)",
+      "cooling coil (cooling mode)||ewt(°c)", "cooling coil (cooling mode)||lwt(°c)", "cooling coil (cooling mode)||wpd (kpa)",
+      "cooling coil (cooling mode)||water flow rate (l/s)", "cooling coil (cooling mode)||water volume (l)", "cooling coil (heating mode)||heating capacity(kw)",
+      "cooling coil (heating mode)||on coil (db) (°c)", "electric heater||heating capacity(kw)", "electric heater||e-heater maximum current (a)",
+      "electric heater||off coil (db) (°c)", "acoustical performance|lw inlet + rad(db(a))|63hz", "acoustical performance|lw outlet duct(db(a))|overall"]) expect(k(key)).toEqual([key, "duty"]);
+  });
+  it("the site's altitude is a project condition", () => {
+    expect(poAutoKind("unit data||altitude(m)")).toBe("project");
+    expect(poAutoKind("unit data||altitude (m)")).toBe("project");
+    expect(poAutoKind("unit data||altitude of the roof")).toBe("option");      // only the condition itself
+  });
+});
+
 describe("dn_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
@@ -108,9 +138,13 @@ describe("dn_* routes", () => {
     expect(again.length).toBe(6);
     expect(again.find((x: any) => x.key === "unit data||insulation").keywords).toMatch(/^insulation; insulated panel/);
     expect(again.map((x: any) => x.key)).toEqual(AHU_ROWS.map((x) => x.key));          // sort order = order of arrival
-    // another product never gets AHU starter keywords
-    await ok("dn_add_rows", { p_token: t, p_product_id: "fcu", p_rows: [AHU_ROWS[1]] });
-    expect((await ok("dn_get_rules", { p_token: t, p_product_id: "fcu" })).rules[0].keywords).toBe("");
+    // another product never gets AHU starter keywords; an FCU gets its own (migration 0013), without the AHU's "+ PE"
+    await ok("dn_add_rows", { p_token: t, p_product_id: "fcu", p_rows: [AHU_ROWS[2], AHU_ROWS[1],
+      { key: "configuration information||drain pan material", section: "Configuration information", sub: "", component: "Drain Pan Material" }] });
+    const fcu = (await ok("dn_get_rules", { p_token: t, p_product_id: "fcu" })).rules;
+    expect(fcu.find((x: any) => x.key === "unit data||panel").keywords).toBe("");
+    expect(fcu.find((x: any) => x.key === "general||power supply")).toMatchObject({ keywords: expect.stringMatching(/^power supply;/), strip: "" });
+    expect(fcu.find((x: any) => x.key === "configuration information||drain pan material").keywords).toMatch(/drain pan stainless/);
     expect(await refused("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: "x" })).toMatch(/could not be read/);
     expect(await refused("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: new Array(3001).fill({ key: "k" }) })).toMatch(/more than 3000/);
     expect(await refused("dn_add_rows", { p_token: "nope", p_product_id: "ahu", p_rows: [] })).toBe("SESSION_EXPIRED");
@@ -293,12 +327,12 @@ describe("po_* routes", () => {
     expect(typeof u.updated).toBe("string");
     expect(u.sections).toEqual([]);
     expect(u.rows.map((r: any) => r.key)).toEqual(["general||power supply", "unit data||panel", "casing|options|option"]);   // insulation left out; options row only for its note
-    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", place: "", values: [
+    expect(u.rows[1]).toEqual({ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel", hidden: false, kind: "option", kind_set: "", place: "", values: [
       { k: "a", v: "A", n: 2, hidden: false, model: "FWW600VA", g: "", wait: false, held: false }, { k: "c", v: "C", n: 1, hidden: false, model: "FWW700VA-D", g: "", wait: false, held: false }
     ] });
     expect(u.rows[2].values).toEqual([]);
     expect(u.models).toEqual([
-      { model: "FWW600VA", series: "FWWVA", units: 2 }, { model: "FWW400VA", series: "FWWVA", units: 1 }, { model: "FWW700VA-D", series: "FWWVA-D", units: 1 }
+      { model: "FWW600VA", series: "FWWVA", units: 2 }, { model: "FWW400VA", series: "FWWVA", units: 1 }, { model: "FWW700VA-D", series: "FWWVA", units: 1 }
     ]);
     expect(u.extras).toEqual([{ id: x.id, section: "Casing", key: "casing|options|option", kind: "note", body: "Painted on request", at: expect.any(String), by: "SBU User" }]);
 
@@ -318,7 +352,7 @@ describe("po_* routes", () => {
     await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
     await approveAll("ahu-dubai");
     const d = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" });
-    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", place: "", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false, held: false }] }]);
+    expect(d.rows).toEqual([{ key: "unit data||panel", section: "Unit data", sub: "", component: "Panel thickness", hidden: false, kind: "option", kind_set: "", place: "", values: [{ k: "62 mm", v: "62 mm", n: 1, hidden: false, model: "", g: "", wait: false, held: false }] }]);
     expect(d.models).toEqual([]);
     const r = await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-riyadh" });
     expect(r).toMatchObject({ rows: [], models: [], extras: [], updated: null });
@@ -586,6 +620,31 @@ describe("po_* routes", () => {
     expect(await refused("dn_admin_save_rules", { p_token: e, p_product_id: "ahu", p_rules: [{ key: "unit data||insulation", section: "Unit data", component: "Insulation", place: "x" }] })).toMatch(/unknown place/);
     const a = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'po_set_place'").first<any>();
     expect(a.n).toBe(1);
+  });
+
+  it("po_admin_set_kind: editors move rows between the options and the duty figures, for every factory; validated, audited", async () => {
+    const e = await poEditor();
+    await mapping(e);
+    await ok("po_collect", { p_token: e, p_product_id: "ahu", p_items: [{ factory: "Dubai", key: "unit data||panel", value: "62 mm", model: "" }] });
+    const plain = await login("sales");
+    const keys = ["unit data||panel"];
+    expect(await refused("po_admin_set_kind", { p_token: plain, p_factory_id: "ahu-dubai", p_row_keys: keys, p_kind: "duty" })).toMatch(/Edit access/);
+    expect(await refused("po_admin_set_kind", { p_token: "nope", p_factory_id: "ahu-dubai", p_row_keys: keys, p_kind: "duty" })).toBe("SESSION_EXPIRED");
+    expect(await refused("po_admin_set_kind", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_kind: "hide" })).toMatch(/option or duty/);
+    expect(await refused("po_admin_set_kind", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: [], p_kind: "duty" })).toMatch(/Tick the rows/);
+    expect(await refused("po_admin_set_kind", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: ["no||row"], p_kind: "duty" })).toMatch(/no longer exist/);
+    const before = (await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" })).rows[0];
+    expect(before).toMatchObject({ key: "unit data||panel", kind: "option", kind_set: "" });
+    expect(before.values[0].wait).toBe(true);
+    expect((await ok("po_admin_set_kind", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_kind: "duty" })).changed).toBe(1);
+    const after = (await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" })).rows[0];
+    expect(after).toMatchObject({ kind: "duty", kind_set: "duty" });
+    expect(after.values[0].wait).toBe(false);                  // a duty figure never waits for approval
+    expect((await ok("dn_get_rules", { p_token: e, p_product_id: "ahu" })).rules.find((r: any) => r.key === "unit data||panel").kind).toBe("duty");
+    await ok("po_admin_set_kind", { p_token: e, p_factory_id: "ahu-dubai", p_row_keys: keys, p_kind: "" });
+    expect((await ok("po_get_tree", { p_token: e, p_factory_id: "ahu-dubai" })).rows[0]).toMatchObject({ kind: "option", kind_set: "" });
+    const a = await env.DB.prepare("SELECT count(*) AS n FROM app_audit WHERE action = 'po_set_kind'").first<any>();
+    expect(a.n).toBe(2);
   });
 
   it("makes (0012): admins of the tile keep the manufacturers of a section; everyone sees them; a reset with notes removes them", async () => {

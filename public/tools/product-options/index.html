@@ -154,6 +154,8 @@
   .po-chip.make .po-x { color: var(--surface); }
   .po-chip.make .po-x.danger { color: var(--surface); }
   .po-fam-make { margin: 2px 0 8px; }
+  /* FCU: the General of a series, above its table */
+  .po-sgen { margin: 2px 0 10px; }
   /* filters: a grade heading (F7, F9 ...) over its classes */
   .po-cols .po-matrix thead tr.grades th { position: static; padding: 6px 12px 4px; text-align: center; font-size: 13px; font-weight: 700; color: var(--brand-strong);
                                            border-bottom: 2px solid var(--brand); border-left: 1px solid var(--border); background: var(--surface-2); }
@@ -207,7 +209,6 @@
           <div class="po-facts" id="po-facts"></div>
         </div>
         <div class="row">
-          <label class="check" id="po-only-wrap" hidden><input type="checkbox" id="po-only"> Only rows that differ</label>
           <button type="button" class="btn ghost sm po-toggle" id="po-edit" aria-pressed="false" title="Edit the tree: special options, notes, take out values, leave out rows" hidden>Edit</button>
           <button type="button" class="btn ghost sm" id="po-open">Expand all</button>
           <button type="button" class="btn ghost sm" id="po-close">Collapse all</button>
