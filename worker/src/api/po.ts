@@ -25,9 +25,10 @@ export function poModel(model: unknown): string {
   return str(model).replace(/\s+/g, " ").trim().slice(0, 60).replace(/N$/i, "");
 }
 
-/* The series of a unit model: the model without its size figure (FWW600VA -> FWWVA, FWW700VA-D -> FWWVA-D). */
+/* The series of a unit model: the model without its size figure and without a variant suffix after a dash
+   (FWW600VA -> FWWVA; FWW700TA-D -> FWWTA: the -D models are models of the same series, owner 22 Oct 2026). */
 export function poSeries(model: unknown): string {
-  return poModel(model).replace(/\d+/g, "");
+  return poModel(model).replace(/\s*-\s*[A-Z0-9]+$/i, "").replace(/\d+/g, "");
 }
 
 /* A value as it is kept: spacing tidied, and the quantity in front of an option line removed
@@ -196,7 +197,7 @@ export const routes: Routes = {
       const list = (byRow.get(m.row_key) || []).slice()
         .sort((a, b) => a.model.localeCompare(b.model) || gOrder(a.grp, b.grp) || (b.times - a.times) || a.value_key.localeCompare(b.value_key));
       if (!list.length && !extraKeys.has(m.row_key)) continue;
-      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind, place: m.place || "",
+      rows.push({ key: m.row_key, section: m.section, sub: m.sub, component: m.label !== "" ? m.label : m.component, hidden: !m.in_tree, kind, kind_set: m.kind || "", place: m.place || "",
         values: list.map((v) => ({ k: v.value_key, v: v.value, n: v.times, hidden: !!v.hidden, model: v.model, g: v.grp, wait: !v.approved && !duty(v.row_key) && !!m.in_tree,
           held: !v.approved && !duty(v.row_key) && !m.in_tree })) });   // held: kept for reference in a left-out row
     }
@@ -309,6 +310,27 @@ export const routes: Routes = {
     const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
     if (!n) fail("Those rows no longer exist. Refresh the page.");
     await audit(env, s.id, "po_set_place", f.id, "", { rows: keys, place });
+    return { ok: true, changed: n };
+  },
+
+  /* Move rows between the options and the duty figures from the page (owner, 22 Oct 2026), as the Row mapping's
+     "In Product Options" choice does: '' = by its name (lib/po-kind.ts), 'option', 'duty'; for every factory of the
+     product (dn_map.kind). Options List lines and printed notes keep their kind (poKind ignores the choice for them).
+     Editors of Product Options.  p_row_keys: the rows (up to 500); p_kind: '' | 'option' | 'duty'. */
+  async po_admin_set_kind(env, p) {
+    const s = await sessionUser(env, p.p_token);
+    s.requireEditor("product-options");
+    const f = await cmFactory(env, p.p_factory_id);
+    const kind = str(p.p_kind);
+    if (!["", "option", "duty"].includes(kind)) fail("Choose option or duty figure.");
+    if (!isArray(p.p_row_keys)) fail("The rows could not be read. Refresh the page.");
+    const keys = [...new Set(p.p_row_keys.map((k) => str(k)).filter(Boolean))];
+    if (!keys.length) fail("Tick the rows first.");
+    if (keys.length > 500) fail("Move up to 500 rows at a time.");
+    const res = await env.DB.batch(keys.map((k) => env.DB.prepare("UPDATE dn_map SET kind = ? WHERE product_id = ? AND row_key = ?").bind(kind, f.product_id, k)));
+    const n = res.reduce((a, r) => a + (r.meta.changes || 0), 0);
+    if (!n) fail("Those rows no longer exist. Refresh the page.");
+    await audit(env, s.id, "po_set_kind", f.id, "", { rows: keys, kind });
     return { ok: true, changed: n };
   },
 

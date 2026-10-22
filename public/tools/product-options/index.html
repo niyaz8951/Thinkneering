@@ -154,14 +154,8 @@
   .po-chip.make .po-x { color: var(--surface); }
   .po-chip.make .po-x.danger { color: var(--surface); }
   .po-fam-make { margin: 2px 0 8px; }
-  /* FCU: the General of each model, one panel per model */
-  .po-mgen { margin-top: 8px; }
-  .po-mgen-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
-  .po-mgen-model { border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; background: var(--surface); min-width: 0; }
-  .po-mgen-model h4 { margin: 0 0 4px; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
-  .po-mgen-model h4 small { font-weight: 400; color: var(--text-soft); }
-  .po-mgen-model .po-line { grid-template-columns: minmax(100px, 40%) 1fr; }
-  .po-mgen-model .po-chip > span:first-child { overflow-wrap: normal; word-break: keep-all; }
+  /* FCU: the General of a series, above its table */
+  .po-sgen { margin: 2px 0 10px; }
   /* filters: a grade heading (F7, F9 ...) over its classes */
   .po-cols .po-matrix thead tr.grades th { position: static; padding: 6px 12px 4px; text-align: center; font-size: 13px; font-weight: 700; color: var(--brand-strong);
                                            border-bottom: 2px solid var(--brand); border-left: 1px solid var(--border); background: var(--surface-2); }

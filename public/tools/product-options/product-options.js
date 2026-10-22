@@ -272,6 +272,14 @@
         }, function (err) { b.disabled = false; window.Hub.toast((err && err.message) || String(err), true); });
       } }));
     });
+    [['duty', 'Move to duty figures'], ['option', 'Move to options']].forEach(function (m) {
+      bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: m[1], onclick: function (e) {
+        var b = e.currentTarget; b.disabled = true;
+        Api.poAdminSetKind(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, kind: m[0] }).then(function () {
+          picked = {}; window.Hub.toast(keys.length + (keys.length === 1 ? ' row moved.' : ' rows moved.')); return load(true);
+        }, function (err) { b.disabled = false; window.Hub.toast((err && err.message) || String(err), true); });
+      } }));
+    });
     bar.appendChild(el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Clear', onclick: function () { picked = {}; render(); } }));
   }
   function waitBar() {
@@ -460,7 +468,7 @@
         r.values.forEach(function (v) {
           if (!edit && v.hidden) return;
           if (onlyWait && ln.kind !== 'duty' && !v.wait) return;
-          // AHU: a row moved to General is one list for the card; FCU: each model keeps its own General (owner, 22 Oct 2026)
+          // AHU: a row moved to General is one list for the card; FCU: each series keeps its own General (owner, 22 Oct 2026)
           var col = ln.kind === 'accessory' || (ln.pl === 'general' && !C.byModel) ? null : columnOf(C, r, v);
           var x = { key: r.key, v: v, section: r.section };
           if (!col) { ln.loose.push(x); return; }
@@ -488,7 +496,7 @@
       var inCols = cols.filter(function (cc) { return (ln.cells[cc.key] || []).length; });
       if (ln.kind === 'accessory') { c.access.push(ln); return; }
       if (cols.length && !C.bySection && C.column && C.column.test(ln.rows[0].key.split('|')[2] || '') && !ln.loose.length && !ln.extras.length) { c.heads.push(ln); return; }   // the column heading says it
-      // FCU: an option moved to General is listed under each model, not compared across the models
+      // FCU: an option moved to General is listed once per series, not compared model by model
       if (C.byModel && ln.pl === 'general' && ln.kind !== 'duty') { c.mgen.push(ln); ln.bucket = 'general'; return; }
       if (ln.kind === 'duty') { if (inCols.length || ln.loose.length || edit) c.duty.push(ln); ln.bucket = inCols.length ? 'model' : 'general'; return; }
       // an option: per model when moved there (or by the card's rule), in General when moved there, else common when
@@ -560,7 +568,21 @@
     var waits = rowWaitButtons(waitItems(lineAll(ln)), ln.name);
     var where = c.name + ' > ' + ln.name;
     var add = edit ? addButtons(anchor, ln.rows[0].section || c.sections[0], ln.keys[0], where) : [];
-    return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? moveButtons(c, ln) : [], edit ? [leaveOut(ln.keys, ln.off)] : [])) : null;
+    // Leave out row sits with Approve all / Reject all for whoever may edit, Edit on or not (owner, 22 Oct 2026)
+    var out = edit || (waits.length && tree.can_edit) ? [leaveOut(ln.keys, ln.off)] : [];
+    return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? moveButtons(c, ln) : [], edit ? kindButtons(ln) : [], out)) : null;
+  }
+  /* option <-> duty figure from the page, as the Row mapping's "In Product Options" (owner, 22 Oct 2026): a duty figure
+     is shown with the duty figures as from - to and never waits for approval; for every factory of the product */
+  function kindButtons(ln) {
+    if (ln.kind !== 'option' && ln.kind !== 'duty') return [];
+    function go(kind, label, done) {
+      return xbtn(label, function (e) { busy(e.currentTarget, Api.poAdminSetKind(window.Hub.token(), { factoryId: tree.factory.id, keys: ln.keys, kind: kind }), done); });
+    }
+    var out = [ln.kind === 'option' ? go('duty', 'Move to duty figures', ln.name + ' is a duty figure now.')
+                                    : go('option', 'Move to options', ln.name + ' is an option now.')];
+    if (ln.rows.some(function (r) { return r.kind_set; })) out.push(go('', 'Automatic kind', ln.name + ' is decided by its name again.'));
+    return out;
   }
   /* move a row between General and the columns (owner, 21 Oct 2026): for every factory of the product (dn_map.place) */
   function canMove(c) { return !!(c.C.column || c.C.bySection || c.C.byModel); }
@@ -569,10 +591,10 @@
   }
   function moveButtons(c, ln) {
     if (!canMove(c) || ln.kind === 'accessory') return [];
-    if (c.C.byModel) {      // FCU: General is each model's own (owner, 22 Oct 2026)
+    if (c.C.byModel) {      // FCU: General is each series' own (owner, 22 Oct 2026)
       if (ln.kind === 'duty') return [];
       var fcu = [];
-      if (ln.pl !== 'general') fcu.push(placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in the General of each model now.'));
+      if (ln.pl !== 'general') fcu.push(placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in the General of each series now.'));
       if (ln.bucket !== 'model') fcu.push(placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is compared across the models now.'));
       if (ln.place) fcu.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place.'));
       return fcu;
@@ -657,9 +679,9 @@
       body.appendChild(av);
       var at = lineTools(c, aln, edit, function () { return av; }); if (at) body.appendChild(at);
     }
-    // FCU: the rows moved to General, with their tools (the values are under each model, below each series table)
+    // FCU: the rows moved to General, with their tools (the values are in the General of each series)
     if (edit && lines.mgen.length) {
-      body.appendChild(el('p', { 'class': 'po-part', text: 'In General of each model', title: 'Rows moved to General: each model lists its own values, not compared across the models.' }));
+      body.appendChild(el('p', { 'class': 'po-part', text: 'In General of each series', title: 'Rows moved to General: each series lists the values of its models, not compared model by model.' }));
       var mg = el('div', { 'class': 'po-grid' });
       lines.mgen.forEach(function (ln) {
         var row = el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') });
@@ -683,14 +705,14 @@
       var inFam = function (ln) { return fc.some(function (cc) { return (ln.cells[cc.key] || []).length; }); };
       if (c.C.byModel && !edit && !lines.model.some(inFam) && !dutyCols.some(inFam) && !lines.mgen.some(inFam)) return;
       var table = lines.model.some(inFam) || dutyCols.some(inFam) || edit || !c.C.byModel ? modelTable(c, fc, lines.model, dutyCols, edit) : null;
-      var gen = c.C.byModel ? modelGeneral(c, fc, lines.mgen, edit) : null;
-      if (!fam) { if (table) body.appendChild(table); if (gen) body.appendChild(gen); return; }
+      var gen = c.C.byModel ? seriesGeneral(c, fc, lines.mgen, edit, fam) : null;
+      if (!fam) { if (gen) body.appendChild(gen); if (table) body.appendChild(table); return; }
       // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026); so does each FCU series
       var fk = 'fam:' + c.id + ':' + low(fam);
       var fmakes = c.extras.filter(function (x) { return x.kind === 'make' && x.key === 'family:' + fam; });
       var fmake = !c.C.byModel && !q && (fmakes.length || (edit && tree.can_approve)) ? el('div', { 'class': 'po-grid po-fam-make' }, [makeLine(c, fmakes, edit, fam)]) : null;
       var fd = el('details', { 'class': 'po-fam', open: q ? true : !closed[fk] }, [
-        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, table, gen]);
+        el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, gen, table]);
       fd.addEventListener('toggle', function () { if (!q) closed[fk] = !fd.open; });
       body.appendChild(fd);
     });
@@ -757,23 +779,19 @@
     return [el('tr', { 'class': 'grades' }, cells)];
   }
 
-  /* FCU: the General of each model (owner, 22 Oct 2026): the rows an editor moved to General, listed per model with
-     that model's own values (one panel per model, side by side, stacked on a phone). null when no model has any. */
-  function modelGeneral(c, cols, mgen, edit) {
-    var panels = cols.map(function (cc) {
-      var have = mgen.filter(function (ln) { return (ln.cells[cc.key] || []).length; });
-      if (!have.length) return null;
-      var grid = el('div', { 'class': 'po-grid' });
-      have.forEach(function (ln) {
-        var vals = el('div', { 'class': 'po-vals' });
-        chipsOf(ln.cells[cc.key]).forEach(function (ch) { vals.appendChild(chipNode(ch, edit)); });
-        grid.appendChild(el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') }, [el('div', { 'class': 'po-name', text: lineName(ln) }), vals]));
-      });
-      return el('section', { 'class': 'po-mgen-model', 'aria-label': 'General of ' + cc.head }, [
-        el('h4', {}, [document.createTextNode(cc.head), el('small', { text: cc.n ? times(cc.n) : '' })]), grid]);
-    }).filter(Boolean);
-    if (!panels.length) return null;
-    return el('div', { 'class': 'po-mgen' }, [el('p', { 'class': 'po-part', text: 'General of each model' }), el('div', { 'class': 'po-mgen-list' }, panels)]);
+  /* FCU: the General of a series (owner, 22 Oct 2026): the rows an editor moved to General, one list per series with
+     the values its models had (the same value on two models is one chip, counted for both). null when there are none. */
+  function seriesGeneral(c, cols, mgen, edit, fam) {
+    var grid = el('div', { 'class': 'po-grid' });
+    mgen.forEach(function (ln) {
+      var list = []; cols.forEach(function (cc) { list = list.concat(ln.cells[cc.key] || []); });
+      if (!list.length) return;
+      var vals = el('div', { 'class': 'po-vals' });
+      chipsOf(list).forEach(function (ch) { vals.appendChild(chipNode(ch, edit)); });
+      grid.appendChild(el('div', { 'class': 'po-line' + (ln.off ? ' off' : '') }, [el('div', { 'class': 'po-name', text: lineName(ln) }), vals]));
+    });
+    if (!grid.childNodes.length) return null;
+    return el('div', { 'class': 'po-sgen' }, [el('p', { 'class': 'po-part', text: 'General' + (fam ? ' of ' + fam : '') }), grid]);
   }
 
   /* the columns of one card: the options that differ, then the duty figures seen with each column */
@@ -795,7 +813,7 @@
       var tr = el('tr', { 'class': (ln.off ? 'off' : '') + (dutyRow ? ' duty' : '') || null });
       var name = el('td', { 'class': 'comp' }, [edit ? tickBox(ln.keys, ln.name, tr) : null, document.createTextNode(lineName(ln))]);
       lineExtras(c, ln, edit, function () { return name; }).forEach(function (n) { name.appendChild(n); });
-      var t = dutyRow ? (edit ? el('div', { 'class': 'po-tools' }, [leaveOut(ln.keys, ln.off)]) : null) : lineTools(c, ln, edit, function () { return name; });
+      var t = dutyRow ? (edit ? el('div', { 'class': 'po-tools' }, kindButtons(ln).concat([leaveOut(ln.keys, ln.off)])) : null) : lineTools(c, ln, edit, function () { return name; });
       if (t) name.appendChild(t);
       tr.appendChild(name);
       cols.forEach(function (cc) {
@@ -985,7 +1003,13 @@
       c.cols.forEach(function (cc) {
         c.model.forEach(function (ln) { var v = seen(ln.cells[cc.key] || []); if (v) out.push([c.name, colName(cc), lineName(ln), 'Model-specific', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
         c.duty.forEach(function (ln) { var v = dutyText(ok(ln.cells[cc.key] || [])); if (v) out.push([c.name, colName(cc), lineName(ln), 'Duty (seen)', v, '', '']); });
-        c.mgen.forEach(function (ln) { var v = seen(ln.cells[cc.key] || []); if (v) out.push([c.name, colName(cc), lineName(ln), 'General (this model)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
+      });
+      var fams = []; c.cols.forEach(function (cc) { if (fams.indexOf(cc.family) < 0) fams.push(cc.family); });
+      if (c.C.byModel) fams.forEach(function (fam) {
+        c.mgen.forEach(function (ln) {
+          var list = []; c.cols.forEach(function (cc) { if (cc.family === fam) list = list.concat(ln.cells[cc.key] || []); });
+          var v = seen(list); if (v) out.push([c.name, fam, lineName(ln), 'General (series)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]);
+        });
       });
       c.duty.forEach(function (ln) { var v = dutyText(ok(ln.loose)); if (v) out.push([c.name, 'All', lineName(ln), 'Duty (seen)', v, txt(ln.extras, 'option'), txt(ln.extras, 'note')]); });
       c.model.forEach(function (ln) { var v = seen(ln.loose); if (v) out.push([c.name, 'Read before columns', lineName(ln), 'Model-specific', v, '', '']); });
