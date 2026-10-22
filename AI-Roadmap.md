@@ -60,6 +60,19 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 22 Oct 2026 - rule test run, fixes 1-4 (built, PR #11 `fix/comparison-gates`)
+Test run of the rules alone (no library, no model) on Arcadis 237413 x ASTRAWEB HILTOP (7 units): report and workbook
+`Rule-Test-Run-2026-10-22.md`. Code made 5 wrong datasheet verdicts (3 a false Comply / CwR). Fixed:
+- a length is compared only with a row of the same dimension (thickness / height / spacing / diameter ...);
+- "less than X will not be permitted" = minimum, "more than X is not acceptable" = maximum;
+- test conditions (at -400 Pa, exposed to 2500 Pa, tested at 24 bar, an if-part, a pressure beside a class) not compared;
+- topics heat pipe and attenuator, heating-coil sections = heater + coil, bracketed notes do not lengthen a heading;
+  a clause about a part with no datasheet section gets no rows and is marked "not in this unit". `MATCH_VERSION` "2026-10-22 parts".
+On the pair: wrong code verdicts 5 -> 0, datasheet-answerable clauses decided right 5 -> 9, "not in this unit" 0 -> 20.
+194 Vitest tests (13 new in `tests/worker/ai-gates.test.ts`), parity clean. Next (items 5-10 of the report): starter keywords
+for DX coil / damper rows, vocabulary Row keys and generic terms, table rows' parent, Reference-standards rule on the
+heading, NRVU and electrical rows, location / frequency warning; then linking by vocabulary Row and choice / presence comparison.
+
 ### 21 Oct 2026 - vocabulary maps and recognition (step A built)
 One vocabulary map per product (kind Vocabulary, `ai_vocab_links`), template AHU 118 types / 17 components / 30 standards, FCU, Chiller. `identify` (ai/vocab.ts) recognises the requirement type and level of a clause by landmarks (rare terms, component + property pairs, anchors, standards, a figure in the type's unit, Not words, equivalents): 32 of 32 typical AHU clauses right in `tests/worker/vocab.test.ts`. Try a clause shows it. Next: type chips on the record and in Focus mode, linking clause to datasheet row by the type's Row, the unrecognised-clause queue with AI proposals, then template matching of whole specs. Process: `docs/Compliance-Process.md`.
 
