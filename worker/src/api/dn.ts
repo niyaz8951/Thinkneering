@@ -21,19 +21,19 @@ export async function showUnmapped(env: Env, productId: string): Promise<boolean
   return s ? !!s.show_unmapped : true;
 }
 
-/* Starter keywords and "Remove text" for AHU rows (dn_starter_keywords). A row new to the mapping has had no
-   decision yet, so it always gets them (since 19 Oct 2026; before, only while no AHU row carried keywords). When
-   the editors save the mapping, rows new to it get them only while no row of the list carries keywords (once:
+/* Starter keywords and "Remove text" per product (dn_starter_keywords; AHU rows since 19 Oct 2026, FCU rows since
+   22 Oct 2026, migration 0013). A row new to the mapping has had no decision yet, so it always gets them. When the
+   editors save the mapping, rows new to it get them only while no row of the list carries keywords (once:
    anyKeywords = false), as the one-time update of the old schema did. Returns key -> { keywords, strip }. */
 async function starterKeywords(env: Env, productId: string, keys: string[], once = false): Promise<Map<string, { keywords: string; strip: string }>> {
   const out = new Map<string, { keywords: string; strip: string }>();
-  if (productId !== "ahu" || keys.length === 0) return out;
+  if (keys.length === 0) return out;
   if (once) {
-    const has = await env.DB.prepare("SELECT 1 AS x FROM dn_map WHERE product_id = 'ahu' AND keywords <> '' LIMIT 1").first();
+    const has = await env.DB.prepare("SELECT 1 AS x FROM dn_map WHERE product_id = ? AND keywords <> '' LIMIT 1").bind(productId).first();
     if (has) return out;
   }
   for (const part of chunks(keys)) {
-    const rows = await all<{ row_key: string; keywords: string; strip: string }>(env.DB.prepare(`SELECT row_key, keywords, strip FROM dn_starter_keywords WHERE row_key IN (${marks(part.length)})`).bind(...part));
+    const rows = await all<{ row_key: string; keywords: string; strip: string }>(env.DB.prepare(`SELECT row_key, keywords, strip FROM dn_starter_keywords WHERE product_id = ? AND row_key IN (${marks(part.length)})`).bind(productId, ...part));
     rows.forEach((r) => out.set(r.row_key, { keywords: r.keywords, strip: r.strip || "" }));
   }
   return out;

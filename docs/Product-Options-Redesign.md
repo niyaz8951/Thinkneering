@@ -68,3 +68,6 @@ Build order: Filters, Fans, Coils, Casing, then the rest; each checked on HILTOP
 
 ## Built (21 Oct 2026, night)
 As planned, with: Power supply card first and General (product notes) last; duty figures folded behind "Show duty figures (n)"; the column row is the column heading, approved there; "Remove old readings" per card for values read before the columns; the VRV Xpress line read as "VRV Expansion Kit". Rules in Thinkneering-Hub-Standards.md (Product Options screen).
+
+## FCU (22 Oct 2026, built)
+FCU trees use the same cards. FCU values are kept per unit model, so every card has a column per model, the models of one series together (FWWVA, FWWTA). The datasheet prints most rows under "Configuration information", so cards gather rows by what they are about (`ds-fcu.js` poCards): Unit (model, sizes, weight, plenum, air flow, ESP), Fan and motor, Coil (geometry, connections, Cooling / Heating figures), Filter, Drain pan, Electric heater, Sound. Model-fixed figures (sizes, weight, coil area, rows, fan and motor counts, rated speed) are options per model; selection figures are duty.

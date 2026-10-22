@@ -12,23 +12,22 @@
    Row mapping button, and get the Edit switch on the tree: add /
    change / delete special options and notes, take a value or a row
    out of the tree and bring it back.
-   FCU: the values come per unit model (tree.models). Each series is
-   one table: rows = section > component, one column per model with
-   the values its units had, differences from the first model
-   highlighted (owner's rules, 2 and 5 Oct 2026; seriesTable). A trailing N on the
-   Unit Model is a motor variant of the same model (FWW1600TAN is
-   filed under FWW1600TA; the database does that), so the Unit Model
-   row inside a model lists the variants seen. Special options and
-   notes are per section or row, not per model: they sit in the last
-   column of every series table, where editors add them.
-   AHU trees have no models and stay as before.
+   FCU: the values come per unit model (tree.models). Since 22 Oct 2026
+   (owner: "as the AHU") the FCU tree is drawn with the AHU cards too:
+   a card per part of the unit (Unit, Fan and motor, Coil, Filter, Drain
+   pan, Electric heater, Sound: ds-fcu.js poCards), one column per model,
+   the models of one series together, what every model has in common on
+   top and the duty figures folded away as ranges. A trailing N on the
+   Unit Model is a motor variant of the same model (FWW1600TAN is filed
+   under FWW1600TA; the database does that), so the Unit Model row of a
+   model lists the variants seen.
    Approval (19 Oct 2026): a value new to the factory waits ("to approve", v.wait) until the super
    user or an admin of this tile approves it (Api.poAdminApprove); users, the Excel download and the
    AI see only approved values. A rejected value is removed; seen again, it waits again.
    21 Oct 2026 (owner): Approve all / Reject all per row, Edit is a toggle, editors tick rows and leave them
    out together (Api.poAdminSetRowsHidden). AHU trees are cards per kind of component (see "AHU: one card"
    below and docs/Product-Options-Redesign.md): common options, accessories, a column per model, duty
-   figures as ranges. FCU trees keep their series tables.
+   figures as ranges.
    ============================================================ */
 (function () {
   'use strict';
@@ -377,12 +376,22 @@
   function cardOf(section) {
     return P && P.poCard ? P.poCard(section) : { id: 'x:' + low(section), name: section || 'General' };
   }
+  /* the words for a card's columns: "model box" / "model boxes", "model" / "models" (FCU) */
+  function unitOf(c) { return c.C.unit || UNIT[c.id]; }
+  /* FCU: the card of a row, from the reader (ds-fcu.js); null for an AHU or a row no FCU card names */
+  function rowCard(key, section) { var r = reader(); return r && r.poCardOf ? r.poCardOf(key, section) : null; }
+  /* the series of a model as the database gives it (FWW1400VA -> FWWVA) */
+  function seriesOf(model) {
+    var m = (tree.models || []).filter(function (x) { return x.model === model; })[0];
+    return m ? m.series : String(model || '').replace(/\d+/g, '');
+  }
   function tidy(t) { return low(t).replace(/\s+/g, ' ').trim(); }
   function side(section) { var m = /\s(supply|return|exhaust|extract)$/i.exec(section || ''); return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : ''; }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   /* the column of a value in card C: { key, label, head, family } or null (no column: belongs to the whole card) */
   function columnOf(C, row, v) {
+    if (C.byModel) return v.model ? { key: tidy(v.model), label: 'Model', head: v.model, family: 'Series ' + seriesOf(v.model) } : null;
     if (C.bySection) {
       // three coil types (owner, 21 Oct 2026): a "Cooling • Heating Water" coil is a cooling water coil
       var nm = String(row.section || '').replace(/\s+(supply|return)$/i, '').replace(/^coil\s+/i, '');
@@ -395,25 +404,25 @@
     return { key: tidy(g.family + '|' + g.value), label: g.label, head: g.value, family: g.family };
   }
 
-  /* tree rows -> cards; extrasOnly (FCU): only the special options and notes */
-  function buildCards(edit, extrasOnly) {
+  /* tree rows -> cards */
+  function buildCards(edit) {
     var list = [], by = {}, rowBy = {};
-    function card(section) {
+    function card(section, key) {
       // the power supply leads; the notes of the whole product (section General) close the page
       var C = /^power supply$/i.test(section || '') ? { id: 'power', name: 'Power supply' }
-            : /^general$/i.test(section || '') || !section ? { id: 'general', name: 'General' } : cardOf(section);
+            : /^general$/i.test(section || '') || !section ? { id: 'general', name: 'General' } : rowCard(key, section) || cardOf(section);
       var c = by[C.id];
       if (!c) { c = by[C.id] = { C: C, id: C.id, name: C.name, sections: [], lines: [], lineBy: {}, extras: [] }; list.push(c); }
       if (section && c.sections.indexOf(section) < 0) c.sections.push(section);
       return c;
     }
     tree.rows.forEach(function (r) {
-      if (extrasOnly) return;
       var section = /^general\|\|power supply$/.test(r.key) ? 'Power Supply' : (r.section || 'General');
       if (!edit && r.hidden) return;
-      var c = card(section), kind = r.kind || 'option';
+      var c = card(section, r.key), kind = r.kind || 'option';
       var name = /\|options\|option$/.test(r.key) ? 'Accessories' : r.component;
-      var sub = kind === 'accessory' || /\s\d+$|^geometry$|^damper\b/i.test(r.sub || '') ? '' : r.sub || '';   // "Filter 1", "Damper One Supply": the column or the values say it      // "Filter 1": the column says which filter
+      // "Filter 1", "Damper One Supply": the column or the values say it; FCU coil: "Cooling" / "Heating" (same row names)
+      var sub = c.C.sub ? c.C.sub(r.section) : kind === 'accessory' || /\s\d+$|^geometry$|^damper\b/i.test(r.sub || '') ? '' : r.sub || '';
       var lk = kind + '|' + tidy(sub) + '|' + tidy(name), ln = c.lineBy[lk];
       if (!ln) { ln = c.lineBy[lk] = { name: name, sub: sub, kind: kind, keys: [], rows: [], off: true, extras: [], sections: [] }; c.lines.push(ln); }
       ln.keys.push(r.key); ln.rows.push(r); if (!r.hidden) ln.off = false;
@@ -423,10 +432,13 @@
     });
     tree.extras.forEach(function (x) {
       if (x.key && rowBy[x.key]) rowBy[x.key].extras.push(x);
-      else card(x.section || 'General').extras.push(x);
+      else card(x.section || 'General', x.key).extras.push(x);
     });
-    if (!extrasOnly) card('General');                         // the product's own notes, always at the end
-    list.sort(function (a, b) { return (a.id === 'power' ? -1 : a.id === 'general' ? 1 : 0) - (b.id === 'power' ? -1 : b.id === 'general' ? 1 : 0); });
+    card('General');                                          // the product's own notes, always at the end
+    // power first, General last; FCU cards in their own order (Unit, Fan and motor, Coil ...), the rest as read
+    function rank(c) { return c.id === 'power' ? -1 : c.id === 'general' ? 1e6 : c.C.order !== undefined ? c.C.order : 1e3; }
+    list = list.map(function (c, i) { return { c: c, i: i }; })
+      .sort(function (a, b) { return (rank(a.c) - rank(b.c)) || (a.i - b.i); }).map(function (x) { return x.c; });
     list.forEach(function (c) { shapeCard(c, edit); });
     return list;
   }
@@ -548,14 +560,14 @@
     return (edit || waits.length) ? el('div', { 'class': 'po-tools' }, add.concat(waits, edit ? moveButtons(c, ln) : [], edit ? [leaveOut(ln.keys, ln.off)] : [])) : null;
   }
   /* move a row between General and the columns (owner, 21 Oct 2026): for every factory of the product (dn_map.place) */
-  function canMove(c) { return !!(c.C.column || c.C.bySection); }
+  function canMove(c) { return !!(c.C.column || c.C.bySection || c.C.byModel); }
   function placeBtn(keys, place, label, done) {
     return xbtn(label, function (e) { busy(e.currentTarget, Api.poAdminSetPlace(window.Hub.token(), { factoryId: tree.factory.id, keys: keys, place: place }), done); });
   }
   function moveButtons(c, ln) {
     if (!canMove(c) || ln.kind === 'accessory') return [];
     var out = [ln.bucket === 'model' ? placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in General now.')
-                                    : placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is shown per ' + ((UNIT[c.id] || ['model'])[0]) + ' now.')];
+                                    : placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is shown per ' + ((unitOf(c) || ['model'])[0]) + ' now.')];
     if (ln.place) out.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place.'));
     return out;
   }
@@ -578,7 +590,7 @@
     }
     var body = el('div', { 'class': 'po-body' }), ck = 'card:' + c.id;
     var waiting = c.lines.reduce(function (n, ln) { return n + (ln.kind === 'duty' ? 0 : waitItems(lineAll(ln)).length); }, 0);
-    var u = UNIT[c.id];
+    var u = unitOf(c);
     var d = el('details', { 'class': 'po-sec po-card', id: 'po-card-' + c.id.replace(/[^a-z0-9]+/gi, '-'), open: q ? true : !closed[ck] }, [
       el('summary', {}, [el('span', { text: c.name }), el('span', { 'class': 'count', text: [
         cols.length && u ? plural(cols.length, u[0], u[1]) : '',
@@ -641,12 +653,15 @@
     var dutyCols = showDuty ? lines.duty.filter(function (ln) { return cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }); }) : [];
     if (cols.length) families.forEach(function (fam) {
       var fc = cols.filter(function (cc) { return cc.family === fam; });
+      // FCU: a series whose models differ in nothing shown here needs no table (its models are counted on the card)
+      var inFam = function (ln) { return fc.some(function (cc) { return (ln.cells[cc.key] || []).length; }); };
+      if (c.C.byModel && !edit && !lines.model.some(inFam) && !dutyCols.some(inFam)) return;
       var table = modelTable(c, fc, lines.model, dutyCols, edit);
       if (!fam) { body.appendChild(table); return; }
-      // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026)
+      // EC Fans and DIDW Fans fold on their own (owner, 21 Oct 2026); so does each FCU series
       var fk = 'fam:' + c.id + ':' + low(fam);
       var fmakes = c.extras.filter(function (x) { return x.kind === 'make' && x.key === 'family:' + fam; });
-      var fmake = !q && (fmakes.length || (edit && tree.can_approve)) ? el('div', { 'class': 'po-grid po-fam-make' }, [makeLine(c, fmakes, edit, fam)]) : null;
+      var fmake = !c.C.byModel && !q && (fmakes.length || (edit && tree.can_approve)) ? el('div', { 'class': 'po-grid po-fam-make' }, [makeLine(c, fmakes, edit, fam)]) : null;
       var fd = el('details', { 'class': 'po-fam', open: q ? true : !closed[fk] }, [
         el('summary', {}, [el('span', { text: fam }), el('span', { 'class': 'count', text: plural(fc.length, (u || ['model'])[0], (u || ['', 'models'])[1]) })]), fmake, table]);
       fd.addEventListener('toggle', function () { if (!q) closed[fk] = !fd.open; });
@@ -680,7 +695,7 @@
 
   /* Make: the manufacturers the factory buys the component from (owner, 21 Oct 2026), kept by the admins */
   var NO_MAKE = { power: 1, general: 1, casing: 1, empty: 1 };
-  function makeCard(c) { return !NO_MAKE[c.id]; }
+  function makeCard(c) { return c.C.byModel ? !!c.C.make : !NO_MAKE[c.id]; }
   function makeLine(c, makes, edit, family) {
     var row = el('div', { 'class': 'po-line' }), vals = el('div', { 'class': 'po-vals' });
     makes.forEach(function (x) {
@@ -754,13 +769,13 @@
     }
     var dl = duty.filter(function (ln) { return cols.some(function (cc) { return (ln.cells[cc.key] || []).length; }); });
     if (dl.length) {
-      body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(cols.length + 1), text: 'Duty seen with each ' + ((UNIT[c.id] || ['column'])[0]) + ': figures of the selections so far, not limits' })]));
+      body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(cols.length + 1), text: 'Duty seen with each ' + ((unitOf(c) || ['column'])[0]) + ': figures of the selections so far, not limits' })]));
       dl.forEach(function (ln) { body.appendChild(cellsRow(ln, true)); });
     }
     var table = el('table', { 'class': 'table po-matrix', style: 'width:' + (first + w * cols.length) + 'px' }, [
       el('colgroup', {}, [first].concat(cols.map(function () { return w; })).map(function (x) { return el('col', { style: 'width:' + x + 'px' }); })),
       el('thead', {}, gradeRow(cols).concat([head])), body]);
-    return el('div', { 'class': 'po-cols' }, [el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': c.name + ', one column per ' + ((UNIT[c.id] || ['column'])[0]) }, [table])]);
+    return el('div', { 'class': 'po-cols' }, [el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': c.name + ', one column per ' + ((unitOf(c) || ['column'])[0]) }, [table])]);
   }
 
   /* values saved before the columns of this card existed (21 Oct 2026): read the datasheets again, then remove them */
@@ -782,11 +797,10 @@
       } })]);
   }
 
-  /* the cards of a factory, in datasheet order; extrasOnly (FCU): only the special options and notes */
-  function drawCards(q, edit, extrasOnly, skip) {
-    var wrap = el('div', { 'class': 'po-cards' }), cards = buildCards(edit, extrasOnly), drawn = 0, nVals = 0, names = [];
+  /* the cards of a factory, in datasheet order */
+  function drawCards(q, edit) {
+    var wrap = el('div', { 'class': 'po-cards' }), cards = buildCards(edit), drawn = 0, nVals = 0, names = [];
     cards.forEach(function (c) {
-      if (skip && skip(c)) return;
       c.lines.forEach(function (ln) { if (ln.kind !== 'duty') nVals += lineAll(ln).filter(function (x) { return !x.v.hidden; }).length; });
       var n = cardNode(c, q, edit);
       if (!n) return;
@@ -797,7 +811,7 @@
   /* jump to a card */
   function cardStrip(cards) {
     return el('nav', { 'class': 'po-strip', 'aria-label': 'Sections' }, cards.map(function (c) {
-      var u = UNIT[c.id];
+      var u = unitOf(c);
       return el('button', { type: 'button', 'class': 'po-jump', text: c.name + (c.cols.length && u ? ' · ' + c.cols.length : ''), onclick: function () {
         var d = $('po-card-' + c.id.replace(/[^a-z0-9]+/gi, '-'));
         if (!d) return;
@@ -807,168 +821,29 @@
     }));
   }
 
-  /* FCU: one table per series. Rows = section > component, one column per model, so the models
-     can be compared at a glance (owner's rule, 5 Oct 2026). The first model is the reference: a
-     cell whose values differ from it is highlighted, one colour per different set of values, as
-     in Datasheet Notes. The last column holds the special options and notes of the row (they are
-     for every model) and, with Edit on, the buttons to add them and to leave the row out.
-     The Component column stays in view when the table scrolls sideways. */
-  /* a value read in two groups (the same size on two filters) once, with both counts; editing acts on the first */
-  function once(list) {
-    var by = {}, out = [];
-    list.forEach(function (v) { var k = v.k; if (by[k]) by[k].n += v.n; else { by[k] = Object.assign({}, v); out.push(by[k]); } });
-    return out;
-  }
-  function seriesTable(sr, secs, q, words, edit, only) {
-    var srHit = !!q && words.every(function (w) { return low(sr.name).indexOf(w) >= 0; });
-    var names = sr.models.map(function (m) { return m.model; });
-    // a search for a model name keeps that model's column only
-    var cols = q && !srHit ? sr.models.filter(function (m) { return words.every(function (w) { return low(m.model).indexOf(w) >= 0; }); }) : [];
-    var modelHit = cols.length > 0;
-    if (!modelHit) cols = sr.models;
-    var out = { node: null, rows: 0, values: 0, keys: {}, sections: [], models: cols.length, differ: 0 };
-    var body = el('tbody'), nCols = cols.length + 2;
-
-    secs.forEach(function (s) {
-      var lines = [], secHit = srHit || modelHit || (q && words.every(function (w) { return low(s.name).indexOf(w) >= 0; }));
-      s.rows.forEach(function (r) {
-        if (r.off && !edit) return;
-        var cells = cols.map(function (m) { return once(r.values.filter(function (v) { return v.model === m.model && (edit || !v.hidden); })); });
-        var inSeries = r.values.some(function (v) { return names.indexOf(v.model) >= 0 && (edit || !v.hidden); });
-        if (!inSeries) return;                                       // this series never had the row
-        if (!r.off) { out.keys[r.key] = 1; cells.forEach(function (c) { out.values += c.filter(function (v) { return !v.hidden; }).length; }); }
-        // compare with the first model: same set of values = same mark
-        var sig = cells.map(function (c) { return c.filter(function (v) { return !v.hidden; }).map(function (v) { return low(v.v).replace(/\s+/g, ' '); }).sort().join('\u0001'); });
-        var seen = {}, next = 0, marks = sig.map(function (g, i) { if (i === 0 || g === sig[0]) return 0; if (!seen[g]) seen[g] = ++next; return seen[g]; });
-        if (/\|unit model$/.test(r.key)) marks = marks.map(function () { return 0; });   // the model name differs by definition
-        var differs = marks.some(Boolean);
-        if (differs && !r.off) out.differ++;
-        if (only && !differs) return;
-        // the search looks at this series' own values, not at what other series printed in the row
-        if (q && !secHit && !matches(q, s, { sub: r.sub, name: r.name, values: [].concat.apply([], cells), extras: r.extras })) return;
-        lines.push({ r: r, cells: cells, marks: marks, differs: differs });
-      });
-      if (lines.length || s.rows.some(function (r) { return r.values.some(function (v) { return names.indexOf(v.model) >= 0; }); })) out.sections.push(s.name);
-      if (!lines.length) return;
-
-      // section row: its name, and the special options and notes of the whole section
-      var sx = el('div', { 'class': 'po-vals' }), sctx = { where: s.name, anchor: function () { return sx; } };
-      extraNodes(s.extras, sctx, edit).forEach(function (n) { sx.appendChild(n); });
-      if (edit) sx.appendChild(el('div', { 'class': 'po-tools' }, [].concat(addButtons(function () { return sx; }, s.name, '', s.name, true))));
-      body.appendChild(el('tr', { 'class': 'sec' }, [el('td', { colspan: String(nCols - 1), text: s.name }), el('td', {}, [sx])]));
-
-      var sub = '';
-      lines.forEach(function (ln) {
-        var r = ln.r;
-        if (r.sub !== sub) { sub = r.sub; if (sub) body.appendChild(el('tr', { 'class': 'sub' }, [el('td', { colspan: String(nCols), text: sub })])); }
-        var xcell = el('div', { 'class': 'po-vals' }), ctx = { where: s.name + ' > ' + r.name, anchor: function () { return xcell; } };
-        extraNodes(r.extras, ctx, edit).forEach(function (n) { xcell.appendChild(n); });
-        // Approve all / Reject all: the values of this row that wait, in the models of this series
-        var waits = rowWaitButtons(r.values.filter(function (v) { return v.wait && names.indexOf(v.model) >= 0; }).map(function (v) { return item(r.key, v); }), r.name + ' (series ' + sr.name + ')');
-        if (edit || waits.length) xcell.appendChild(el('div', { 'class': 'po-tools' }, (edit ? addButtons(function () { return xcell; }, s.name, r.key, ctx.where) : []).concat(waits, edit ? [leaveOut([r.key], r.off)] : [])));
-        var tr = el('tr', { 'class': (r.off ? 'off' : '') + (ln.differs ? ' differs' : '') || null });
-        tr.appendChild(el('td', { 'class': 'comp' }, [edit ? tickBox([r.key], r.name, tr) : null, document.createTextNode(r.name + (r.off ? ' (left out)' : ''))]));
-        ln.cells.forEach(function (vals, i) {
-          var mk = ln.marks[i], td = el('td', { 'class': mk ? 'diff d' + ((mk - 1) % 5 + 1) : null, title: mk ? 'Differs from ' + cols[0].model : null });
-          var xk = cols[i].model + '|' + r.key, all = expanded[xk] || edit || vals.length <= 4;
-          if (!vals.length) td.appendChild(el('span', { 'class': 'muted', text: '-' }));
-          var rg = vals.length > 4 ? range(vals.filter(function (v) { return !v.hidden && !v.wait; })) : '';
-          if (rg) td.appendChild(el('div', { 'class': 'po-cellv', text: rg }));
-          (all ? vals : (rg ? [] : vals.slice(0, 4))).forEach(function (v) {
-            var line = el('div', { 'class': 'po-cellv' + (v.hidden ? ' off' : '') }, [el('span', { text: v.v }),
-              vals.length > 1 ? el('small', { text: ' ' + times(v.n), title: 'A datasheet run again is counted again.' }) : null]);
-            if (v.wait) waitTag(v, r, line);
-            else if (edit) line.appendChild(xbtn(v.hidden ? 'Bring back' : 'Take out', function (e) {
-              busy(e.currentTarget, Api.poAdminSetHidden(window.Hub.token(), { factoryId: tree.factory.id, key: r.key, valueKey: v.k, model: v.model || '', grp: v.g || '', hidden: !v.hidden }), v.hidden ? 'Value is back in the tree.' : 'Value taken out.');
-            }));
-            td.appendChild(line);
-          });
-          if (!edit && vals.length > 4) td.appendChild(el('button', { type: 'button', 'class': 'po-more', text: all ? 'Show fewer' : (rg ? 'Show all ' + vals.length : '+ ' + (vals.length - 4) + ' more'),
-            onclick: function () { expanded[xk] = !all; render(); } }));
-          tr.appendChild(td);
-        });
-        tr.appendChild(el('td', {}, [xcell]));
-        body.appendChild(tr); out.rows++;
-      });
-    });
-
-    var head = el('tr', {}, [el('th', { text: 'Section / component' })]
-      .concat(cols.map(function (m) { return el('th', { 'class': 'unit' }, [el('div', { text: m.model }), el('small', { text: units(m.units) })]); }),
-              [el('th', { text: 'Special options and notes' })]));
-    var colW = cols.length > 8 ? 150 : 190, narrow = window.matchMedia('(max-width: 560px)').matches, lead = narrow ? [130] : [230], extraW = edit ? 300 : 240;
-    var colgroup = el('colgroup', {}, lead.concat(cols.map(function () { return colW; }), [extraW]).map(function (w) { return el('col', { style: 'width:' + w + 'px' }); }));
-    var table = el('table', { 'class': 'table po-matrix', style: 'min-width:' + (lead[0] + colW * cols.length + extraW) + 'px' }, [colgroup, el('thead', {}, [head]), body]);
-    out.node = el('div', { 'class': 'po-matrix-box' }, [
-      cols.length > 1 ? el('p', { 'class': 'hint', text: cols[0].model + ' is the reference. A cell with other values than it is highlighted, one colour for each different set of values.' }) : null,
-      el('div', { 'class': 'table-wrap po-matrix-wrap', tabindex: '0', role: 'region', 'aria-label': 'Series ' + sr.name + ', models side by side' }, [table])]);
-    return out;
-  }
-
-  /* models grouped by series, in the order the database gives (series, then most units first) */
-  function seriesList() {
-    var out = [], by = {};
-    (tree.models || []).forEach(function (m) {
-      var k = low(m.series);
-      if (!by[k]) { by[k] = { name: m.series, models: [], units: 0 }; out.push(by[k]); }
-      by[k].models.push(m); by[k].units += m.units || 0;
-    });
-    return out;
-  }
+  /* FCU: values kept per unit model; the series are counted on the facts line */
   function modelMode() { return !!(tree && tree.models && tree.models.length); }
-  function units(n) { return times(n); }           // a datasheet run again is counted again, so not "units"
+  function seriesCount() { var n = {}; (tree.models || []).forEach(function (m) { n[low(m.series)] = 1; }); return Object.keys(n).length; }
 
   function render() {
     if (!tree) return;
     var edit = editing(), q = low(search.value).trim(), secs = build();
-    var nRows = 0, nVals = 0, nExtra = tree.extras.length, drawn = 0, distinct = {};
+    var nVals = 0, nExtra = tree.extras.length, drawn = 0;
     host.textContent = '';
     $('po-edit-note').hidden = !edit;
     waitBar();
     pickBar();
 
-    var parts = [], series = modelMode() ? seriesList() : [], cardsShown = [];
-    if (!modelMode()) {
-      var g = drawCards(q, edit, false);
-      drawn = g.drawn; nVals = g.values; cardsShown = g.cards;
-      if (g.cards.length > 1 && !q) parts.push(cardStrip(g.cards));
-      parts.push(g.wrap);
-    } else {
-      var words = q ? q.split(/\s+/) : [], only = $('po-only').checked, inTable = {};
-      series.forEach(function (sr) {
-        var g = seriesTable(sr, secs, q, words, edit, only);
-        nVals += g.values;
-        Object.keys(g.keys).forEach(function (k) { distinct[k] = 1; });   // a component counts once, however many models have it
-        g.sections.forEach(function (n) { inTable[low(n)] = 1; });
-        if (!g.rows) return;
-        drawn += g.rows;
-        var sk = 'series:' + low(sr.name);
-        var sd = el('details', { 'class': 'po-series', open: q ? true : !closed[sk] }, [
-          el('summary', {}, [el('span', { text: 'Series ' + sr.name }), el('span', { 'class': 'count',
-            text: g.models + (g.models === 1 ? ' model' : ' models') + ' · ' + units(sr.units) + (g.differ ? ' · ' + g.differ + (g.differ === 1 ? ' row differs' : ' rows differ') + ' between models' : '') })]),
-          g.node
-        ]);
-        sd.addEventListener('toggle', function () { if (!q) closed[sk] = !sd.open; });
-        parts.push(sd);
-      });
-      nRows = Object.keys(distinct).length;
-      // sections that have only special options and notes (no datasheet values in any series)
-      var x = drawCards(q, edit, true, function (c) { return c.sections.length && c.sections.every(function (n) { return inTable[low(n)]; }); });
-      if (x.drawn) {
-        drawn += x.drawn;
-        var xk = 'series:all';
-        var xd = el('details', { 'class': 'po-series all', open: q ? true : !closed[xk] }, [
-          el('summary', {}, [el('span', { text: 'Other sections' }), el('span', { 'class': 'count', text: 'special options and notes' })]),
-          x.wrap
-        ]);
-        xd.addEventListener('toggle', function () { if (!q) closed[xk] = !xd.open; });
-        parts.push(xd);
-      }
-    }
-    $('po-only-wrap').hidden = !modelMode();
+    var parts = [];
+    var g = drawCards(q, edit), cardsShown = g.cards;
+    drawn = g.drawn; nVals = g.values;
+    if (g.cards.length > 1 && !q) parts.push(cardStrip(g.cards));
+    parts.push(g.wrap);
 
     var facts = $('po-facts'); facts.textContent = '';
-    [modelMode() ? series.length + (series.length === 1 ? ' series' : ' series') + ', ' + tree.models.length + (tree.models.length === 1 ? ' model' : ' models') : cardsShown.length + (cardsShown.length === 1 ? ' section' : ' sections'),
-     modelMode() ? nRows + (nRows === 1 ? ' component' : ' components') : '', nVals + (nVals === 1 ? (modelMode() ? ' value' : ' option seen') : (modelMode() ? ' values' : ' options seen')),
+    [cardsShown.length + (cardsShown.length === 1 ? ' section' : ' sections'),
+     modelMode() ? seriesCount() + ' series, ' + tree.models.length + (tree.models.length === 1 ? ' model' : ' models') : '',
+     nVals + (nVals === 1 ? ' option seen' : ' options seen'),
      nExtra ? nExtra + ' special options and notes' : '', tree.waiting ? tree.waiting + ' to approve' : '', tree.updated ? 'Last datasheet ' + when(tree.updated) : '']
       .filter(Boolean).forEach(function (t) { facts.appendChild(el('span', { 'class': 'badge', text: t })); });
 
@@ -991,7 +866,7 @@
     if (drawn || edit) {
       host.appendChild(el('div', { 'class': 'po-root' }, [
         el('span', { text: tree.factory.product }), el('span', { 'class': 'badge', text: tree.factory.name + ' factory' }),
-        el('span', { 'class': 'hint', text: modelMode() ? 'One table per series, one column per model, with the values its units had on the datasheets run so far. Scroll sideways to see every model.'
+        el('span', { 'class': 'hint', text: modelMode() ? 'Each section shows what every model seen has in common, one column per model (the models of a series together) with what differs, and the duty figures seen. A value not listed is not known yet.'
           : 'Each section shows what is common to every unit seen, the accessories offered, one column per model (filter class, fan model, model box ...) and the duty figures seen. Both factories can offer any option; a value not listed is not known yet.' })]));
       parts.forEach(function (n) { host.appendChild(n); });
     }
@@ -1033,16 +908,9 @@
   var timer;
   search.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(render, 150); });
   $('po-edit').addEventListener('click', function () { setEdit(!editOn); });
-  $('po-only').addEventListener('change', render);
   function setAll(open) {
     if (!tree) return;
-    build().forEach(function (s) { closed[low(s.name)] = !open; });
-    seriesList().forEach(function (sr) {
-      closed['series:' + low(sr.name)] = !open;
-      sr.models.forEach(function (m) { closed['model:' + low(m.model)] = !open; build().forEach(function (s) { closed['m:' + low(m.model) + ':' + low(s.name)] = !open; }); });
-    });
-    closed['series:all'] = !open;
-    buildCards(false, false).forEach(function (c) {
+    buildCards(false).forEach(function (c) {
       closed['card:' + c.id] = !open;
       c.cols.forEach(function (cc) { if (cc.family) closed['fam:' + c.id + ':' + low(cc.family)] = !open; });
     });
@@ -1051,11 +919,11 @@
   $('po-open').addEventListener('click', function () { setAll(true); });
   $('po-close').addEventListener('click', function () { setAll(false); });
 
-  /* AHU Excel: the cards as a user sees them (nothing taken out, nothing waiting): one row per component and column */
-  function ahuRows(txt) {
+  /* Excel: the cards as a user sees them (nothing taken out, nothing waiting): one row per component and column */
+  function cardRows(txt) {
     var keep = onlyWait, out = [['Section', 'Column', 'Component', 'What it is', 'Seen on datasheets', 'Special options', 'Notes']];
     onlyWait = false;
-    var cards = buildCards(false, false);
+    var cards = buildCards(false);
     onlyWait = keep;
     function ok(list) { return list.filter(function (x) { return !x.v.hidden && !x.v.wait; }); }
     function seen(list) { return cellText(chipsOf(ok(list)).map(function (ch) { return { v: ch.text, n: ch.n }; })); }
@@ -1078,39 +946,10 @@
     return out;
   }
 
-  /* Excel: what a user sees (nothing that was taken out, nothing that waits for approval), one row per component */
   $('po-download').addEventListener('click', function () {
     if (!tree) return;
-    var byModel = modelMode(), secs = build(true);
-    var rows = [(byModel ? ['Series', 'Model'] : []).concat(['Section', 'Sub-section', 'Component', 'Options seen on datasheets', 'Special options', 'Notes'])];
     function txt(list, kind) { return list.filter(function (x) { return x.kind === kind; }).map(function (x) { return x.body; }).join('\n'); }
-    function block(model, series) {
-      secs.forEach(function (s) {
-        var lead = byModel ? [series, model] : [];
-        if (!model && s.extras.length) rows.push(lead.concat([s.name, '', '(whole section)', '', txt(s.extras, 'option'), txt(s.extras, 'note')]));
-        var gs = [], byG = {};
-        s.rows.forEach(function (r) {
-          if (r.off) return;
-          var vals = model ? r.values.filter(function (v) { return !v.hidden && !v.wait && v.model === model; }) : (byModel ? [] : r.values.filter(function (v) { return !v.hidden && !v.wait; }));
-          var extras = model ? [] : r.extras;
-          if (model) vals = once(vals);
-          var plain = model ? vals : vals.filter(function (v) { return !v.g; });
-          if (plain.length || extras.length) rows.push(lead.concat([s.name, r.sub, r.name, cellText(plain), txt(extras, 'option'), txt(extras, 'note')]));
-          if (model) return;
-          vals.forEach(function (v) {
-            if (!v.g) return;
-            if (!byG[v.g]) { byG[v.g] = []; gs.push(v.g); }
-            var line = byG[v.g].filter(function (x) { return x.r === r; })[0];
-            if (line) line.vals.push(v); else byG[v.g].push({ r: r, vals: [v] });
-          });
-        });
-        // the values of one item together (Sub-section = the item, e.g. "Filter Class: ISO Coarse 60%(G4)")
-        gs.forEach(function (g) { byG[g].forEach(function (x) { rows.push(lead.concat([s.name, g, x.r.name, cellText(x.vals), '', ''])); }); });
-      });
-    }
-    var widths = (byModel ? [12, 16] : []).concat([26, 24, 32, 44, 36, 44]);
-    if (byModel) { seriesList().forEach(function (sr) { sr.models.forEach(function (m) { block(m.model, sr.name); }); }); block('', 'All models'); }
-    else { rows = ahuRows(txt); widths = [20, 30, 32, 16, 44, 36, 44]; }
+    var rows = cardRows(txt), widths = [20, 30, 32, 16, 44, 36, 44];
     var name = tree.factory.product + ' ' + tree.factory.name + ' - Product Options.xlsx';
     var blob = window.POXlsx.build(rows, 'Product Options', widths);
     var a = el('a', { href: URL.createObjectURL(blob), download: name });

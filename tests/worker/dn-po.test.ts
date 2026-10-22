@@ -82,6 +82,35 @@ describe("po kinds (lib/po-kind.ts), on every row of the HILTOP and Qiddiya data
   });
 });
 
+/* FCU technical report, Kifaf Phase-5 Plot-2 FCU/GF/16 (FWW1400VA, 22 Oct 2026): every row the reader gives
+   (scripts/ds-parse-check.mjs reads the same report). What is fixed for a model is an option; one selection is duty. */
+describe("po kinds of an FCU (lib/po-kind.ts)", () => {
+  const k = (key: string) => [key, poAutoKind(key)];
+  it("options: fixed for a model, construction, materials", () => {
+    for (const key of ["unit data||unit model", "unit data||net dimension w*d*h (mm)", "unit data||shipping dimension w*h*d (mm)", "unit data||unit net weight (kg)",
+      "unit data||fan control type", "configuration information||drain pan type", "configuration information||drain pan material",
+      "configuration information||drain pan insulation", "configuration information||coil area (m²)", "configuration information||fpi",
+      "configuration information||pipe connection", "configuration information||motor type", "configuration information||rated motor speed (rpm)",
+      "configuration information||return plenum type", "configuration information||return plenum insulation", "configuration information||filter type",
+      "configuration information||fins material", "configuration information||water connection size", "configuration information||fan qty",
+      "configuration information||motor qty", "cooling coil (cooling mode)||coil rows", "general||power supply"]) expect(k(key)).toEqual([key, "option"]);
+  });
+  it("duty: what one selection gives", () => {
+    for (const key of ["unit data||application air flow(m³/h)", "unit data||design air flow(m³/h)", "unit data||application esp (pa)", "unit data||design esp (pa)",
+      "unit data||fan power input (w)", "unit data||running current (a)", "unit data||fan speed", "configuration information||face velocity(m/s)",
+      "cooling coil (cooling mode)||total cooling capacity(kw)", "cooling coil (cooling mode)||on coil db (°c)", "cooling coil (cooling mode)||off coil wb (°c)",
+      "cooling coil (cooling mode)||ewt(°c)", "cooling coil (cooling mode)||lwt(°c)", "cooling coil (cooling mode)||wpd (kpa)",
+      "cooling coil (cooling mode)||water flow rate (l/s)", "cooling coil (cooling mode)||water volume (l)", "cooling coil (heating mode)||heating capacity(kw)",
+      "cooling coil (heating mode)||on coil (db) (°c)", "electric heater||heating capacity(kw)", "electric heater||e-heater maximum current (a)",
+      "electric heater||off coil (db) (°c)", "acoustical performance|lw inlet + rad(db(a))|63hz", "acoustical performance|lw outlet duct(db(a))|overall"]) expect(k(key)).toEqual([key, "duty"]);
+  });
+  it("the site's altitude is a project condition", () => {
+    expect(poAutoKind("unit data||altitude(m)")).toBe("project");
+    expect(poAutoKind("unit data||altitude (m)")).toBe("project");
+    expect(poAutoKind("unit data||altitude of the roof")).toBe("option");      // only the condition itself
+  });
+});
+
 describe("dn_* routes", () => {
   beforeEach(async () => { await resetLogins(); });
 
@@ -108,9 +137,13 @@ describe("dn_* routes", () => {
     expect(again.length).toBe(6);
     expect(again.find((x: any) => x.key === "unit data||insulation").keywords).toMatch(/^insulation; insulated panel/);
     expect(again.map((x: any) => x.key)).toEqual(AHU_ROWS.map((x) => x.key));          // sort order = order of arrival
-    // another product never gets AHU starter keywords
-    await ok("dn_add_rows", { p_token: t, p_product_id: "fcu", p_rows: [AHU_ROWS[1]] });
-    expect((await ok("dn_get_rules", { p_token: t, p_product_id: "fcu" })).rules[0].keywords).toBe("");
+    // another product never gets AHU starter keywords; an FCU gets its own (migration 0013), without the AHU's "+ PE"
+    await ok("dn_add_rows", { p_token: t, p_product_id: "fcu", p_rows: [AHU_ROWS[2], AHU_ROWS[1],
+      { key: "configuration information||drain pan material", section: "Configuration information", sub: "", component: "Drain Pan Material" }] });
+    const fcu = (await ok("dn_get_rules", { p_token: t, p_product_id: "fcu" })).rules;
+    expect(fcu.find((x: any) => x.key === "unit data||panel").keywords).toBe("");
+    expect(fcu.find((x: any) => x.key === "general||power supply")).toMatchObject({ keywords: expect.stringMatching(/^power supply;/), strip: "" });
+    expect(fcu.find((x: any) => x.key === "configuration information||drain pan material").keywords).toMatch(/drain pan stainless/);
     expect(await refused("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: "x" })).toMatch(/could not be read/);
     expect(await refused("dn_add_rows", { p_token: t, p_product_id: "ahu", p_rows: new Array(3001).fill({ key: "k" }) })).toMatch(/more than 3000/);
     expect(await refused("dn_add_rows", { p_token: "nope", p_product_id: "ahu", p_rows: [] })).toBe("SESSION_EXPIRED");

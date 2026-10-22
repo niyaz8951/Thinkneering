@@ -25,7 +25,18 @@
    Rule: nothing is added or assumed. Every value is text printed on
    the datasheet. Labels and values are told apart by their column
    position, not by the gap between them (a long label can end a few
-   points before its value).
+   points before its value). As on the AHU reader ("Panel • Insulation"
+   = "62 mm • Foam"), the reader rearranges two things (22 Oct 2026):
+   - a label naming two figures with their values split by "/" becomes
+     one row each: "Application/Design Air Flow(m³/h)" = "1869/2030"
+     -> Application Air Flow(m³/h) 1869, Design Air Flow(m³/h) 2030;
+     "On Coil (DB/WB) (°C)" = "22.4/16.0" -> On Coil DB (°C) 22.4,
+     On Coil WB (°C) 16.0. Only two plain figures are split: "Rc3/4"
+     or "220-240V~/50Hz" stay as printed.
+   - a row printed with no value (the heating and electric heater
+     blocks of a cooling-only unit) is left out, and a heading left
+     with no rows with it: the unit has no such part, as an AHU
+     datasheet has no section for a part the unit does not have.
    ============================================================ */
 (function () {
   'use strict';
@@ -95,6 +106,19 @@
     var hasLabel = Math.abs(items[0].x - labelX) <= SAME_X;
     if (!hasLabel) return { label: '', value: clean(label.concat(value).join(' ')) };
     return { label: clean(label.join(' ')), value: clean(value.join(' ')) };
+  }
+
+  /* "Application/Design Air Flow(m³/h)" = "1869/2030" and "On Coil (DB/WB) (°C)" = "22.4/16.0": one row per figure.
+     null when the row is not such a pair (the value is not two plain figures, or the label names no pair). */
+  var PAIR_VALUE = /^\s*(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)\s*$/;
+  var PAIR_LEAD = /^([A-Za-z][\w.-]*)\s*\/\s*([A-Za-z][\w.-]*)\s+(\S.*)$/;             // Application/Design Air Flow(m³/h)
+  var PAIR_IN = /^(.*?\S)\s*\(\s*([A-Za-z]+)\s*\/\s*([A-Za-z]+)\s*\)\s*(.*)$/;          // On Coil (DB/WB) (°C)
+  function pairRows(label, value) {
+    var v = PAIR_VALUE.exec(value || ''), m;
+    if (!v) return null;
+    if ((m = PAIR_LEAD.exec(label))) return [{ param: clean(m[1] + ' ' + m[3]), value: v[1] }, { param: clean(m[2] + ' ' + m[3]), value: v[2] }];
+    if ((m = PAIR_IN.exec(label))) return [{ param: clean(m[1] + ' ' + m[2] + ' ' + m[4]), value: v[1] }, { param: clean(m[1] + ' ' + m[3] + ' ' + m[4]), value: v[2] }];
+    return null;
   }
 
   function parse(pages) {
@@ -198,6 +222,14 @@
       });
     });
 
+    // two figures in one row become two rows; rows with no value and headings left empty are dropped
+    [unit].concat(sections).forEach(function (t) {
+      t.rows = [].concat.apply([], t.rows.map(function (r) {
+        return (pairRows(r.param, r.value) || [{ param: r.param, value: r.value }])
+          .map(function (x) { return { sub: r.sub, param: x.param, value: x.value, page: r.page, side: r.side }; });
+      })).filter(function (r) { return clean(r.value) !== ''; });
+    });
+    sections = sections.filter(function (t) { return t.rows.length; });
     byColumn(unit); sections.forEach(byColumn);
     hdr.project = head.project; hdr.unit = head['unit no']; hdr.date = head['selection date'];
     hdr.software = clean((head['software name'] || '') + ' ' + (head['software version'] || '')) || undefined;
@@ -210,7 +242,37 @@
     return { type: 'fcu', hdr: hdr, unit: unit, sections: sections, warnings: warnings, elec: [] };
   }
 
+  /* Product Options cards for an FCU (owner, 22 Oct 2026: as the AHU cards). FCU values are kept per unit model, so
+     every card has one column per model, the columns of one series together (FWWVA); what is the same on every model
+     shows once on top, duty figures fold away as ranges. The datasheet prints most rows under one "Configuration
+     information" heading, so a card gathers rows by what they are about (key = section|sub|component), not by
+     heading; the row keys stay as printed, so the row mapping and saved tables are not touched.
+       test   the rows of the card;  section  the datasheet headings whose notes belong to the card
+       sub    coils: "Cooling" / "Heating" for the two coil blocks, which print the same row names */
+  var MOTOR = /^(unit data|configuration information)\|\|(fan |motor |running current|rated motor)/;
+  var PO_CARDS = [
+    { id: 'fcu-unit', name: 'Unit', test: /^unit data\||^configuration information\|\|return plenum/, section: /^(unit data|configuration information)$/ },
+    { id: 'fcu-fan', name: 'Fan and motor', test: MOTOR, make: true },
+    { id: 'fcu-coil', name: 'Coil', test: /^cooling coil \(|^configuration information\|\|(coil |fpi|fins |pipe connection|water connection|face velocity)/,
+      section: /^cooling coil \(/, make: true,
+      sub: function (section) { return /\(heating mode\)/i.test(section) ? 'Heating' : /\(cooling mode\)/i.test(section) ? 'Cooling' : ''; } },
+    { id: 'fcu-filter', name: 'Filter', test: /^configuration information\|\|filter/, make: true },
+    { id: 'fcu-drain', name: 'Drain pan', test: /^configuration information\|\|drain pan/, make: true },
+    { id: 'fcu-heater', name: 'Electric heater', test: /^electric heater\|/, section: /^electric heater$/, make: true },
+    { id: 'fcu-sound', name: 'Sound', test: /^(acoustical performance|sound pressure)/, section: /^(acoustical performance|sound pressure)/ }
+  ];
+  PO_CARDS.forEach(function (C, i) { C.byModel = true; C.order = i; C.unit = ['model', 'models']; });
+  /* the card of a row (its key) or of a heading (notes added to a whole section); null = a card of its own */
+  function poCardOf(key, section) {
+    var k = String(key || '').toLowerCase(), sec = clean(section || '').toLowerCase(), i;
+    if (k && MOTOR.test(k)) return PO_CARDS[1];                       // fan rows of Unit Data belong to the fan
+    if (k) for (i = 0; i < PO_CARDS.length; i++) if (PO_CARDS[i].test.test(k)) return PO_CARDS[i];
+    for (i = 0; i < PO_CARDS.length; i++) if (PO_CARDS[i].section && PO_CARDS[i].section.test(sec)) return PO_CARDS[i];
+    return null;
+  }
+
   P.readers.fcu = { name: 'Daikin FAN COIL UNIT TECHNICAL REPORT (McQuay Smart Tools)', unitBlock: 'General',
                     sectionsName: 'sections', starts: startsUnit, parse: parse,
-                    factories: FACTORY.map(function (f) { return f.name; }) };   // the factories a datasheet can name
+                    factories: FACTORY.map(function (f) { return f.name; }),   // the factories a datasheet can name
+                    poCards: PO_CARDS, poCardOf: poCardOf, pairRows: pairRows };
 })();
