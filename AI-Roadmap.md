@@ -60,6 +60,24 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 22 Oct 2026 - FCU and Chiller templates (built, PR #11)
+"Create from template" gave a full vocabulary and rule book for AHUs only; FCU and Chiller got a thin vocabulary and the
+rules for every product. Now each product has its own:
+- Vocabulary: FCU 69 types in 9 components (unit, fan and motor, coil, drain pan, filter, casing, valves and controls,
+  electric heater, testing) and 24 standards (AHRI 440, EN 1397, EN 16583 ...); Chiller 65 types in 9 components (unit,
+  compressor, refrigerant, evaporator, condenser, controls, electrical, hydronic kit, testing) and 33 standards (AHRI
+  550/590, EN 14511 / 14825, ASHRAE 15 / 34, EN 378, ISO 5149, ASME VIII, PED, AHRI 370 ...). AHU unchanged (118 / 30).
+  No Row keys yet for FCU (named on Row mapping once a datasheet is read) or Chiller (no reader).
+- Rule books (`template-fcu.ts`, `template-chiller.ts`): FCU 36 rules, Chiller 34 (AHU 37), same way of writing as the AHU
+  book: answer rules only for pure scope clauses (site accessories, piping, seismic design, storage, contractor's
+  documents), advice rules naming the source that decides for the product sections (valve packages, thermostats, drain
+  pans and condensate, compressors, refrigerant, evaporator, condenser coils and fans, electrical panel, hydronic kit,
+  sound, factory tests ...). "Belt drives and VFDs" is AHU only now.
+- Existing FCU / Chiller maps: "Update from template" adds the new types, standards and rules and updates types still worded
+  as on 21 Oct (`VOCAB_OTHER_2026_10_21`, keyed by product); edited ones stay. The Not Applicable remark names the product.
+244 Vitest tests (`tests/worker/templates.test.ts`: 30 typical FCU / Chiller clauses recognised, rule books without problems,
+no figures in rules, routes allowed / refused, upgrade).
+
 ### 22 Oct 2026 - rule test run, fixes 6-10 (built, PR #11)
 - Vocabulary Row keys: fan type / count / efficiency / motor class on supply and return fans, coil types on water and DX
   coils, pre-filter `filter supply||filter class #1`, final `#2`, drain pan and damper rows of this datasheet, Cross leakage

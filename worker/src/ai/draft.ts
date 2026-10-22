@@ -272,7 +272,7 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
   const missing = (d.absentParts || []).filter(Boolean);
   if (missing.length && !own.rules.length && (CONDITIONAL.test(d.clause) || (CONDITIONAL.test(d.parent || "") && !PRESENCE.test(d.clause)))) {
     const what = missing.join(", ");
-    return { compliance: "Not Applicable", remarks: `Not included in the selected units (no ${what} on the AHU datasheet).`, confidence: "medium", source: "datasheet", model: "", promptVersion: RULE_VERSION,
+    return { compliance: "Not Applicable", remarks: `Not included in the selected units (no ${what} on the ${d.product || "unit"} datasheet).`, confidence: "medium", source: "datasheet", model: "", promptVersion: RULE_VERSION,
       reason: `The project's datasheet has no ${what} section, and the clause asks for it only where applicable / as scheduled.`,
       sources: [{ kind: "datasheet", id: "absent:" + what, text: `No ${what} section on the datasheet`, score: 1 }] };
   }
