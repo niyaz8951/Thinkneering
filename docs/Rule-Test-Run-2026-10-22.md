@@ -134,7 +134,7 @@ Items 1-4 of "Gaps and improvements" (A. Stop false verdicts) are built: PR #11,
 Items 6-10 of the improvement list are built too (PR #11): vocabulary Row keys, generic words with their component, table
 rows under their heading, Reference list rule, Not Applicable for an absent part asked "where applicable / as scheduled",
 NRVU and Electrical Power Inputs rows, location / frequency warning against the project's region. On this pair: decided
-right 42 -> 51 (of 222), Not Applicable by code 9 (heat pipe 211-217, heating coil 155, attenuator heading 195), 19 false
+right 42 -> 52 (of 222), Not Applicable by code 9 (heat pipe 211-217, heating coil 155, attenuator heading 195), 19 false
 vocabulary types gone, the datasheet now carries EATR 2.23-2.69 % and OACF 1.06-1.29 (the purge clause can be compared once
 it is linked), and the record warns "selected at ROMA URBE, Italy ... Saudi Arabia uses 60 Hz". Left: item 5 (starter
 keywords), linking by vocabulary Row, choice / presence comparison (items 7-10 of the report's list B).
