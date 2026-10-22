@@ -606,10 +606,10 @@
     if (!canMove(c) || ln.kind === 'accessory') return [];
     if (c.C.byModel) {      // FCU: a move is for the series the row is shown in (owner, 22 Oct 2026)
       if (ln.kind === 'duty' || !ln.series) return [];
-      var S = ln.series, fcu = [];
-      if (ln.pl !== 'general') fcu.push(placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in the General of series ' + S + ' now.', S));
-      if (ln.bucket !== 'model') fcu.push(placeBtn(ln.keys, 'model', 'Move to columns', ln.name + ' is shown per model in series ' + S + ' now.', S));
-      if (ln.seriesPlace) fcu.push(placeBtn(ln.keys, '', 'Automatic place', ln.name + ' is back in its usual place in series ' + S + '.', S));
+      var S = ln.series, fcu = [], rowGeneral = ln.rows.some(function (r) { return r.place === 'general'; });
+      // columns are where every row starts: back to them is "no move" unless the Row mapping puts the row in General
+      if (ln.bucket === 'model') fcu.push(placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in the General of series ' + S + ' now.', S));
+      else fcu.push(placeBtn(ln.keys, rowGeneral ? 'model' : '', 'Move to columns', ln.name + ' is shown per model in series ' + S + ' now.', S));
       return fcu;
     }
     var out = [ln.bucket === 'model' ? placeBtn(ln.keys, 'general', 'Move to general', ln.name + ' is in General now.')
@@ -867,7 +867,7 @@
   /* ---------- FCU: one block per series (owner, 22 Oct 2026) ----------
        General            for every FCU: the product's own notes, special options, AI notes and makes
        Series FWWVA
-         General          what every model of the series has in common, and the rows an editor moved to its General
+         General          the rows an editor moved to its General (every row starts in the model columns)
          Models           one column per model: the options that differ, then the duty figures (folded)
      Series never mix: a series shows only its models' values, and "Move to general" / "Move to columns" act on that
      series only (po_series_place). A note typed inside a series is that series' (section "Series FWWVA"); notes of a
@@ -908,11 +908,9 @@
                      extras: ln.extras.filter(function (x) { var m = SERIES_NOTE.exec(x.section || ''); return !m || m[1] === sr.name; }) };
           sl.pl = sl.place || 'auto';
           if (sl.kind === 'duty') { sl.bucket = 'model'; part.duty.push(sl); return; }
-          var sig = function (l) { return l.filter(function (x) { return !x.v.hidden; }).map(function (x) { return tidy(x.v.k); }).filter(function (k, i, a) { return a.indexOf(k) === i; }).sort().join('\u0001'); };
-          var inCols = sr.cols.filter(function (cc) { return cells[cc.key]; });
-          var same = sr.cols.length > 1 && inCols.length === sr.cols.length &&
-            inCols.every(function (cc) { return sig(cells[cc.key]) === sig(cells[inCols[0].key]); });
-          if (sl.pl === 'general' || (sl.pl !== 'model' && same) || sl.kind === 'accessory') { sl.bucket = 'general'; part.gen.push(sl); }
+          // every row starts in the model columns; it is in the series' General only when an editor put it there, and
+          // stays there: values read later for any model of the series show in that General (owner, 22 Oct 2026)
+          if (sl.pl === 'general' || sl.kind === 'accessory') { sl.bucket = 'general'; part.gen.push(sl); }
           else { sl.bucket = 'model'; part.model.push(sl); }
         });
         if (part.gen.length || part.model.length || part.duty.length) sr.parts.push(part);
@@ -992,7 +990,7 @@
     // General of the series, by part
     var genParts = parts.filter(function (p) { return p.gen.length; });
     if (genParts.length) {
-      body.appendChild(el('p', { 'class': 'po-part po-series-head', text: 'General', title: 'The same on every model of series ' + sr.name + ', and the rows moved to its General. For this series only.' }));
+      body.appendChild(el('p', { 'class': 'po-part po-series-head', text: 'General', title: 'Rows moved to the General of series ' + sr.name + ', with the values of all its models. For this series only.' }));
       genParts.forEach(function (p) {
         body.appendChild(el('p', { 'class': 'po-subpart', text: p.name }));
         var grid = el('div', { 'class': 'po-grid' });
@@ -1174,7 +1172,7 @@
     if (drawn || edit) {
       host.appendChild(el('div', { 'class': 'po-root' }, [
         el('span', { text: tree.factory.product }), el('span', { 'class': 'badge', text: tree.factory.name + ' factory' }),
-        el('span', { 'class': 'hint', text: modelMode() ? 'General holds what is for every ' + tree.factory.product + '. Each series has its own General (the same on all its models, or moved there) and a column per model with what differs; duty figures fold away. Series never mix. A value not listed is not known yet.'
+        el('span', { 'class': 'hint', text: modelMode() ? 'General holds what is for every ' + tree.factory.product + '. Each series has a column per model; rows an editor moves to the series\' General stay there, with the values of all its models. Duty figures fold away. Series never mix. A value not listed is not known yet.'
           : 'Each section shows what is common to every unit seen, the accessories offered, one column per model (filter class, fan model, model box ...) and the duty figures seen. Both factories can offer any option; a value not listed is not known yet.' })]));
       parts.forEach(function (n) { host.appendChild(n); });
     }
