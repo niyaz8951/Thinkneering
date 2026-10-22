@@ -69,7 +69,7 @@ export const PROPERTIES: Property[] = [
   { name: "thermal bridging class (EN 1886)", terms: ["thermal bridging", "thermal bridge", "tb class", "tb"], direction: "higher", scale: ["TB5", "TB4", "TB3", "TB2", "TB1"] },
   { name: "thermal transmittance class (EN 1886)", terms: ["thermal transmittance class", "transmittance class", "thermal transmittance", "thermal transmit", "t class"], direction: "higher", scale: ["T5", "T4", "T3", "T2", "T1"] },
   { name: "casing strength class (EN 1886)", terms: ["mechanical strength", "casing strength", "deflection", "d class"], direction: "higher", scale: ["D3", "D2", "D1"] },
-  { name: "casing leakage class (EN 1886)", terms: ["casing leakage", "air leakage class", "leakage class", "l class"], direction: "higher", scale: ["L3", "L2", "L1"] },
+  { name: "casing leakage class (EN 1886)", terms: ["casing leakage", "casing air leakage", "air leakage class", "leakage class", "l class"], direction: "higher", scale: ["L3", "L2", "L1"] },
   { name: "filter class (EN 779)", terms: ["filter class", "filtration", "filter", "filters"], direction: "higher",
     scale: ["G1", "G2", "G3", "G4", "M5", "M6", "F7", "F8", "F9", "E10", "E11", "E12", "H10", "H11", "H12", "H13", "H14", "U15", "U16", "U17"] }
 ];

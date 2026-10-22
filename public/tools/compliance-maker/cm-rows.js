@@ -39,17 +39,20 @@
 
   function norm(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
   function words(s) { var n = norm(s); return n ? n.split(' ') : []; }
-  function shortHeading(text) { return words(text).length <= 8 && !/\b(shall|must|will|should)\b/i.test(text); }
+  // a bracketed note does not make a heading long: "HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)"
+  function shortHeading(text) { return words(text.replace(/\([^)]*\)/g, ' ')).length <= 8 && !/\b(shall|must|will|should)\b/i.test(text); }
 
   // parts of a unit, most specific first: a text's topic is the first one it names
   var TOPICS = [
     ['vfd', /\b(variable (frequency|speed)|frequency controllers?|vfds?|vfcs?|inverters?)\b/],
     ['filter', /\b(filters?|filtration|hepa|merv)\b/],
     ['humid', /\b(humidif\w*|washers?|evaporative)\b/],
+    ['heatpipe', /\b(heat pipes?|horseshoe|wrap around)\b/],
     ['recovery', /\b(energy recovery|heat recovery|(heat|energy|enthalpy) wheels?|recuperators?|heat exchangers?|run around)\b/],
-    ['heater', /\b(heaters?|electric(al)? heat\w*|heating coils?)\b/],
+    ['heater', /\b(heaters?|electric(al)? heat\w*|heating coils?|coils? heating)\b/],
     ['coil', /\bcoils?\b/],
     ['damper', /\b(dampers?|mixing (box|boxes|section|sections))\b/],
+    ['attenuator', /\b(attenuators?|silencers?)\b/],
     ['sound', /\b(sound|acoustic\w*|noise)\b/],
     ['fan', /\b(fans?|motors?|drives?|impellers?)\b/],
     ['casing', /\b(casings?|cabinets?|panels?|insulation|drain pans?|doors?|roofs?|bases?|frames?|structural)\b/],
@@ -62,9 +65,9 @@
   function lead(text) { var c = text.indexOf(':'); return c > 0 && c <= 80 ? text.slice(0, c) : ''; }
   // the parts of the unit a datasheet row is about: its section's, plus any its sub-heading and name add
   function rowTopics(r) {
-    var sec = norm(r.section), t = topicOf(sec);
+    var sec = norm(r.section);
     var base = sec === 'unit data' ? ['casing', 'performance'] : /^mechanical characteristic/.test(sec) ? ['casing']
-      : /^en 13053/.test(sec) ? ['performance', 'fan'] : (t ? [t] : []);
+      : /^en 13053/.test(sec) ? ['performance', 'fan'] : topicsIn(sec);
     var out = [];
     base.concat(topicsIn((r.sub || '') + ' ' + r.component)).forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
     return out;
