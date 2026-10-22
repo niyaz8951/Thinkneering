@@ -30,6 +30,8 @@ import { all, now, uuid } from "../lib/sql";
 import { CHOICES, choiceOf } from "../lib/cm";
 import type { AiRule } from "./rules";
 import { isAhu, AHU_PART1, AHU_PART2, AHU_PART3 } from "./template-ahu";
+import { isFcu, FCU_PART1, FCU_PART2, FCU_PART3 } from "./template-fcu";
+import { isChiller, CHILLER_PART1, CHILLER_PART2, CHILLER_PART3 } from "./template-chiller";
 import { TEMPLATE_2026_10_20 } from "./template-history";
 
 export interface AiSettings {
@@ -303,28 +305,34 @@ const LEARNED_SEED: Seed = { title: "Learned", notes: "Rules the AI writes here 
 
 /* The whole template. Since 20 Oct 2026 every rule book belongs to one factory (its team keeps it) and holds rules and
    the way of thinking only: facts about the product are AI notes in Product Options. */
+/* AHU only (22 Oct 2026): EC plug fans against belt-driven fans; a chiller's compressor VFD is not this. */
+const BELT_DRIVES: Seed = { title: "Belt drives and VFDs", notes: "Only when the project datasheet [D] or Product Options [O] show direct-driven EC plug fans: belts, sheaves, pulleys, belt guards and adjustable motor bases are Not Applicable, remark 'Direct-driven EC plug fans are provided.' (cite [D] or [O]). A variable speed drive asked: Comply with Remarks, 'Speed control is integrated in the EC motors.' Features of a separate drive (bypass, harmonic filter, keypad, enclosure rating) only from [O] or [N]; otherwise leave compliance empty. With belt-driven fans, answer them like any product clause.", special: ["When: belt, belts, sheave, pulley, belt guard, variable frequency, vfd, adjustable motor base"] };
+
 export function seedTree(product: string, _factory: string | null): Seed[] {
-  const ahu = isAhu(product);
+  // the product's own rules (AHU 16 Oct, FCU and Chiller 22 Oct 2026); the rest is for every product
+  const ahu = isAhu(product), fcu = !ahu && isFcu(product), chiller = !ahu && !fcu && isChiller(product);
+  const own = (a: Seed[], f: Seed[], c: Seed[]): Seed[] => ahu ? a : fcu ? f : chiller ? c : [];
   return [
     INSTRUCTION_SEEDS(),
     STEP_SEEDS,
     { title: "Settings", notes: "Change a value after the colon. The AI reads it within a minute.", special: ["Suggest in focus mode: yes", "Use answers from other projects: yes"] },
     { title: "Part 1 General", kids: [
       { title: "Reference standards", notes: "These sections get no datasheet rows: answer from AI notes [N] and library answers [L]. A line that only lists a standard or a code is Noted. A standard the units are certified or tested to, when an AI note or a library answer says so (Eurovent to EN 1886 / EN 13053, AHRI 410 coils), is Comply; a certification the clause asks to be stated goes in the remark. Building and installation codes (SASO installation codes, NFPA 90A, IBC, IMC, local codes) are Noted. A standard the units are not certified to: Comply with Remarks naming the equivalent only when an AI note or library answer names that equivalence; otherwise leave compliance empty.", special: ["Section: references, reference standards, codes and standards, applicable standards"] },
+      { title: "Reference list", notes: "A line of a list of reference standards or codes that only names them: Noted. A line that asks something of the units (shall, provide, comply) goes on to the other rules.", special: ["Section: references, reference standards, codes and standards, applicable standards", "Unless: shall, provide, comply, submit", "Answer: Noted", "Remark: Noted."] },
       { title: "Scope statements", notes: "Statements of what the section covers or how it relates to other sections. A clause in these sections that asks for something (shall, provide, select, a standard, a limit) is not a scope statement: the Unless line keeps the rule off it.", special: ["Section: section includes, related sections, related documents, summary, description of work", "Unless: shall, provide, select, must, submit, comply, standard, standards, equivalent, minimum, maximum, limit, limits, deviation", "Answer: Noted", "Remark: Noted."] },
       { title: "Coordination by the contractor", notes: "Coordinating sizes, locations and layouts with other trades and with the building is the contractor's work.", special: ["When: coordinate size, coordinate layout, coordinate installation, coordinate location", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
-      ...(ahu ? AHU_PART1 : [])
+      ...own(AHU_PART1, FCU_PART1, CHILLER_PART1)
     ] },
     { title: "Part 2 Products", kids: [
-      { title: "Belt drives and VFDs", notes: "Only when the project datasheet [D] or Product Options [O] show direct-driven EC plug fans: belts, sheaves, pulleys, belt guards and adjustable motor bases are Not Applicable, remark 'Direct-driven EC plug fans are provided.' (cite [D] or [O]). A variable speed drive asked: Comply with Remarks, 'Speed control is integrated in the EC motors.' Features of a separate drive (bypass, harmonic filter, keypad, enclosure rating) only from [O] or [N]; otherwise leave compliance empty. With belt-driven fans, answer them like any product clause.", special: ["When: belt, belts, sheave, pulley, belt guard, variable frequency, vfd, adjustable motor base"] },
+      ...(ahu ? [BELT_DRIVES] : []),
       { title: "Project schedule values", notes: "Capacities, sizes, filter grades, heaters and power supply are selected to the project's equipment schedule: answer from the project datasheet [D]; never copy a figure from [L] or [P]. Without [D], leave compliance empty: the selection decides.", special: ["When: as scheduled, equipment schedule, as indicated on, as shown on, scheduled capacity"] },
-      ...(ahu ? AHU_PART2 : [])
+      ...own(AHU_PART2, FCU_PART2, CHILLER_PART2)
     ] },
     { title: "Part 3 Execution", kids: [
       { title: "Site works", notes: "Installation, site checks, start-up, cleaning and site connections are site works (Instructions > Scope of supply). A clause that asks for the manufacturer's representative or for factory-fitted items is not plain site work: the Unless line sends it to the model.", special: ["When: install, installation, examine, examination, level and plumb, anchor bolt, field connection, field wiring, field piping, piping connection, connect piping, connect ductwork, connect fan motors, rigging, hoisting, erection, start-up, startup, final checks, verify that, clean, cleaning, touch-up, adjust, adjusting, lubricate, balancing", "Unless: factory installed, factory-installed, factory mounted, factory fitted, lifting lug, manufacturer's representative, factory-authorized, factory authorized, factory-authorised, service representative, train, training", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
       { title: "Supplied items in installation clauses", notes: "Items the factory fits on the unit (filter gauges, lifting lugs, factory-installed parts) are answered on what is supplied, not on the verb \"install\": Comply when [D], [O] or [N] shows them, and add that the site work in the same clause is by the contractor. Not shown: leave compliance empty.", special: ["When: factory installed, factory-installed, factory mounted, factory fitted, lifting lug, filter gauge, touch-up paint"] },
       { title: "Concrete bases", notes: "Concrete bases, housekeeping pads and plinths are by the contractor. A product clause that only mentions the pad (the unit is self-supporting on it) is not about the base.", special: ["When: concrete base, housekeeping base, housekeeping pad, plinth", "Unless: self-supporting, self supporting, designed, factory", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] },
-      ...(ahu ? AHU_PART3 : [])
+      ...own(AHU_PART3, FCU_PART3, CHILLER_PART3)
     ] },
     { title: "Any Part", kids: [
       { title: "Unloading at site", notes: "Unloading and setting in place are site works.", special: ["When: unloading, offloading, unload the units, setting in place, set in place", "Answer: In Contractor's Scope", "Remark: By Contractor / others. Daikin scope is supply of equipment."] }

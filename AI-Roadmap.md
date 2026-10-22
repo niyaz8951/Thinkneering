@@ -60,6 +60,69 @@ Duplicate and junk clause detection by vector distance, Part / topic suggestions
 
 ## Progress (kept by Claude; newest first)
 
+### 22 Oct 2026 - wrong-product guard (built, PR #11)
+A spec or library file clearly about another product than the one chosen is refused before it reaches the library or the
+AI (the AHU spec as FCU would get FCU answers and FCU rules); the person changes the product or confirms (audited).
+`lib/product-detect.ts`; tests `product-detect.test.ts` and the browser test `tests/e2e/product-check.spec.ts`.
+
+### 22 Oct 2026 - FCU and Chiller templates (built, PR #11)
+"Create from template" gave a full vocabulary and rule book for AHUs only; FCU and Chiller got a thin vocabulary and the
+rules for every product. Now each product has its own:
+- Vocabulary: FCU 69 types in 9 components (unit, fan and motor, coil, drain pan, filter, casing, valves and controls,
+  electric heater, testing) and 24 standards (AHRI 440, EN 1397, EN 16583 ...); Chiller 65 types in 9 components (unit,
+  compressor, refrigerant, evaporator, condenser, controls, electrical, hydronic kit, testing) and 33 standards (AHRI
+  550/590, EN 14511 / 14825, ASHRAE 15 / 34, EN 378, ISO 5149, ASME VIII, PED, AHRI 370 ...). AHU unchanged (118 / 30).
+  No Row keys yet for FCU (named on Row mapping once a datasheet is read) or Chiller (no reader).
+- Rule books (`template-fcu.ts`, `template-chiller.ts`): FCU 36 rules, Chiller 34 (AHU 37), same way of writing as the AHU
+  book: answer rules only for pure scope clauses (site accessories, piping, seismic design, storage, contractor's
+  documents), advice rules naming the source that decides for the product sections (valve packages, thermostats, drain
+  pans and condensate, compressors, refrigerant, evaporator, condenser coils and fans, electrical panel, hydronic kit,
+  sound, factory tests ...). "Belt drives and VFDs" is AHU only now.
+- Existing FCU / Chiller maps: "Update from template" adds the new types, standards and rules and updates types still worded
+  as on 21 Oct (`VOCAB_OTHER_2026_10_21`, keyed by product); edited ones stay. The Not Applicable remark names the product.
+244 Vitest tests (`tests/worker/templates.test.ts`: 30 typical FCU / Chiller clauses recognised, rule books without problems,
+no figures in rules, routes allowed / refused, upgrade).
+
+### 22 Oct 2026 - rule test run, fixes 6-10 (built, PR #11)
+- Vocabulary Row keys: fan type / count / efficiency / motor class on supply and return fans, coil types on water and DX
+  coils, pre-filter `filter supply||filter class #1`, final `#2`, drain pan and damper rows of this datasheet, Cross leakage
+  on the NRVU EATR / OACF rows. Several rows with ";", "#n" = the n-th row of that key.
+- Generic words (rating, capacity, diameter, length, lock, depth, width, bare "stainless steel") recognise a type only with
+  their component in the clause or heading: 19 false types gone on the pair (Coil rating on "EN779 RATING G4" ...).
+- Existing vocabulary maps: AI rules > Vocabulary > "Update from template" (`ai_vocab_upgrade`, rules editor who can edit the
+  map) adds missing types and updates a type still worded as the template of 21 Oct (`vocab-history.ts`); edited types stay.
+- Spec table rows ("EN779 RATING | G4") take the heading above as parent and topic context (lib/rows.ts and cm-rows.js,
+  parity checked); `MATCH_VERSION` "2026-10-22 tables". Rules see the short heading above as section context.
+- Rule book Part 1 "Reference list": a line under REFERENCES / reference standards that only names standards = Noted
+  (rule books: AI rules > "Update from template").
+- Not Applicable by code: a part the datasheet has no section for, asked "wherever applicable / as per schedule / as
+  indicated on schedules", gets Not Applicable with "Not included in the selected units (no <part> on the AHU datasheet)".
+  A clause that asks for the part itself ("to be equipped with sound attenuator") under a conditional heading does not:
+  it stays "not in this unit" for a person.
+- Datasheet Notes reads the NRVU block (drive type, HRS, EATR, OACF, external leakage +/-400 Pa, SFP internal, face
+  velocity, pressure drops ...) and Electrical Power Inputs (per motor: connection, absorbed kW, absorbed A) as rows;
+  maker's name and serial number left out. Product Options kinds set for them (outdoor conditions = project).
+- Site check: Datasheet Notes (on save) and Review (warning) say when the selection location's country or the power supply
+  frequency does not fit the project's region (KSA = 60 Hz, GCC / Egypt = 50 Hz). A warning only.
+On the pair: decided right 42 -> 52, Not Applicable by code 0 -> 9, false types 19 fewer, wrong 2 (a heading set Not
+Applicable where Noted was expected; "Roof curb by contractor" read as a scope statement, unchanged). 208 Vitest tests,
+parity and `scripts/ds-parse-check.mjs` clean (part of `npm test`). Not done: item 5 (starter keywords for DX coil, damper,
+NRVU rows: add them on Row mapping, or a migration when wanted). Next: link by vocabulary Row (with the part gate), choice /
+presence comparison, composite cells, per-unit verdicts, Sound Report rows.
+
+### 22 Oct 2026 - rule test run, fixes 1-4 (built, PR #11 `fix/comparison-gates`)
+Test run of the rules alone (no library, no model) on Arcadis 237413 x ASTRAWEB HILTOP (7 units): report and workbook
+`Rule-Test-Run-2026-10-22.md`. Code made 5 wrong datasheet verdicts (3 a false Comply / CwR). Fixed:
+- a length is compared only with a row of the same dimension (thickness / height / spacing / diameter ...);
+- "less than X will not be permitted" = minimum, "more than X is not acceptable" = maximum;
+- test conditions (at -400 Pa, exposed to 2500 Pa, tested at 24 bar, an if-part, a pressure beside a class) not compared;
+- topics heat pipe and attenuator, heating-coil sections = heater + coil, bracketed notes do not lengthen a heading;
+  a clause about a part with no datasheet section gets no rows and is marked "not in this unit". `MATCH_VERSION` "2026-10-22 parts".
+On the pair: wrong code verdicts 5 -> 0, datasheet-answerable clauses decided right 5 -> 9, "not in this unit" 0 -> 20.
+194 Vitest tests (13 new in `tests/worker/ai-gates.test.ts`), parity clean. Next (items 5-10 of the report): starter keywords
+for DX coil / damper rows, vocabulary Row keys and generic terms, table rows' parent, Reference-standards rule on the
+heading, NRVU and electrical rows, location / frequency warning; then linking by vocabulary Row and choice / presence comparison.
+
 ### 21 Oct 2026 - vocabulary maps and recognition (step A built)
 One vocabulary map per product (kind Vocabulary, `ai_vocab_links`), template AHU 118 types / 17 components / 30 standards, FCU, Chiller. `identify` (ai/vocab.ts) recognises the requirement type and level of a clause by landmarks (rare terms, component + property pairs, anchors, standards, a figure in the type's unit, Not words, equivalents): 32 of 32 typical AHU clauses right in `tests/worker/vocab.test.ts`. Try a clause shows it. Next: type chips on the record and in Focus mode, linking clause to datasheet row by the type's Row, the unrecognised-clause queue with AI proposals, then template matching of whole specs. Process: `docs/Compliance-Process.md`.
 

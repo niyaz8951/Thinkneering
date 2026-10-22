@@ -196,12 +196,33 @@ export function pickDatasheetRows(fields: DatasheetField[], clause: string, sect
 /* "1. Cooling coil section." under "B. The unit shall include the following:" is read with its parent. A
    numbered item takes the nearest lettered clause before it; a lettered sub-item ("a.") the nearest numbered
    one; within the same section only. */
+/* The parent clause when it is a heading ("B. REFERENCES", "17. HORSESHOE HEAT PIPE (WHEREVER APPLICABLE ...)"), else "":
+   a heading inside a section names the clauses under it as a section title does, so a rule's "Section:" words match it
+   too (22 Oct 2026: a references list given as item B under "Section includes"). */
+export function headingOf(parent: string): string {
+  const t = String(parent || "").trim().replace(/[:.]\s*$/, "");
+  if (!t || /\b(shall|must|will|should)\b/i.test(t)) return "";
+  return t.replace(/\([^)]*\)/g, " ").split(/\s+/).filter(Boolean).length <= 8 ? t : "";
+}
+
 export interface ParentRow { seq: number; type: string; sr: string; spec: string }
 export function parentOf(rows: ParentRow[], seq: number): string {
   const i = rows.findIndex((r) => r.seq === seq);
   if (i < 0) return "";
   const me = rows[i];
   const lvl = level(me.sr);
+  // a table row or a plain line (no label: "EN779 RATING | G4") belongs to the heading it sits under: the nearest
+  // labelled line of level 1 or 2 above it ("5. PRE-FILTER SECTION"), so the pre-filter and bag-filter tables are
+  // told apart (22 Oct 2026)
+  if (lvl === 0 && me.type !== "part" && me.type !== "section") {
+    for (let j = i - 1; j >= 0 && j >= i - 40; j--) {
+      const r = rows[j];
+      if (r.type === "section" || r.type === "part") return "";
+      const l = level(r.sr);
+      if (l === 1 || l === 2) return r.spec.trim().slice(0, 600);
+    }
+    return "";
+  }
   if (lvl < 2) return "";
   for (let j = i - 1; j >= 0 && j >= i - 40; j--) {
     const r = rows[j];

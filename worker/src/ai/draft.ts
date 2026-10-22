@@ -51,6 +51,7 @@ export interface DraftInput {
   sectionKind?: SectionKind | "";        // what the clause's section asks, learned from the library (sections.ts)
   sectionAnswers?: number;               // how many confirmed answers that is learned from
   absent?: string[];                     // unit sections the clause is about that this project's datasheet lacks
+  absentParts?: string[];                // of those, whole parts named by the clause's heading (heat pipe, heating coil ...)
   corrections?: CorrectionIn[];          // what people answered instead of the AI on similar clauses (learning)
   unsourced?: boolean;                   // AI map > Settings > Answer without a source (default no: strict)
   model?: string;                        // AI map > Decision steps > 8. AI model > "AI model:" (default small, 8B)
@@ -82,6 +83,13 @@ export function backs(e: EvItem, compliance?: string): boolean {
   // a rule that states something is not offered is a statement about the product (it backs Not Comply)
   return (compliance === undefined || compliance === "Not Comply") && NOT_OFFERED.test(e.text);
 }
+
+/* Wording that makes a part conditional: it is asked only where the schedule or the drawings have it. */
+export const CONDITIONAL = /\b(where(?:ver)? (?:applicable|scheduled|indicated|shown|required|specified)|if (?:applicable|scheduled|indicated|shown|required|specified)|as per (?:the )?(?:equipment )?schedules?|as (?:indicated|shown|scheduled) (?:on|in) (?:the )?(?:equipment )?(?:schedules?|drawings?)|when (?:scheduled|specified|indicated))\b/i;
+
+/* A clause that asks for the part itself ("AHUs to be equipped with sound attenuators"): a conditional heading above it
+   does not make it Not Applicable, since leaving the part out is then a deviation for a person to judge (22 Oct 2026). */
+export const PRESENCE = /\b(equipped with|provided with|fitted with|furnished with|complete with|(?:shall|to|must) be (?:provided|equipped|fitted|furnished|supplied)|provide[sd]?)\b/i;
 
 /* Similarity from which an answered library clause is copied without asking the model. */
 export const COPY_AT = 0.9;
@@ -256,6 +264,17 @@ export async function draftAnswer(env: Env, d: DraftInput, usage?: AiUsage): Pro
     return { compliance: dd.compliance, remarks: dd.remarks, confidence: dd.confidence || (dd.compliance === "Comply with Remarks" ? "medium" : "high"), source: "datasheet", model: "", promptVersion: RULE_VERSION,
       reason: (d.conflict ? d.conflict + " " : "") + dd.reason,
       sources: (d.datasheet || []).filter((f) => dd.keys.includes(f.key)).map((f) => ({ kind: "datasheet", id: f.key, text: `${f.label}: ${f.value}`.slice(0, 200), score: 1 })) };
+  }
+
+  // 1b. a part the selected units do not have, asked only where it applies ("wherever applicable", "as per equipment
+  // schedule", "as indicated on schedules"): Not Applicable, from the datasheet (22 Oct 2026). Asked without such words,
+  // the clause goes on with "not in this unit" (whether to offer the part is a commercial question).
+  const missing = (d.absentParts || []).filter(Boolean);
+  if (missing.length && !own.rules.length && (CONDITIONAL.test(d.clause) || (CONDITIONAL.test(d.parent || "") && !PRESENCE.test(d.clause)))) {
+    const what = missing.join(", ");
+    return { compliance: "Not Applicable", remarks: `Not included in the selected units (no ${what} on the ${d.product || "unit"} datasheet).`, confidence: "medium", source: "datasheet", model: "", promptVersion: RULE_VERSION,
+      reason: `The project's datasheet has no ${what} section, and the clause asks for it only where applicable / as scheduled.`,
+      sources: [{ kind: "datasheet", id: "absent:" + what, text: `No ${what} section on the datasheet`, score: 1 }] };
   }
 
   // 1. near-identical library answer (its words in the standard form)

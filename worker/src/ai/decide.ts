@@ -45,7 +45,7 @@ export function inputFor(ctx: Context, x: RunRowFull, ev: ClauseEvidence, allowM
     // the library step off: nothing is copied; the similar answers still go to the model as a style reference
     copyAt: s.useLibrary ? s.copyAt : 2, allowModel, instructions: ctx.instructions, useRules: s.useRules,
     sectionKind: ev.sectionKind?.kind, sectionAnswers: ev.sectionKind ? ev.sectionKind.n : 0,
-    absent: sheetOn ? ev.absent : [],
+    absent: sheetOn ? ev.absent : [], absentParts: sheetOn ? ev.absentParts : [],
     // what people corrected on similar clauses: shown as sources [M1] the model may cite (learning from mistakes)
     corrections: ev.corrections.map((c) => ({ spec: c.spec, suggested: c.suggested, suggested_remarks: c.suggested_remarks, final: c.final, final_remarks: c.final_remarks, score: c.score })),
     unsourced: s.unsourced, model: s.model

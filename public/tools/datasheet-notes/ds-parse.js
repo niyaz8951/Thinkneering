@@ -138,11 +138,30 @@
     });
   }
 
+  /* The NRVU block (Regulation (EU) 1253/2014) holds figures the specs ask for: EATR and OACF, external leakage,
+     SFP internal, drive type. "Nominal NRVU Flow Rate" with "Supply" / "Return" under it -> "Nominal NRVU Flow Rate Supply".
+     "External Leakage (RU) +400Pa • -400Pa L2(R) • L2(R)" is printed as one cell: the classes are split off.
+     The manufacturer's name, serial number, instructions link and footnotes are left out. */
+  var NRVU_SKIP = /^(Manufacturer'?s Name|Serial Number|Pre-\/Dis-assembly)/i;
+  function nrvuLine(s, ln, grp) {
+    var c = ln.cells.map(function (x) { return x.s; });
+    if (!c.length || /^\*/.test(c[0])) return;
+    var label = clean(c[0].replace(/\*+$/, '')), value = c.slice(1).join(' ');
+    if (c.length === 1) {
+      var lk = /^(.+?)\s+(L\d\S*(?:\s*\u2022\s*L\d\S*)*)$/.exec(label);
+      if (lk) { label = lk[1]; value = lk[2]; }
+      else { grp.name = /^[A-Z]/.test(label) && !NRVU_SKIP.test(label) ? label : ''; return; }
+    }
+    if (NRVU_SKIP.test(label)) { grp.name = ''; return; }
+    if (grp.name && /^(Supply|Return)$/i.test(label)) label = grp.name + ' ' + label; else grp.name = '';
+    s.rows.push({ sub: '', param: label, value: value, page: ln.page });
+  }
+
   function parse(pages) {
     var body = bodyHeight(pages);
     var hdr = {}, unit = { rows: [], options: [] }, sections = [], warnings = [], elec = [];
     var mode = 'head', sec = null, sub = '', optTarget = null, grp = null;   // grp: { name, x } a label heading indented rows ("Supply")
-    var valueX = null, labelX = null, lastY = null, lastRow = null, secHeadH = null;
+    var valueX = null, labelX = null, lastY = null, lastRow = null, secHeadH = null, nrvuGrp = null;
 
     function target() { return mode === 'unit' ? unit : sec; }
 
@@ -157,11 +176,17 @@
         if (/^Electrical Power Inputs Data$/i.test(text)) { mode = 'elec'; return; }
         if (mode === 'elec') {
           // table rows: Component | Electrical Connection | Absorbed power - current
-          if (!heading && ln.cells.length >= 2) elec.push({ component: ln.cells[0].s, connection: ln.cells[1].s });
+          if (!heading && ln.cells.length >= 2) elec.push({ component: ln.cells[0].s, connection: ln.cells[1].s, absorbed: ln.cells[2] ? ln.cells[2].s : '' });
           if (!heading || /Component|Electrical Connection|Absorbed|Current/i.test(text)) return;
           mode = 'skip';          // the table has ended; the heading that ends it is read as any other heading
         }
 
+        if (heading && /^NRVU\b/i.test(text)) {    // "NRVU - Regulation (EU) No 1253/2014": read as rows (22 Oct 2026)
+          mode = 'nrvu'; nrvuGrp = { name: '' };
+          sec = { no: '', name: 'NRVU', rows: [], options: [], page: ln.page };
+          sections.push(sec);
+          return;
+        }
         if (heading) {
           if (/^Unit Data$/i.test(text)) { mode = 'unit'; lastRow = null; grp = null; return; }
           if (/^Options List$/i.test(text)) { mode = 'options'; optTarget = null; return; }
@@ -210,6 +235,7 @@
         }
 
         if (mode === 'classes') { classLine(sec, ln); return; }
+        if (mode === 'nrvu') { nrvuLine(sec, ln, nrvuGrp); return; }
 
         if (mode === 'unit' || mode === 'section') {
           var t = target();
@@ -394,6 +420,14 @@
     data.sections.forEach(function (s) {
       count[s.name] = (count[s.name] || 0) + 1;          // 2nd, 3rd ... section with the same name in this unit
       body(s.name, s.no ? s.no + ') ' + s.name : s.name, count[s.name], s);   // FCU sections carry no number
+    });
+    // "Electrical Power Inputs Data": per motor its connection and the absorbed power and current ("3.0kW - 6.1A")
+    var EL = 'Electrical Power Inputs';
+    (data.elec || []).forEach(function (e) {
+      var m = /^\s*([\d.]+)\s*kW\s*-\s*([\d.]+)\s*A\s*$/i.exec(e.absorbed || '');
+      if (e.connection) push(EL, EL, 1, e.component, 'Electrical Connection', e.connection);
+      if (m) { push(EL, EL, 1, e.component, 'Absorbed Power', m[1] + ' kW'); push(EL, EL, 1, e.component, 'Absorbed Current', m[2] + ' A'); }
+      else if (e.absorbed) push(EL, EL, 1, e.component, 'Absorbed Power - Current', e.absorbed);
     });
     return out;
   }

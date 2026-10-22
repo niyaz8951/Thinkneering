@@ -214,7 +214,7 @@ describe("AI rules: routes", () => {
     expect(made.name).toBe("AI rules: AHU Dubai");
     let got = await ok("ai_map_get", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
     expect(got.own).toMatchObject({ id: made.id, name: "AI rules: AHU Dubai" });
-    expect(got.own.rules).toBe(36);                                    // 9 for every product + 27 AHU rules (facts are AI notes since 20 Oct 2026)
+    expect(got.own.rules).toBe(37);                                    // 10 for every product (Reference list, 22 Oct 2026) + 27 AHU rules (facts are AI notes since 20 Oct 2026)
     expect(got.own.direct).toBeGreaterThanOrEqual(4);
     expect(got.settings).toMatchObject({ copyAt: 0.9, useModel: true, budget: 9000 });
     expect(got.problems).toEqual([]);
@@ -307,6 +307,23 @@ describe("AI rules: routes", () => {
     // who may ask: anyone who can open the record
     expect(await refused("pr_run_selection", { p_token: await login("sbu"), p_run_id: run.run_id })).toBeTruthy();
     expect(await refused("pr_run_selection", { p_token: "nope", p_run_id: run.run_id })).toBe("SESSION_EXPIRED");
+  });
+
+  it("the review warns when the datasheet was selected for another country or frequency, and still uses it (22 Oct 2026)", async () => {
+    const t = await login("admin");
+    await env.DB.prepare("INSERT INTO dn_map (product_id, row_key, section, component, show, keywords, sort) VALUES ('ahu', 'unit data||panel', 'Unit Data', 'Panel', 1, 'double wall; double skin; panel thick', 1)").run();
+    await ok("ai_map_create", { p_token: t, p_product_id: "ahu", p_factory_id: "ahu-dubai" });
+    const p = await ok("pr_save", { p_token: t, p_name: "KSA park", p_client_type: "Consultant", p_client_name: "ACME", p_region: "Saudi Arabia" });
+    const run = await ok("cm_save_run", { p_token: t, p_factory_id: "ahu-dubai", p_source: "pdf", p_file_name: "spec.pdf", p_lines: SPEC_LINES, p_project_id: p.id });
+    await ok("pr_note_save", { p_token: t, p_project_id: p.id, p_product_id: "ahu", p_file_names: "sel.pdf", p_columns: ["AHU-01"],
+      p_rows: [{ section: "General", component: "Power Supply", cells: ["400V/3Ph/50Hz + PE"], kind: "row", key: "general||power supply" },
+               { section: "Unit Data", component: "Panel", cells: ["62 mm"], kind: "row", key: "unit data||panel" },
+               { section: "", component: "Location", cells: ["ROMA URBE, Italy"], kind: "row", key: "unit data||location" }] });
+    (env as any).AI = fakeAi(() => ({ compliance: "Comply", remarks: "", reason: "x", confidence: "low" })).ai;
+    const r = await ok("ai_review_run", { p_token: t, p_run_id: run.run_id, p_limit: 25 });
+    expect(r.warning).toMatch(/selected at ROMA URBE, Italy, but the project is in Saudi Arabia/);
+    expect(r.warning).toMatch(/Saudi Arabia uses 60 Hz/);
+    expect(r.by_source.datasheet).toBeGreaterThan(0);            // a warning, not a stop: the casing clause is still compared
   });
 
   it("the review: datasheet first by code, library reopened when the datasheet differs, map rules, the model last; suggestions and feedback; '#' rules hidden", async () => {

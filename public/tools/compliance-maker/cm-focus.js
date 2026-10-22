@@ -26,6 +26,14 @@
                                     must update the item itself
      onClose()
    })
+   Two views (owner, 22 Oct 2026), switched with Clause | Page in the top bar:
+     Clause  one clause at a time, Read or Edit (as before; the default when opened in Edit)
+     Page    a page of a book, read only: Sr, specification, compliance, remarks: what goes to the client
+             (an AI draft nobody checked is left blank there, as in the consultant's Excel). A page holds as
+             many clauses as fit (measured, so A- / A+ and the window size change it); every section (Part,
+             section or sub-section heading) starts a new page; a click on a clause opens it in Clause view.
+             Show: all clauses, those still to fill, or the deviations (Not Comply, Comply with Remarks).
+   The view is remembered on the device (dame_cf_view).
    Colours come from the theme tokens. Text is written with textContent.
    ============================================================ */
 (function () {
@@ -106,7 +114,28 @@
     '@keyframes cf-back { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }',
     '@media (prefers-reduced-motion: reduce) { .cf-slide { animation: none; } .cf-chip, .cf-bar i { transition: none; } }',
     '@media (max-width: 560px) { .cf-spec { font-size: 17px; } .cf-card { padding: 14px; } .cf-body { padding: 12px 12px 20px; } }',
-    'body.cf-open { overflow: hidden; }'
+    'body.cf-open { overflow: hidden; }',
+    /* Page view: a page of a book (Sr | specification | compliance + remarks) */
+    '.cf-views .tab { min-width: 0; }',
+    '.cf-page { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; }',
+    '.cf-ph { display: flex; align-items: center; flex-wrap: wrap; gap: calc(6px * var(--cf-k, 1)) calc(10px * var(--cf-k, 1)); padding-bottom: calc(8px * var(--cf-k, 1)); border-bottom: 2px solid var(--text); }',
+    '.cf-ph .cf-where { flex: 1 1 auto; } .cf-cont { font-size: calc(12px * var(--cf-k, 1)); color: var(--text-soft); }',
+    '.cf-ph-r { display: flex; align-items: center; gap: calc(10px * var(--cf-k, 1)); margin-left: auto; }',
+    '.cf-show { font: inherit; font-size: calc(12.5px * var(--cf-k, 1)); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: calc(3px * var(--cf-k, 1)) calc(10px * var(--cf-k, 1)); min-height: calc(28px * var(--cf-k, 1)); cursor: pointer; }',
+    '.cf-row { display: grid; grid-template-columns: calc(38px * var(--cf-k, 1)) minmax(0, 1fr) minmax(0, 34%); gap: calc(16px * var(--cf-k, 1)); align-items: start; padding: calc(9px * var(--cf-k, 1)) calc(6px * var(--cf-k, 1)); border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent); cursor: pointer; }',
+    '.cf-row:hover { background: color-mix(in srgb, var(--brand-sky) 9%, transparent); } .cf-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }',
+    '.cf-row .sr { font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; font-size: calc(14.5px * var(--cf-k, 1)); line-height: 1.55; overflow-wrap: anywhere; } .cf-row .sr.letter { color: var(--warn); } .cf-row .sr.number { color: var(--ok); }',
+    '.cf-row .spec { font-size: calc(15.5px * var(--cf-k, 1)); line-height: 1.55; overflow-wrap: anywhere; white-space: pre-line; }',
+    '.cf-row .spec .hl-red { color: var(--danger); } .cf-row .spec .hl-redbold { color: var(--danger); font-weight: 700; } .cf-row .spec .hl-underline { text-decoration: underline; } .cf-row .spec .hl-colon { color: var(--warn); font-weight: 700; }',
+    '.cf-row .ans { font-size: calc(14.5px * var(--cf-k, 1)); line-height: 1.5; overflow-wrap: anywhere; } .cf-row .ans b { display: block; font-weight: 650; } .cf-row .ans .rem { white-space: pre-line; }',
+    '.cf-row .ans.dev b { color: var(--danger); } .cf-row .ans.cwr b { color: var(--warn); } .cf-row .ans .none { color: var(--text-soft); font-style: italic; }',
+    '.cf-pempty { padding: calc(40px * var(--cf-k, 1)) 0; text-align: center; color: var(--text-soft); }',
+    '.cf-pinfo { display: flex; align-items: center; justify-content: center; text-align: center; font-size: calc(13px * var(--cf-k, 1)); color: var(--text-soft); font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; }',
+    '.cf-pinfo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+    '.cf-measure { position: absolute; left: 0; right: 0; top: 0; visibility: hidden; pointer-events: none; }',
+    '.cf.paged .cf-body { overflow-y: hidden; position: relative; } .cf.paged.tall .cf-body { overflow-y: auto; }',
+    '@media (max-width: 699px) { .cf-row { grid-template-columns: calc(30px * var(--cf-k, 1)) minmax(0, 1fr); gap: calc(4px * var(--cf-k, 1)) calc(10px * var(--cf-k, 1)); } .cf-row .ans { grid-column: 2; } .cf-row .ans b { display: inline; margin-right: 6px; } .cf-row .spec { font-size: 15px; } }',
+    '@media (max-width: 560px) { .cf-views .tab { padding: 0 10px; } }'
   ].join('\n');
 
   function filled(it) { return !!(it.compliance || it.remarks); }
@@ -138,6 +167,7 @@
       pct.textContent = Math.round(STEPS[step] * 100) + '%';
       smaller.disabled = step === 0; larger.disabled = step === STEPS.length - 1;
       try { localStorage.setItem(SCALE, String(STEPS[step])); } catch (e) { /* not kept */ }
+      if (view === 'page' && open) repage();
     }
     var smaller = el('button', { type: 'button', 'class': 'btn ghost sm', text: 'A\u2212', title: 'Smaller', 'aria-label': 'Smaller text and buttons', onclick: function () { setStep(step - 1); } });
     var larger = el('button', { type: 'button', 'class': 'btn ghost sm', text: 'A+', title: 'Larger', 'aria-label': 'Larger text and buttons', onclick: function () { setStep(step + 1); } });
@@ -148,14 +178,20 @@
       leave(function () { edit = on; [].forEach.call(seg.children, function (b, k) { b.setAttribute('aria-selected', String((k === 1) === edit)); }); draw(false); if (o.onMode) o.onMode(edit); });
     } }); }
     var seg = el('div', { 'class': 'tabs cf-mode', role: 'group', 'aria-label': 'Read or edit' }, [modeBtn(false, 'Read'), modeBtn(true, 'Edit')]);
+    // Clause | Page: one clause at a time, or a page of a book (read only). Opened in Edit, it starts on Clause.
+    var VIEW = 'dame_cf_view', view = 'clause';
+    try { if (!edit && localStorage.getItem(VIEW) === 'page') view = 'page'; } catch (e) { view = 'clause'; }
+    function viewBtn(v, text) { return el('button', { type: 'button', 'class': 'tab', text: text, 'aria-selected': String(v === view), onclick: function () { setView(v); } }); }
+    var views = el('div', { 'class': 'tabs cf-mode cf-views', role: 'group', 'aria-label': 'One clause or a page' }, [viewBtn('clause', 'Clause'), viewBtn('page', 'Page')]);
+    var pinfo = el('div', { 'class': 'cf-pinfo', 'aria-live': 'polite' });
     var win = el('div', { 'class': 'cf-win' }, [
       el('div', { 'class': 'cf-top' }, [
         el('button', { type: 'button', 'class': 'btn ghost sm', text: 'Done', onclick: function () { leave(close); } }),
-        el('h2', { text: o.title }), seg,
+        el('h2', { text: o.title }), views, seg,
         el('div', { 'class': 'cf-size' }, [smaller, pct, larger]),
         count]),
       el('div', { 'class': 'cf-bar' }, [bar]), body,
-      el('div', { 'class': 'cf-nav' }, [prev, todo, next])
+      el('div', { 'class': 'cf-nav' }, [prev, todo, pinfo, next])
     ]);
     setStep(window.matchMedia('(min-width: 700px)').matches ? step : 1);        // a phone keeps the normal size: its controls are hidden there
     var root = el('div', { 'class': 'cf', role: 'dialog', 'aria-modal': 'true', 'aria-label': o.title }, [win]);
@@ -343,15 +379,129 @@
       }
       return el('div', { 'class': 'cf-where' }, [pick(parts, 'p', 'Go to a Part', 'Before the first Part'), pick(sects, 's', 'Go to a section of this Part', 'Before the first section')]);
     }
-    function go(to, back) { if (to < 0 || to >= items.length || to === i) return; leave(function () { i = to; draw(back); }); }
+
+    /* ---------- Page view: a page of a book, read only ---------- */
+    var pages = [], pg = 0, show = 'all', resizeT = 0;
+    function deviation(it) { return !it.draft && /^(not comply|comply with remarks)$/i.test(String(it.compliance || '').trim()); }
+    function keep(it) { return show === 'fill' ? (!filled(it) || !!it.draft) : show === 'dev' ? deviation(it) : true; }
+    function sectionKey(it) { return (it.part || '') + '\u0001' + (it.section || ''); }
+    function srClass(it) { var t = it.type || (it.line && it.line.type) || ''; return t === 'letter' || t === 'number' ? ' ' + t : ''; }
+    /* one clause as the client reads it: Sr, specification, compliance, remarks */
+    function row(k) {
+      var it = items[k], runs = window.CMHighlight ? window.CMHighlight.runs(it.spec) : [{ text: it.spec, style: '' }];
+      var c = String(it.compliance || '').trim(), ans;
+      if (it.draft) ans = el('div', { 'class': 'ans' }, [el('span', { 'class': 'none', text: 'AI draft, not checked (blank for the client)' })]);
+      else if (!c && !it.remarks) ans = el('div', { 'class': 'ans' }, [el('span', { 'class': 'none', text: '– not answered –' })]);
+      else ans = el('div', { 'class': 'ans' + (/^not comply$/i.test(c) ? ' dev' : /^comply with remarks$/i.test(c) ? ' cwr' : '') }, [
+        c ? el('b', { text: c }) : null, it.remarks ? el('span', { 'class': 'rem', text: it.remarks }) : null]);
+      var r = el('div', { 'class': 'cf-row', role: 'button', tabindex: '0', title: 'Open this clause', 'aria-label': (it.sr || '') + ' ' + it.spec.slice(0, 80) }, [
+        el('div', { 'class': 'sr' + srClass(it), text: it.sr || '•' }),
+        el('div', { 'class': 'spec' }, runs.map(function (x) { return x.style ? el('span', { 'class': 'hl-' + x.style, text: x.text }) : x.text; })),
+        ans]);
+      r.addEventListener('click', function () { openClause(k); });
+      r.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); openClause(k); } });
+      return r;
+    }
+    function head(p) {
+      var it = items[p.items[0]];
+      var sel = el('select', { 'class': 'cf-show', 'aria-label': 'Show' }, [
+        el('option', { value: 'all', text: 'All clauses' }), el('option', { value: 'fill', text: 'To fill' }), el('option', { value: 'dev', text: 'Deviations' })]);
+      sel.value = show;
+      sel.addEventListener('change', function () { show = sel.value; repage(); });
+      return el('div', { 'class': 'cf-ph' }, [where(it), p.secPage > 1 ? el('span', { 'class': 'cf-cont', text: 'continued' }) : null,
+        el('div', { 'class': 'cf-ph-r' }, [sel])]);                // the page number is in the top bar, as the clause number is
+    }
+    /* Pages are measured: every clause of the list is laid out once, hidden, at the page's width and the chosen size;
+       a page takes clauses until the next one does not fit; a new section always starts a new page. */
+    function paginate() {
+      var list = []; items.forEach(function (it, k) { if (keep(it)) list.push(k); });
+      pages = [];
+      if (!list.length) return;
+      var probe = el('div', { 'class': 'cf-page cf-measure' }), cs = getComputedStyle(body);
+      body.appendChild(probe);
+      var ph = head({ items: [list[0]], secPage: 2 }); probe.appendChild(ph);
+      var avail = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - ph.offsetHeight - 6;
+      var hs = {};
+      list.forEach(function (k) { var r = row(k); probe.appendChild(r); hs[k] = r.offsetHeight; });
+      probe.remove();
+      var cur = null, h = 0;
+      list.forEach(function (k) {
+        var key = sectionKey(items[k]);
+        if (!cur || cur.key !== key || (cur.items.length && h + hs[k] > avail)) {
+          cur = { key: key, items: [], secPage: cur && cur.key === key ? cur.secPage + 1 : 1, tall: false };
+          pages.push(cur); h = 0;
+        }
+        cur.items.push(k); h += hs[k];
+        if (h > avail) cur.tall = true;            // one clause longer than a page: it scrolls inside its page
+      });
+      pages.forEach(function (p) { p.secPages = pages.filter(function (q) { return q.key === p.key; }).length; });
+    }
+    function pageOf(k) {
+      for (var n = 0; n < pages.length; n++) if (pages[n].items.indexOf(k) >= 0) return n;
+      for (n = 0; n < pages.length; n++) if (pages[n].items[0] > k) return n;          // filtered out: the next page after it
+      return Math.max(0, pages.length - 1);
+    }
+    function drawPage(back) {
+      inner.textContent = '';
+      inner.className = 'cf-page cf-slide' + (back ? ' back' : '');
+      root.classList.remove('lib', 'ai');
+      var p = pages[pg];
+      root.classList.toggle('tall', !!(p && p.tall));
+      count.textContent = pages.length ? 'Page ' + (pg + 1) + ' of ' + pages.length : 'No page';
+      bar.style.width = pages.length ? Math.round(100 * (pg + 1) / pages.length) + '%' : '0';
+      prev.disabled = pg <= 0; next.disabled = pg >= pages.length - 1;
+      pinfo.textContent = '';
+      if (!p) {
+        var sel = el('select', { 'class': 'cf-show', 'aria-label': 'Show' }, [el('option', { value: 'all', text: 'All clauses' }), el('option', { value: 'fill', text: 'To fill' }), el('option', { value: 'dev', text: 'Deviations' })]);
+        sel.value = show; sel.addEventListener('change', function () { show = sel.value; repage(); });
+        inner.appendChild(el('div', { 'class': 'cf-ph' }, [el('div', { 'class': 'cf-ph-r' }, [sel])]));
+        inner.appendChild(el('div', { 'class': 'cf-pempty', text: show === 'dev' ? 'No deviations: no clause is answered Not Comply or Comply with Remarks.' : 'Every clause is filled.' }));
+        return;
+      }
+      inner.appendChild(head(p));
+      p.items.forEach(function (k) { inner.appendChild(row(k)); });
+      var it = items[p.items[0]];
+      pinfo.appendChild(el('span', { text: (it.section || it.part || o.title) + ' · page ' + p.secPage + ' of ' + p.secPages }));
+      i = p.items[0];                              // Clause view opens here
+      body.scrollTop = 0;
+    }
+    /* again after a change of size, window or filter, on the page that holds the same first clause */
+    function repage() {
+      var anchor = pages[pg] ? pages[pg].items[0] : i;
+      paginate();
+      pg = pageOf(anchor);                         // a filter keeps the reader where he was (the next page that is left)
+      drawPage(false);
+    }
+    function turn(d) { var to = pg + d; if (to < 0 || to >= pages.length) return; pg = to; drawPage(d < 0); }
+    function syncViews() {
+      [].forEach.call(views.children, function (b, k) { b.setAttribute('aria-selected', String((k === 1) === (view === 'page'))); });
+      seg.hidden = view === 'page'; todo.hidden = view === 'page'; pinfo.hidden = view !== 'page';
+      root.classList.toggle('paged', view === 'page');
+      if (view !== 'page') root.classList.remove('tall');
+      try { localStorage.setItem(VIEW, view); } catch (e) { /* not kept */ }
+    }
+    function setView(v) {
+      if (v === view) return;
+      if (v === 'page') leave(function () { view = 'page'; syncViews(); paginate(); pg = pageOf(i); drawPage(false); });
+      else { view = 'clause'; syncViews(); draw(false); }
+    }
+    function openClause(k) { i = k; view = 'clause'; syncViews(); draw(false); }
+    function onResize() { if (view !== 'page') return; clearTimeout(resizeT); resizeT = setTimeout(repage, 150); }
+    window.addEventListener('resize', onResize);
+    function go(to, back) {
+      if (to < 0 || to >= items.length) return;
+      if (view === 'page') { var n = pageOf(to); if (n !== pg) { pg = n; drawPage(back); } return; }
+      if (to === i) return;
+      leave(function () { i = to; draw(back); });
+    }
     function nextOpen() {
       leave(function () {
         for (var k = 1; k <= items.length; k++) { var j = (i + k) % items.length; if (j !== i && !filled(items[j])) { var back = j < i; i = j; draw(back); return; } }
         draw(false);
       });
     }
-    prev.addEventListener('click', function () { go(i - 1, true); });
-    next.addEventListener('click', function () { go(i + 1, false); });
+    prev.addEventListener('click', function () { if (view === 'page') turn(-1); else go(i - 1, true); });
+    next.addEventListener('click', function () { if (view === 'page') turn(1); else go(i + 1, false); });
     todo.addEventListener('click', nextOpen);
 
     // swipe left = next, right = previous (not while selecting text in a box)
@@ -360,18 +510,23 @@
     body.addEventListener('touchend', function (e) {
       if (!tracking) return; tracking = false;
       var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-      if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) { if (dx < 0) go(i + 1, false); else go(i - 1, true); }
+      if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) { if (view === 'page') turn(dx < 0 ? 1 : -1); else if (dx < 0) go(i + 1, false); else go(i - 1, true); }
     }, { passive: true });
 
     function key(e) {
       var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
       if (e.key === 'Escape') { e.preventDefault(); leave(close); }
+      else if (view === 'page' && !typing && (e.key === 'Home' || e.key === 'End')) { e.preventDefault(); turn((e.key === 'Home' ? 0 : pages.length - 1) - pg); }
+      else if (view === 'page' && !typing && /^(ArrowRight|PageDown)$/.test(e.key)) { e.preventDefault(); turn(1); }
+      else if (view === 'page' && !typing && /^(ArrowLeft|PageUp)$/.test(e.key)) { e.preventDefault(); turn(-1); }
+      else if (view === 'page' && !typing && e.key === ' ' && !/^(BUTTON|A)$/.test(e.target.tagName) && !(e.target.classList && e.target.classList.contains('cf-row'))) { e.preventDefault(); turn(e.shiftKey ? -1 : 1); }
+      else if (view === 'page') return;
       else if (!typing && e.key === 'ArrowRight') go(i + 1, false);
       else if (!typing && e.key === 'ArrowLeft') go(i - 1, true);
       else if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); nextOpen(); }
     }
     function close() {
-      document.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', hide); window.removeEventListener('pagehide', commit);
+      document.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', hide); window.removeEventListener('pagehide', commit); window.removeEventListener('resize', onResize);
       root.remove(); document.body.classList.remove('cf-open'); open = null;
       if (o.onClose) o.onClose();
     }
@@ -380,7 +535,8 @@
     document.addEventListener('visibilitychange', hide); window.addEventListener('pagehide', commit);
     document.addEventListener('keydown', key);
     document.body.appendChild(root); document.body.classList.add('cf-open'); open = root;
-    draw(false);
+    syncViews();
+    if (view === 'page') { paginate(); pg = pageOf(i); drawPage(false); } else draw(false);
   }
 
   window.CMFocus = { open: start, isOpen: function () { return !!open; } };

@@ -81,9 +81,23 @@
       if (!sel) return Promise.reject(new Error('Choose a product and factory first.'));
       var project = window.PRPick.current();
       if (window.PRPick.required() && !project) return Promise.reject(new Error('Choose a project first.'));
-      return window.Api.cmSaveRun(window.Hub.token(), {
-        factoryId: sel.factoryId, source: source, fileName: fileName, projectId: project ? project.id : null,
-        lines: rows.map(function (r) { return { type: r.type || '', sr: r.sr || '', spec: r.spec || '' }; })
+      var lines = rows.map(function (r) { return { type: r.type || '', sr: r.sr || '', spec: r.spec || '' }; });
+      function save(confirmed) {
+        return window.Api.cmSaveRun(window.Hub.token(), { factoryId: sel.factoryId, source: source, fileName: fileName,
+          projectId: project ? project.id : null, lines: lines, productConfirmed: confirmed });
+      }
+      // the server reads which product the text is about; when it is clearly another one, the person decides (cm-product-check.js)
+      return save(false).then(null, function (err) {
+        if (!window.CMProductCheck || !window.CMProductCheck.is(err)) throw err;
+        return window.CMProductCheck.ask(err).then(function (choice) {
+          if (choice === 'keep') return save(true);
+          if (choice === 'switch') {
+            productSel.value = err.data.detected.id;
+            productSel.dispatchEvent(new Event('change'));          // clears the result, as any change of product does
+            hint.textContent = 'Product changed to ' + err.data.detected.name + ': the specification reads as one. Choose the factory and convert again. Nothing was saved.';
+          }
+          throw new Error('Nothing was saved. Choose the right product and convert again.');
+        });
       });
     }
   };

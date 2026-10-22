@@ -19,10 +19,12 @@ const TOPICS: [string, RegExp][] = [
   ["vfd", /\b(variable (frequency|speed)|frequency controllers?|vfds?|vfcs?|inverters?)\b/],
   ["filter", /\b(filters?|filtration|hepa|merv)\b/],
   ["humid", /\b(humidif\w*|washers?|evaporative)\b/],
+  ["heatpipe", /\b(heat pipes?|horseshoe|wrap around)\b/],
   ["recovery", /\b(energy recovery|heat recovery|(heat|energy|enthalpy) wheels?|recuperators?|heat exchangers?|run around)\b/],
-  ["heater", /\b(heaters?|electric(al)? heat\w*|heating coils?)\b/],
+  ["heater", /\b(heaters?|electric(al)? heat\w*|heating coils?|coils? heating)\b/],
   ["coil", /\bcoils?\b/],
   ["damper", /\b(dampers?|mixing (box|boxes|section|sections))\b/],
+  ["attenuator", /\b(attenuators?|silencers?)\b/],
   ["sound", /\b(sound|acoustic\w*|noise)\b/],
   ["fan", /\b(fans?|motors?|drives?|impellers?)\b/],
   ["casing", /\b(casings?|cabinets?|panels?|insulation|drain pans?|doors?|roofs?|bases?|frames?|structural)\b/],
@@ -37,7 +39,7 @@ function lead(text: string): string { const c = text.indexOf(":"); return c > 0 
 export function rowTopics(r: { section: string; sub?: string; component: string }): string[] {
   const sec = norm(r.section);
   const base = sec === "unit data" ? ["casing", "performance"] : /^mechanical characteristic/.test(sec) ? ["casing"]
-    : /^en 13053/.test(sec) ? ["performance", "fan"] : (topicOf(sec) ? [topicOf(sec)] : []);
+    : /^en 13053/.test(sec) ? ["performance", "fan"] : topicsIn(sec);
   const out = [...base, ...topicsIn((r.sub || "") + " " + r.component)];
   return [...new Set(out)];
 }
@@ -45,7 +47,8 @@ export function rowTopics(r: { section: string; sub?: string; component: string 
 const MAX = 3, FAR = 6;
 function norm(s: unknown): string { return String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
 function words(s: unknown): string[] { const n = norm(s); return n ? n.split(" ") : []; }
-function shortHeading(text: string): boolean { return words(text).length <= 8 && !/\b(shall|must|will|should)\b/i.test(text); }
+// a bracketed note does not make a heading long: "HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)"
+function shortHeading(text: string): boolean { return words(text.replace(/\([^)]*\)/g, " ")).length <= 8 && !/\b(shall|must|will|should)\b/i.test(text); }
 
 export function clauses(rows: SpecRowIn[]): Clause[] {
   const out: Clause[] = [];
@@ -79,11 +82,13 @@ export function clauses(rows: SpecRowIn[]): Clause[] {
       if (l1) { ref += " " + l1.sr; if (l1.heading) ctx += " " + l1.text; }
       if (level === 2) ref += (l1 ? "." : " ") + sr;
       if (level === 3) { if (l2) { ref += (l1 ? "." : " ") + l2.sr; if (l2.heading) ctx += " " + l2.text; } ref += "." + sr; }
+      // a table row or a plain line ("EN779 RATING | G4") belongs to the heading above it ("5 PRE-FILTER SECTION")
+      if (level === 0 && l2 && l2.heading) ctx += " " + l2.text;
     }
     if (hasChildren && ((level === 1 && l1!.heading) || (level === 2 && l2!.heading))) return;
     // the clause's topic: its own label, then the headings above it, nearest first, then the section title
     const own = lead(text) || words(text).slice(0, 6).join(" ");      // its label, or its first words when it has none
-    const above = [level === 3 && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", level >= 2 && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
+    const above = [(level === 3 || level === 0) && l2 ? (l2.heading ? l2.text : lead(l2.text)) : "", (level >= 2 || level === 0) && l1 ? (l1.heading ? l1.text : lead(l1.text)) : "", s1 ? (sec as { text: string } | null)?.text || "" : ""];
     // a heading above that names a specific part (filters, a VFD, heat wheels ...) holds for every item under it
     // ("Mounting Frames" under "Panel Filters", "Motor output voltage" under "Variable Frequency Controllers");
     // otherwise the clause's own label or first words; then a general heading (casing); then the section title

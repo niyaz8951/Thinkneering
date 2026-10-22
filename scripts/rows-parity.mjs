@@ -44,6 +44,11 @@ const SPEC = [
   ["section", "2.6", "HUMIDIFIERS"], ["letter", "A.", "Steam Grid Humidifier: steam distributor with dispersion tubes."],
   ["letter", "B.", "Wet Glass Cell Washer Section:"], ["number", "1.", "75-mm deep cells with glass-fiber media; insulation."],
   ["section", "2.7", "AIR-TO-AIR ENERGY RECOVERY"], ["letter", "A.", "Heat Wheels: sensible effectiveness not less than 70 percent."],
+  // Arcadis 237413 (22 Oct 2026): numbered headings with a bracketed note, table rows under a heading, parts the unit lacks
+  ["number", "5", "PRE-FILTER SECTION"], ["text", "", "EN779 RATING | G4"], ["text", "", "Final Resistance (In Pa) | 250"],
+  ["number", "9", "HOT WATER HEATING COIL"], ["letter", "p", "coil copper Tube thickness shall be minimum 0.36mm."],
+  ["number", "13", "SOUND ATTENUATOR (Wherever Applicable, as per equipment schedule)"], ["text", "", "AHUs to be equipped with sound attenuator at supply & return fan."],
+  ["number", "17", "HORSESHOE HEAT PIPE (WHEREVER APPLICABLE, AS PER EQUIPMENT SCHEDULE)"], ["letter", "b", "The external fins shall be of aluminum with a minimum thickness of 0.14mm, spaced as required."],
   ["part", "", "PART 3 - EXECUTION"], ["section", "3.1", "INSTALLATION"], ["letter", "A.", "Install units on concrete bases."]
 ].map(([type, sr, spec]) => ({ type, sr, spec }));
 
@@ -65,6 +70,9 @@ for (const [k, r] of A) {
   if (!o || o[1] !== r[1] || o[2] !== r[2]) { bad++; console.error(`match differs for ${k}: server ${r[1]} [${r[2]}], browser ${o ? o[1] + " [" + o[2] + "]" : "missing"}`); }
 }
 for (const c of SPEC) if (server.topicOf(c.spec) !== browser.topicOf(c.spec)) { bad++; console.error("topic differs: " + c.spec); }
+// the topic each clause gets from its headings (the gate), clause by clause
+const sc = server.clauses(SPEC).map((c) => c.row + ":" + c.topic + ":" + c.ctx.join(" ")), bc = browser.clauses(SPEC).map((c) => c.row + ":" + c.topic + ":" + c.ctx.join(" "));
+if (JSON.stringify(sc) !== JSON.stringify(bc)) { bad++; console.error("clause topics differ", sc.filter((x, i) => x !== bc[i]), bc.filter((x, i) => x !== sc[i])); }
 for (const r of RULES) if (JSON.stringify(server.rowTopics(r)) !== JSON.stringify(browser.rowTopics(r))) { bad++; console.error("row topics differ: " + r.key); }
 
 // the saved-table lookup: every row kept, newest table wins per unit tag

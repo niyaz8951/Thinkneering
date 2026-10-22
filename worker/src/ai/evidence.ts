@@ -18,14 +18,15 @@
 import { poKind } from "../lib/po-kind";
 import type { Env } from "../env";
 import { placeRows, cmNorm } from "../lib/cm";
+import { tableSiteWarnings } from "../lib/site";
 import { all, sha256 } from "../lib/sql";
-import { match, unitLookup, hasValue, sectionName, type MapRule, type NoteTable } from "../lib/rows";
+import { match, clauses, rowTopics, unitLookup, hasValue, sectionName, type MapRule, type NoteTable } from "../lib/rows";
 import { sectionKinds, sectionKey, type SectionInfo } from "./sections";
 import { measurements, type Measure } from "./guard";
 import { classRequirements, comparable, propertyOf, judge, fmt, familyOfUnit, classIn, compareClass, sameMetric } from "./compare";
 import { ClauseSearch, GramIndex, lexicalScore, type Similar } from "./search";
 import { aiMapFor, type AiSettings, type Section } from "./map";
-import { pickRules, directRule, splitComments, parentOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
+import { pickRules, directRule, splitComments, parentOf, headingOf, unitValues, notesMatching, type AiRule, type RuleHit } from "./rules";
 import type { AiUsage } from "./models";
 
 export interface RunInfo { id: string; product_id: string; factory_id: string; project_id: string | null; product: string; factory: string }
@@ -53,6 +54,7 @@ export interface Context {
   corrections: Correction[];                 // what people changed in the AI's answers for this factory (newest 400)
   correctionIndex?: GramIndex<Correction>;
   absent: Map<number, string[]>;            // unit sections a clause is about that this project's datasheet does not have
+  absentParts: Map<number, string[]>;       // of those, whole parts of the unit (heat pipe, heating coil ...) by the clause's heading
   sheetWarning: string;                      // why the project's datasheet was not used (another factory), or ""
   hasSheet: boolean;                         // the project has a datasheet of this product and factory
   optRows: Map<number, OptRow[]>;            // the mapping rows each clause is about (the same match as the chips)
@@ -87,8 +89,19 @@ const OPS_MIN = /(?:minimum(?:\s+of)?|min\.?|at\s+least|no\s+less\s+than|shall\s
 const AFTER_MIN = /^\s*(or more|or greater|or higher|or above|or better|minimum|min\b)/i;
 const AFTER_MAX = /^\s*(or less|or lower|or below|or smaller|maximum|max\b)/i;
 
+/* "less than 60 mm will not be permitted" is a MINIMUM of 60 mm, "more than 2.5 m/s is not acceptable" a MAXIMUM: the
+   limit word before the figure is turned round by a refusal after it (Arcadis 237413, 22 Oct 2026: "Panel Insulation
+   thickness less than 60mm will not be permitted" was read as at most 60 mm). */
+const REFUSED = /^\s*(?:[a-z.]+\s+){0,3}?(?:will|shall|is|are|must)\s+not\s+(?:be\s+)?(?:permitted|accepted|acceptable|allowed)\b/i;
+const BELOW_WORD = /(?:less|lower|smaller|thinner|fewer|below|under)(?:\s+than)?\s*$/i;
+const ABOVE_WORD = /(?:more|greater|higher|larger|thicker|above|over|exceed(?:s|ing)?)(?:\s+than)?\s*$/i;
+
 export function operatorOf(before: string, after: string): ">=" | "<=" | "=" {
   const b = before.replace(/\s+/g, " ");
+  if (REFUSED.test(after)) {
+    if (BELOW_WORD.test(b)) return ">=";
+    if (ABOVE_WORD.test(b)) return "<=";
+  }
   if (NOT_LESS.test(b)) return ">=";
   if (OPS_MAX.test(b)) return "<=";
   if (OPS_MIN.test(b)) return ">=";
@@ -107,7 +120,7 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const specRows = rows.map((x) => ({ seq: x.seq, type: x.type, sr: x.sr, spec: x.spec_text }));
   const place = placeRows(specRows);
   type MapRow = MapRule & { row_key: string };
-  const [mapRes, notesRes, valRes, extraRes, projRes, corrRes] = await env.DB.batch([
+  const [mapRes, notesRes, valRes, extraRes, projRes, corrRes, regionRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM dn_map WHERE product_id = ? ORDER BY sort, row_key").bind(run.product_id),      // * : kind (0011) when present
     env.DB.prepare("SELECT columns, file_key, factory_id FROM pr_notes WHERE project_id = ? AND product_id = ? ORDER BY created_at").bind(run.project_id || "", run.product_id),
     env.DB.prepare("SELECT row_key, value, times, grp FROM po_values WHERE factory_id = ? AND hidden = 0 AND approved = 1 ORDER BY times DESC").bind(run.factory_id),
@@ -121,7 +134,8 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
     env.DB.prepare(`SELECT l.spec_text AS spec, f.section, f.suggested, f.suggested_remarks, f.final, f.final_remarks, f.outcome
                       FROM ai_feedback f JOIN cm_lines l ON l.id = f.line_id
                      WHERE f.factory_id = ? AND f.outcome IN ('edited', 'replaced') AND f.final <> ''
-                     ORDER BY f.created_at DESC LIMIT 400`).bind(run.factory_id)
+                     ORDER BY f.created_at DESC LIMIT 400`).bind(run.factory_id),
+    env.DB.prepare("SELECT region FROM pr_projects WHERE id = ?").bind(run.project_id || "")
   ]);
   const rules = (mapRes.results as unknown as MapRow[]).map((r) => ({ ...r, key: r.row_key }));
   // the project's saved datasheet tables of this product (R2)
@@ -140,13 +154,27 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
       tables.push({ columns: (JSON.parse(n.columns || "[]") as unknown[]).map((c) => String(c ?? "")), rows });
     } catch (e) { console.warn("datasheet table could not be read", e); }
   }
-  const sheetWarning = otherFactory.size ? `The project's datasheet is for another factory (${[...otherFactory].map(factoryName).join(", ")}), not ${run.factory}: it was not used. Read the ${run.factory} datasheet, or convert the specification for the datasheet's factory.` : "";
+  const region = (regionRes.results[0] as { region?: string } | undefined)?.region || "";
+  // the selection location and frequency against the project's region (22 Oct 2026): a warning, the table is still used
+  const site = [...new Set(tables.flatMap((t) => tableSiteWarnings(region, t.rows as { section?: unknown; component?: unknown; cells?: unknown[] }[])))];
+  const sheetWarning = [otherFactory.size ? `The project's datasheet is for another factory (${[...otherFactory].map(factoryName).join(", ")}), not ${run.factory}: it was not used. Read the ${run.factory} datasheet, or convert the specification for the datasheet's factory.` : "", ...site].filter(Boolean).join(" ");
   const look = unitLookup(tables);
   // the unit sections the project's datasheet has (any value in them): a clause about another one is about a
   // part the selected unit may not include (Thinkneering v3, "what this unit is made of")
   const present = new Set<string>();
   for (const t of tables) { let sec = ""; for (const r of t.rows) { if (r.section) sec = r.section; if (hasValue((r.cells || []).map((c) => String(c ?? "")))) present.add(sectionName(sec)); } }
-  const absent = new Map<number, string[]>();
+  const absent = new Map<number, string[]>(), absentParts = new Map<number, string[]>();
+  // 4. a clause about a part the datasheet has no section for (a heat pipe, a heating coil, an attenuator ...) gets no
+  // datasheet rows (the topic gate in lib/rows.ts) and is marked "not in this unit" (22 Oct 2026, Arcadis 237413: heat
+  // pipe fins had been compared with the DX coil fins). Only physical parts that are datasheet sections of their own.
+  if (tables.length && present.size) {
+    const have = new Set<string>();
+    for (const sec of present) for (const t of rowTopics({ section: sec, sub: "", component: "" })) have.add(t);
+    for (const c of clauses(specRows)) {
+      const part = PART_NAMES[c.topic];
+      if (part && !have.has(c.topic)) { absent.set(specRows[c.row].seq, [part]); absentParts.set(specRows[c.row].seq, [part]); }
+    }
+  }
   // Product Options of the factory, per mapping row and per section
   const valuesByRow = new Map<string, string[]>(), poValues = new Map<string, PoValue[]>();
   // a value seen in two groups (the same size on the G4 and the F7 filter) counts once, with both counts
@@ -212,15 +240,22 @@ export async function loadContext(env: Env, run: RunInfo, rows: RunRowFull[], us
   const pl = new Map<number, { part: number; section: string }>();
   for (const [k, v] of place) pl.set(k, { part: v.part, section: v.section });
   return { run, rows, place: pl, columns: look.columns, sheet, sheetWarning, options, aiNotes, rules: ai.rules, settings: ai.settings, instructions: ai.instructions,
-           search: new ClauseSearch(env, usage), project, names, kinds, absent, hasSheet: tables.length > 0, optRows, poValues,
+           search: new ClauseSearch(env, usage), project, names, kinds, absent, absentParts, hasSheet: tables.length > 0, optRows, poValues,
            makes: [...new Set(extras.filter((x) => x.kind === "make").map((x) => x.body.trim()).filter((b) => b.length >= 3))],
            corrections: (corrRes.results as unknown as Correction[]).map((c) => ({ ...c, score: 0 })) };
 }
 
+/* The parts of a unit that are datasheet sections of their own, by topic (lib/rows.ts TOPICS): what a clause about
+   one of them is about when the project's datasheet has no such section. */
+const PART_NAMES: Record<string, string> = {
+  heatpipe: "heat pipe", heater: "heating coil or heater", humid: "humidifier", recovery: "heat recovery",
+  coil: "coil", damper: "damper", filter: "filter", attenuator: "sound attenuator"
+};
+
 /* ---------- the match, worked out once per record ---------- */
 
 interface Matched { key: string; section: string; component: string; found: boolean; seqs: number[]; entries: string[][]; rule: MapRule }
-const MATCH_VERSION = "2026-10-19 topics";
+const MATCH_VERSION = "2026-10-22 tables";   // table rows under their heading (22 Oct 2026)
 const matchMemo = new Map<string, { stamp: string; byKey: Record<string, number[]> }>();
 
 async function matchFor(env: Env, runId: string, specRows: { seq: number; type: string; sr: string; spec: string }[], rules: MapRule[], cache = true): Promise<Matched[]> {
@@ -263,7 +298,23 @@ function tokensWithPos(text: string): { w: string; at: number }[] {
 /* The requirement a number in the clause states: its operator from the words just before or after it. A range
    ("6 to 60 Hz", "between 60 and 80 percent", "5 Hz to 25 Hz") is one requirement with both ends. */
 export type Op = ">=" | "<=" | "=" | "range";
-export interface Requirement { m: Measure; op: Op; at: number; lo?: number }
+export interface Requirement { m: Measure; op: Op; at: number; lo?: number; condition?: boolean }
+
+/* A figure that states the condition of a requirement, not the requirement (22 Oct 2026, Arcadis 237413):
+   "at -400 Pa", "exposed to 2500 Pa", "tested at 24 bar", "if the face velocity exceeds 2.50 m/s", and a pressure
+   written beside a class ("Casing Air Leakage -400 Pa | Class L1(M)"). Kept in the list (the vocabulary reads it as a
+   level), never compared with a datasheet row. */
+const CONDITION_BEFORE = /\b(?:at|@|exposed\s+to|subjected\s+to|tested\s+(?:at|to)|test\s+pressure\s+of)\s*[-+±]?\s*$/i;
+function isCondition(clause: string, m: Measure, at: number, op: Op, classAsked: boolean): boolean {
+  const before = clause.slice(Math.max(0, at - 40), at);
+  if (CONDITION_BEFORE.test(before)) return true;
+  // inside an "if / when / unless" part of the sentence that does not itself say "shall"
+  const sentence = before.split(/[.;:]\s/).pop() || "";
+  const cond = /\b(if|when|whenever|unless)\b/i.exec(sentence);
+  if (cond && !/\b(shall|must)\b/i.test(sentence.slice(cond.index))) return true;
+  // a pressure beside a class asked: the test pressure of that class
+  return classAsked && op === "=" && familyOfUnit(m.unit) === "pressure";
+}
 export function requirements(clause: string): Requirement[] {
   const out: Requirement[] = [];
   const ms: { m: Measure; at: number }[] = [];
@@ -287,7 +338,47 @@ export function requirements(clause: string): Requirement[] {
     }
     out.push({ m, op: operatorOf(before, after), at });
   }
+  const classAsked = classRequirements(clause).length > 0;
+  for (const r of out) if (isCondition(clause, r.m, r.at, r.op, classAsked)) r.condition = true;
   return out;
+}
+
+/* ---------- 1. which dimension a length figure is ----------
+   A length in the clause is compared only with a row of the same dimension (22 Oct 2026): "C channel thickness 2.8 mm"
+   is not the 100 mm base height, "200 mm diameter windows" not the 42 mm panel, "fin spacing 2.0 mm" not the 0.1 mm
+   fin. The dimension of the figure is the nearest dimension word (up to 6 words before it, 2 after); the dimension of
+   a row is in its name, or follows from what the row is (Panel = thickness, AHU Base = height). */
+const DIMS: [string, RegExp][] = [
+  ["diameter", /^(diameters?|dia|od|bore)$/],
+  ["spacing", /^(spacing|spaced|space|pitch|fpi)$/],
+  ["height", /^(heights?|high|tall)$/],
+  ["width", /^(widths?|wide)$/],
+  ["length", /^(lengths?|long)$/],
+  ["depth", /^(depths?|deep)$/],
+  ["thickness", /^(thickness|thick|gauge)$/]
+];
+function dimOfWord(w: string): string { for (const [d, re] of DIMS) if (re.test(w)) return d; return ""; }
+export function clauseDimension(clause: string, at: number, raw: string): string {
+  const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+  const before = words(clause.slice(Math.max(0, at - 80), at)).slice(-6).reverse();
+  const after = words(clause.slice(at + raw.length, at + raw.length + 30)).slice(0, 2);
+  let best = "", dist = Infinity;
+  before.forEach((w, i) => { const d = dimOfWord(w); if (d && i < dist) { best = d; dist = i; } });
+  after.forEach((w, i) => { const d = dimOfWord(w); if (d && i < dist) { best = d; dist = i; } });     // before wins a tie
+  return best;
+}
+export function rowDimension(label: string): string {
+  const ws = label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ");
+  for (const w of ws.slice().reverse()) { const d = dimOfWord(w); if (d) return d; }        // the row's own word
+  const l = " " + ws.join(" ") + " ";
+  if (/ dimensions? | size /.test(l)) return "size";
+  if (/ base /.test(l)) return "height";                                                     // AHU Base: 100mm Galvanized
+  if (/ (panel|skin|insulation|sheet|fin material|tube) /.test(l)) return "thickness";       // Panel 62 mm, Al Pr 0.1 mm
+  return "";
+}
+function sameDimension(clauseDim: string, rowDim: string): boolean {
+  if (clauseDim === rowDim) return true;
+  return rowDim === "size" && ["height", "width", "length", "depth"].includes(clauseDim);
 }
 
 /* The datasheet rows tell this clause's number only when a word of the row's keywords stands near the number:
@@ -328,7 +419,7 @@ export function subjectOf(parent: string): string {
    - a figure no row answers (a test condition, a value the datasheet does not print) leaves the clause open
    A clean Comply carries no remark (the remark lock in guard.ts); the values stay in the reason. */
 export function compareDatasheet(clause: string, hits: SheetHit[], columns: string[], subject = ""): Comparison | null {
-  const reqs = requirements(clause), classes = classRequirements(clause);
+  const reqs = requirements(clause).filter((r) => !r.condition), classes = classRequirements(clause);
   if ((!reqs.length && !classes.length) || !hits.length) return null;
   const used: SheetHit[] = []; const vals: Measure[] = [];
   type V = { ok: boolean; equal: boolean; op: string; worse: boolean; text: string; group: string; hit: SheetHit };
@@ -349,6 +440,10 @@ export function compareDatasheet(clause: string, hits: SheetHit[], columns: stri
     const mine: V[] = [];
     for (const h of hits) {
       if (!near(clause, r.at, h.entries, subject)) continue;
+      if (familyOfUnit(r.m.unit) === "length") {
+        const want = clauseDimension(clause, r.at, r.m.raw);
+        if (want && !sameDimension(want, rowDimension(h.label))) continue;
+      }
       const around = clause.slice(Math.max(0, r.at - 60), r.at + r.m.raw.length + 10);
       if (r.m.unit === "%" && !sameMetric(around, h.label + " " + h.cells.join(" "))) continue;
       const perUnit = h.cells.map((c, i) => ({ unit: columns[i] || "unit " + (i + 1), got: comparable(c, r.m) })).filter((x) => x.got);
@@ -417,7 +512,7 @@ export interface OptionPick {
 }
 const OPS: Record<string, string> = { ">=": "≥ ", "<=": "≤ ", "=": "", range: "" };
 export function optionPicks(clause: string, rows: OptRow[], values: Map<string, PoValue[]>, subject = ""): OptionPick[] {
-  const reqs = requirements(clause), classes = classRequirements(clause);
+  const reqs = requirements(clause).filter((r) => !r.condition), classes = classRequirements(clause);
   return rows.map((row) => {
     const cands = values.get(row.key) || [];
     const required = [
@@ -530,7 +625,7 @@ export interface ClauseEvidence {
   cmpFrom: "datasheet" | "options" | ""; picks: OptionPick[];
   options: OptionInfo; notes: string[]; record: PastAnswer | null; inSection: string[]; project: PastAnswer[];
   similar: Similar[]; rules: RuleHit[]; facts: RuleHit[]; direct: RuleHit | null; clauseRules: string[];
-  sectionKind: SectionInfo | null; absent: string[]; corrections: Correction[];
+  sectionKind: SectionInfo | null; absent: string[]; absentParts: string[]; corrections: Correction[];
 }
 export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEvidence> {
   const pl = ctx.place.get(x.seq) || { part: 0, section: "" };
@@ -544,7 +639,7 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
   const optCmp = sheetCmp ? null : compareOptions(x.spec_text, picks, ctx.run.factory);
   const cmp = sheetCmp || optCmp;
   const conflict = x.l_status === "answered" && sheetCmp ? libraryConflict(x.l_remarks || "", sheetCmp) : "";
-  const picked = pickRules(ctx.rules, x.spec_text + " " + parent, pl.section, pl.part);
+  const picked = pickRules(ctx.rules, x.spec_text + " " + parent, [pl.section, headingOf(parent)].filter(Boolean).join(" · "), pl.part);
   const clauseRules = splitComments(x.l_comments).rules;
   return {
     part: pl.part, section: pl.section, parent, sheet, cmp, conflict, cmpFrom: sheetCmp ? "datasheet" : optCmp ? "options" : "", picks,
@@ -552,6 +647,6 @@ export async function evidenceFor(ctx: Context, x: RunRowFull): Promise<ClauseEv
     record: recordAnswer(ctx, x), inSection: sectionAnswers(ctx, x), project: projectAnswers(ctx, x),
     similar: await ctx.search.similar(ctx.run.factory_id, x.spec_text, 5, x.line_id),
     rules: picked.rules, facts: picked.facts, direct: clauseRules.length ? null : directRule(picked.rules), clauseRules,
-    sectionKind: kind, absent: ctx.absent.get(x.seq) || [], corrections: correctionsFor(ctx, x)
+    sectionKind: kind, absent: ctx.absent.get(x.seq) || [], absentParts: ctx.absentParts.get(x.seq) || [], corrections: correctionsFor(ctx, x)
   };
 }
