@@ -39,7 +39,9 @@ const want = {
   "Terminal block (X1)": "terminal", "Motor driver board (A2)": "drive", "EC fan motor (M1)": "motor", "Condensate float switch (optional)": "sensor",
   "Room controller / thermostat": "controller", "Chiller control panel": "panel", "Compressors": "compressor", "Condenser fans": "fan",
   "Chilled water flow switch": "sensor", "Chilled water pump starter": "breaker", "Remote alarm indication": "alarm",
-  "Chiller plant": "chiller", "Pumps": "pump", "Pump P-1": "pump", "Pump P-3 (standby)": "pump", "CHWS header, plant room": "header",
+  "Chiller plant": "chiller", "Chilled water pumps": "pump", "Chilled water pump P-1": "pump", "Chilled water pump P-3 (standby)": "pump", "CHWS header, plant room": "header",
+  "Cooling towers": "tower", "Cooling tower CT-1": "tower", "Condenser water pump CWP-1": "pump", "CWS header, plant room": "header", "CWR header, plant room": "header",
+  "Pump suction header": "header", "Expansion tank ET-1": "tank", "Air separator AS-1": "separator", "Condenser water": "",
   "CHWS riser to AHU plant rooms": "pipe", "CHWS branch, Level 1": "pipe", "FCU group L1-A1 (FCU-L1-01 to 08)": "fcu",
   "CHWR riser from AHU plant rooms": "pipe", "CHWR header, plant room": "header",
   // column heads and groups that are not a component: no sign

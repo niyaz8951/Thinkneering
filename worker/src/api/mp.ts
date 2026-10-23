@@ -131,11 +131,13 @@ function mpSpecial(v: unknown): string[] {
 export const MP_RELS = ["requires", "equivalent", "excludes", "replaced", "part", "see",
   // wires of a wiring map (23 Oct 2026): power, control supply, analog signal, digital / volt-free contact, bus, earth
   "w-power", "w-control", "w-analog", "w-digital", "w-bus", "w-earth",
-  // pipes of a piping map (23 Oct 2026): supply (away from the source) and return (back to it); the map works out the direction
-  "p-supply", "p-return"];
+  // pipes of a piping map (23 Oct 2026): chilled water supply / return and condenser water supply / return; the map works
+  // out the direction
+  "p-supply", "p-return", "p-cw-supply", "p-cw-return"];
 /* What a wire carries besides its kind: the terminal at each end, the cable, the signal, who wires it.
-   A pipe keeps the same fields: the connection at each end, the pipe size (cable), a label (signal), who installs it. */
-const WIRE_FIELDS = ["from_t", "to_t", "cable", "signal"];
+   A pipe keeps the same fields: the connection at each end, the pipe size (cable), a label (signal), who installs it,
+   and its length (len). */
+const WIRE_FIELDS = ["from_t", "to_t", "cable", "signal", "len"];
 
 /* Links as kept. A link leads to another branch (of a map the writer can open), to a page of the
    Standards tool, to a tool of the site, or to a web address. A link to a branch that is gone is dropped. */

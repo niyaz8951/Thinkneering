@@ -24,7 +24,7 @@ export const WIRING_TEMPLATES = ["electricity"];
 export const WIRING_NAMES: Record<string, string> = { electricity: "Electricity" };
 
 export interface WNode { key: string; title: string; notes?: string; special?: string[]; kids?: WNode[] }
-export interface Wire { from: string; to: string; rel: string; from_t?: string; to_t?: string; cable?: string; signal?: string; by?: "daikin" | "others" }
+export interface Wire { from: string; to: string; rel: string; from_t?: string; to_t?: string; cable?: string; signal?: string; len?: string; by?: "daikin" | "others" }
 export interface WiringSeed { guide: WNode; nodes: WNode[]; wires: Wire[] }
 
 const COLS = "Layout: columns";
@@ -227,7 +227,7 @@ export function productStatements(env: Env, mapId: string, equipment: { id: stri
     const to = ids.get(w.to), from = ids.get(w.from);
     if (!to || !from) throw new Error(`product template ${template}: unknown branch ${!to ? w.to : w.from}`);
     const l: Record<string, string> = { kind: "node", node: to, map: mapId, label: titles.get(w.to)!, rel: w.rel };
-    for (const k of ["from_t", "to_t", "cable", "signal", "by"] as const) if (w[k]) l[k] = w[k] as string;
+    for (const k of ["from_t", "to_t", "cable", "signal", "len", "by"] as const) if (w[k]) l[k] = w[k] as string;
     const list = links.get(w.from) || []; list.push(l); links.set(w.from, list);
   }
   const stmts: D1PreparedStatement[] = [];
@@ -256,7 +256,7 @@ export function seedStatements(env: Env, mapId: string, rootId: string, seed: Wi
     const to = ids.get(w.to), from = ids.get(w.from);
     if (!to || !from) throw new Error(`${what}: unknown branch ${!to ? w.to : w.from}`);
     const l: Record<string, string> = { kind: "node", node: to, map: mapId, label: titles.get(w.to)!, rel: w.rel };
-    for (const k of ["from_t", "to_t", "cable", "signal", "by"] as const) if (w[k]) l[k] = w[k] as string;
+    for (const k of ["from_t", "to_t", "cable", "signal", "len", "by"] as const) if (w[k]) l[k] = w[k] as string;
     const list = links.get(w.from) || []; list.push(l); links.set(w.from, list);
   }
   for (const [k, list] of links) if (list.length > 12) throw new Error(`${what}: ${k} has ${list.length} links (12 at most)`);

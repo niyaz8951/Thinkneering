@@ -1,27 +1,54 @@
 /* ============================================================
-   Thinkneering Tools - Maps: water in a piping map (23 Oct 2026).
+   Thinkneering Tools - Maps: water in a piping map (23 Oct 2026; circuits and pressures the same afternoon).
    Pure calculation, no page: maps.js draws what this returns, scripts/mp-water-check.mjs checks it against the worked
    example (the Chilled water template) as part of `npm test`.
 
-   What people type (special notes of the branches):
-     Source: chiller       water starts here          Leaving: 6.7 °C     temperature leaving the branch (a source: its set point)
-     Flow: 12 l/s          a unit's water flow        Load: 290 kW        instead of Leaving: the unit's load (kW, TR, Btu/h)
-     Design flow: 30 l/s   a source's design flow     Valve: closed / Pump: standby / Status: off   passes no water
-   Pipes are links of kind p-supply (away from the sources) and p-return (back to them); either end may hold the link.
+   Circuits. Pipes are links of one of two circuits, each a supply and a return kind:
+     chilled water    p-supply (CHWS) / p-return (CHWR)        sources: chillers ("Source: chiller")
+     condenser water  p-cw-supply (CWS) / p-cw-return (CWR)    sources: cooling towers ("Source: cooling tower")
+   A branch on both pipes of a circuit that is not its source is a unit of it (AHU, FCU; a chiller's condenser is a
+   unit of the condenser water). A chiller is the source of the chilled water and a unit of the condenser water: the
+   heat it rejects is its cooling load × (1 + 1 / COP).
 
-   What it works out:
-   - which sources and units have water: a source runs when it is not shut and reaches a unit with a flow both ways
-     (through branches that are not shut); a unit has water when a running source reaches it both ways;
-   - the flow in every pipe: each unit's flow goes towards the sources, by the shortest way; where it can go to several
-     sources (a header fed by three chillers) it is shared in proportion to the sources' design flows (equally when a
-     running source has none);
-   - temperatures: the supply mixes the sources' leaving temperatures by flow; a unit leaves at its Leaving (or at
-     entering + load / (4.19 × flow)); the return mixes what comes back by flow;
-   - loads: 4.19 kW per l/s per K (water at about 10 °C: ρ ≈ 1000 kg/m³, cp ≈ 4.19 kJ/kg·K) × flow × (leaving − entering).
+   What people type (special notes). A note names its circuit when the branch is on two ("Condenser flow" on a chiller);
+   a branch on one circuit may use the plain name.
+     Source: chiller | cooling tower          water of that circuit starts here
+     Leaving: 6.7 °C                          temperature leaving the branch (a source: its set point; a unit: off its coil)
+     Flow: 12 l/s, Condenser flow: 38 l/s     a unit's design flow (l/s, m³/h, US gpm)
+     Load: 290 kW                             instead of Leaving: the unit's load (kW, TR, Btu/h)
+     Design flow: 30 l/s                      a source's design flow (shares the flow, checks the source)
+     COP: 5.5                                 a chiller's COP (heat rejected); 5.0 when not given, and said so
+     Pressure drop: 45 kPa                    a unit: coil + control valve at its design flow; a chiller: evaporator;
+                                              a pump: its strainer, check and isolating valves; a cooling tower: nozzles
+     Condenser pressure drop: 55 kPa          a chiller's condenser at its condenser flow
+     Static lift: 4 m                         an open cooling tower: basin water level to the spray nozzles (constant)
+     Pump head: 18 m, Pump flow: 30 l/s       a pump's design point (m, kPa, bar); Speed: 90 % (affinity laws)
+     Fill pressure: 2 bar                     an expansion tank: the pressure where it joins the circuit
+     Height: 12 m                             a branch's height above the plant room (absolute pressures)
+     Valve: closed / Pump: standby / Status: off   passes no water
+   A pipe's size (DN 150, 6 in) and length (40 m) give its friction (Darcy-Weisbach, Swamee-Jain, steel 0.045 mm,
+   water at 10 °C) plus 30 % for fittings.
+
+   What it works out, per circuit:
+   - which sources run and which units have water (reached both ways through branches that are not shut);
+   - the flow in every pipe: each unit's flow back to the sources by the shortest way, shared in proportion to the
+     sources' design flows (equally when a running source has none);
+   - temperatures: supply mixed by flow; a unit leaves at its Leaving (or entering + load / (4.19 × flow)); return mixed;
+   - loads: 4.19 kW per l/s per K × flow × ΔT (water at about 10 °C);
+   - pressures (when every running pump has its head and flow): each pump on its curve H = n²·Hd·(1.2 − 0.2·(Q/(n·Qd))²)
+     (shut-off 120 % of the design head), pressures forward from each pump's discharge to the units' inlets and back
+     from its suction to the units' outlets, so a unit has (inlet − outlet) available; its 2-way control valve takes
+     what it does not need; a unit with less than it needs gets Qd·√(available / needed) (worked out again until it
+     settles). Where a header is fed by several branches the lower pressure is kept (on the safe side).
    ============================================================ */
 (function (root) {
   "use strict";
-  var CP = 4.19, TR = 3.517, SUP = "p-supply", RET = "p-return";
+  var CP = 4.19, TR = 3.517, G = 9.807, NU = 1.307e-6, ROUGH = 0.045e-3, FITTINGS = 0.3, LOW = 30;
+  var CIRCUITS = [
+    { id: "chw", name: "Chilled water", short: "CHW", sup: "p-supply", ret: "p-return", flow: "flow", dp: "pressure drop", leaving: "leaving" },
+    { id: "cw", name: "Condenser water", short: "CW", sup: "p-cw-supply", ret: "p-cw-return", flow: "condenser flow", dp: "condenser pressure drop", leaving: "condenser leaving" }
+  ];
+  var COND = /tower|cooler|condenser|heat rejection|\bcw\b/i;
 
   function note(n, name) {
     var re = new RegExp("^\\s*" + name + "\\s*:\\s*(.+)$", "i"), sp = n.special || [];
@@ -33,23 +60,20 @@
     var m = /-?\d+(?:[.,]\d+)?/.exec(String(s || "").replace(/(\d),(\d{3})(?!\d)/g, "$1$2"));
     return m ? parseFloat(m[0].replace(",", ".")) : NaN;
   }
-  // a flow in l/s; m³/h and US gpm are converted
-  function flowOf(s) {
+  function flowOf(s) {                          // l/s; m³/h and US gpm converted
     if (!s) return null;
     var v = num(s); if (!(v >= 0)) return null;
     if (/m\s*(3|³)\s*\/\s*h|m3h|cmh/i.test(s)) return { v: v / 3.6, unit: "m3h" };
     if (/gpm|gal/i.test(s)) return { v: v * 0.0630902, unit: "gpm" };
     return { v: v, unit: "lps" };
   }
-  // a temperature in °C; °F is converted
-  function tempOf(s) {
+  function tempOf(s) {                          // °C; °F converted
     if (!s) return null;
     var v = num(s); if (isNaN(v)) return null;
     if (/(?:°|º|deg\s*|\d\s*)F\b/i.test(s)) return { v: (v - 32) / 1.8, unit: "F" };
     return { v: v, unit: "C" };
   }
-  // a load in kW; TR, Btu/h and MW are converted
-  function loadOf(s) {
+  function loadOf(s) {                          // kW; TR, Btu/h, MW converted
     if (!s) return null;
     var v = num(s); if (!(v >= 0)) return null;
     if (/\bTR\b|ton/i.test(s)) return v * TR;
@@ -57,144 +81,349 @@
     if (/\bMW\b/.test(s)) return v * 1000;
     return v;
   }
+  function pressOf(s) {                         // kPa; bar, m (water), psi, ft, Pa converted
+    if (!s) return null;
+    var v = num(s); if (!(v >= 0)) return null;
+    if (/kpa/i.test(s)) return v;
+    if (/bar/i.test(s)) return v * 100;
+    if (/psi/i.test(s)) return v * 6.89476;
+    if (/\bft\b|feet|foot/i.test(s)) return v * 2.98907;
+    if (/\bm\b|mwc|mwg|m\s*w|metre|meter/i.test(s)) return v * G;
+    if (/\bpa\b/i.test(s)) return v / 1000;
+    return v;
+  }
+  function lengthOf(s) {                        // m; ft converted
+    if (!s) return null;
+    var v = num(s); if (!(v >= 0)) return null;
+    return /\bft\b|feet|foot|'/i.test(s) ? v * 0.3048 : v;
+  }
+  // inside diameter of steel pipe, schedule 40 (STD above DN 250), from "DN 150", "150 mm", "6 in", '6"'
+  var ID = { 15: 15.8, 20: 20.9, 25: 26.6, 32: 35.1, 40: 40.9, 50: 52.5, 65: 62.7, 80: 77.9, 100: 102.3, 125: 128.2, 150: 154.1, 200: 202.7,
+    250: 254.5, 300: 304.8, 350: 336.6, 400: 387.4, 450: 438.2, 500: 489.0, 600: 590.6 };
+  var INCH = { "0.5": 15, "0.75": 20, "1": 25, "1.25": 32, "1.5": 40, "2": 50, "2.5": 65, "3": 80, "4": 100, "5": 125, "6": 150, "8": 200, "10": 250, "12": 300, "14": 350, "16": 400, "18": 450, "20": 500, "24": 600 };
+  function dnOf(s) {
+    if (!s) return null;
+    var t = String(s), v = num(t); if (!(v > 0)) return null;
+    if (/in\b|inch|"|”/i.test(t) && !/dn/i.test(t)) { var dn = INCH[String(v)]; return dn ? { dn: dn, d: ID[dn] / 1000 } : null; }
+    if (ID[v]) return { dn: v, d: ID[v] / 1000 };
+    return null;
+  }
+  // pressure drop of a pipe run (kPa) with its velocity and friction gradient
+  function pipeDp(lps, size, len) {
+    var p = dnOf(size), L = lengthOf(len);
+    if (!p || L == null) return { dp: 0, missing: true, dn: p ? p.dn : null };
+    var q = lps / 1000, a = Math.PI * p.d * p.d / 4, v = q / a;
+    if (!(v > 0)) return { dp: 0, v: 0, pam: 0, dn: p.dn, len: L };
+    var re = v * p.d / NU, f = re < 2300 ? 64 / re : 0.25 / Math.pow(Math.log10(ROUGH / (3.7 * p.d) + 5.74 / Math.pow(re, 0.9)), 2);
+    var pam = f / p.d * 1000 * v * v / 2;                                 // Pa per m of straight pipe
+    return { dp: pam * L * (1 + FITTINGS) / 1000, v: v, pam: pam, re: re, f: f, dn: p.dn, len: L };
+  }
   function shutBy(n) {
     return /^clos/i.test(note(n, "valve")) || /^(standby|off|stop)/i.test(note(n, "pump")) || /^(standby|off|stop)/i.test(note(n, "status"));
   }
 
-  /* nodes: { id: { id, title, special: [...], links: [...] } }; shutNow: { id: true (shut) | false (open, running) } overrides
-     the map for a simulation. Returns null when the map has no pipes. */
+  /* nodes: { id: { id, title, special: [...], links: [...] } }; shutNow: { id: true (shut) | false (open, running) }
+     overrides the map for a simulation. Returns null when the map has no pipes. */
   function compute(nodes, shutNow) {
     shutNow = shutNow || {};
-    var sup = {}, ret = {}, any = false;
+    var A = {}, pipes = {}, on = {}, any = false, units = { lps: 0, m3h: 0, gpm: 0, C: 0, F: 0 };
+    CIRCUITS.forEach(function (c) { A[c.id] = { sup: {}, ret: {} }; pipes[c.id] = {}; });
     function link(adj, a, b) { (adj[a] = adj[a] || []); (adj[b] = adj[b] || []); if (adj[a].indexOf(b) < 0) adj[a].push(b); if (adj[b].indexOf(a) < 0) adj[b].push(a); }
     Object.keys(nodes).forEach(function (id) {
       (nodes[id].links || []).forEach(function (l) {
         if (l.kind !== "node" || !nodes[l.node] || l.node === id) return;
-        if (l.rel === SUP) { link(sup, id, l.node); any = true; } else if (l.rel === RET) { link(ret, id, l.node); any = true; }
+        CIRCUITS.forEach(function (c) {
+          var side = l.rel === c.sup ? "sup" : l.rel === c.ret ? "ret" : null;
+          if (!side) return;
+          any = true; link(A[c.id][side], id, l.node);
+          pipes[c.id][[id, l.node].sort().join("|")] = l;
+          [id, l.node].forEach(function (x) { on[x] = on[x] || []; if (on[x].indexOf(c.id) < 0) on[x].push(c.id); });
+        });
       });
     });
     if (!any) return null;
-    var part = {}, isSrc = {}, shut = {}, F = {}, LV = {}, LD = {}, OUT = {}, DF = {}, units = { lps: 0, m3h: 0, gpm: 0, C: 0, F: 0 };
+    var shut = {};
+    Object.keys(on).forEach(function (id) {
+      var n = nodes[id];
+      shut[id] = shutNow[id] != null ? !!shutNow[id] : shutBy(n);
+      ["flow", "design flow", "condenser flow", "pump flow"].forEach(function (k) { var f = flowOf(note(n, k)); if (f) units[f.unit]++; });
+      ["leaving", "condenser leaving"].forEach(function (k) { var t = tempOf(note(n, k)); if (t) units[t.unit]++; });
+    });
+    var ctx = { nodes: nodes, on: on, shut: shut, pipes: pipes, reject: {}, copAssumed: [] };
+    var out = { circuits: {}, part: {}, on: on, shut: shut, dir: {}, tEdge: {}, edge: {}, unit: null };
+    CIRCUITS.forEach(function (c) {
+      var r = circuit(c, A[c.id], ctx);
+      if (!r) return;
+      out.circuits[c.id] = r;
+      Object.keys(r.part).forEach(function (id) { out.part[id] = 1; });
+      Object.keys(r.dir).forEach(function (k) { out.dir[k] = r.dir[k]; if (r.tEdge[k] != null) out.tEdge[k] = r.tEdge[k]; out.edge[k] = c.id; });
+      // what the running chillers reject goes on to the condenser water
+      if (c.id === "chw") Object.keys(r.source).forEach(function (s) {
+        var src = r.source[s]; if (!(src.kw > 0)) return;
+        var cop = num(note(nodes[s], "cop")); if (!(cop > 0)) { cop = 5; ctx.copAssumed.push(s); }
+        ctx.reject[s] = src.kw * (1 + 1 / cop);
+      });
+    });
+    out.reject = ctx.reject; out.copAssumed = ctx.copAssumed;
+    var fu = "lps"; ["m3h", "gpm"].forEach(function (u) { if (units[u] > units[fu]) fu = u; });     // the unit most inputs use
+    out.unit = { flow: fu, temp: units.F > units.C ? "F" : "C" };
+    // a chiller that runs on chilled water but has no condenser water
+    out.noCondenser = [];
+    if (out.circuits.chw && out.circuits.cw) Object.keys(out.circuits.chw.active).forEach(function (s) {
+      if ((on[s] || []).indexOf("cw") >= 0 && !(out.circuits.cw.flow[s] > 0)) out.noCondenser.push(s);
+    });
+    return out;
+  }
+
+  function circuit(C, A, ctx) {
+    var nodes = ctx.nodes, shut = ctx.shut, sup = A.sup, ret = A.ret, part = {};
     Object.keys(sup).concat(Object.keys(ret)).forEach(function (id) { part[id] = 1; });
     var ids = Object.keys(part);
+    if (!ids.length) return null;
+    // a note of this circuit: its own name, or the plain one when the branch is on this circuit only
+    function nv(id, own, plain) {
+      var n = nodes[id], v = note(n, own);
+      if (!v && plain && plain !== own && ctx.on[id].length === 1) v = note(n, plain);
+      return v;
+    }
+    var LIFT = {}, isSrc = {}, isPump = {}, F = {}, LV = {}, LD = {}, OUT = {}, DF = {}, DP = {}, QD = {}, PH = {}, PQ = {}, SPD = {}, FILL = {}, Z = {};
     ids.forEach(function (id) {
-      var n = nodes[id];
-      if (note(n, "source")) isSrc[id] = 1;
-      shut[id] = shutNow[id] != null ? !!shutNow[id] : shutBy(n);
-      var f = flowOf(note(n, "flow")), d = flowOf(note(n, "design flow")), t = tempOf(note(n, "leaving"));
-      if (f) { F[id] = f.v; units[f.unit]++; }
-      if (d) { DF[id] = d.v; units[d.unit]++; }
-      if (t) { units[t.unit]++; if (isSrc[id]) OUT[id] = t.v; else LV[id] = t.v; }
-      var ld = loadOf(note(n, "load")); if (ld != null) LD[id] = ld;
+      var n = nodes[id], s = note(n, "source");
+      if (s && (ctx.on[id].length === 1 || (C.id === "cw") === COND.test(s))) isSrc[id] = 1;
+      if (note(n, "pump") || note(n, "pump head")) isPump[id] = 1;
+      var f = flowOf(nv(id, C.flow, "flow")), d = flowOf(note(n, "design flow")), t = tempOf(nv(id, C.leaving, "leaving"));
+      if (f && !isSrc[id]) F[id] = f.v;
+      if (d && (isSrc[id] || ctx.on[id].length === 1)) DF[id] = d.v;
+      if (t) { if (isSrc[id]) OUT[id] = t.v; else LV[id] = t.v; }
+      var ld = C.id === "cw" ? (ctx.reject[id] != null ? ctx.reject[id] : loadOf(nv(id, "heat rejected", "load"))) : loadOf(note(n, "load"));
+      if (ld != null) LD[id] = ld;
+      var dp = pressOf(nv(id, C.dp, "pressure drop")); if (dp != null) DP[id] = dp;
+      if (isPump[id]) {
+        var ph = pressOf(note(n, "pump head")), pq = flowOf(note(n, "pump flow")) || flowOf(note(n, "design flow")), sp = num(note(n, "speed"));
+        if (ph != null) PH[id] = ph; if (pq) PQ[id] = pq.v; SPD[id] = sp > 0 ? sp / 100 : 1;
+      }
+      var fp = pressOf(note(n, "fill pressure")); if (fp != null) FILL[id] = fp;
+      var hz = note(n, "height"), z = num(hz); Z[id] = isNaN(z) ? 0 : /\bft\b|feet|foot/i.test(hz) ? z * 0.3048 : z;
+      var lift = pressOf(note(n, "static lift")); if (lift != null) LIFT[id] = lift;
     });
+    ids.forEach(function (id) { QD[id] = isPump[id] ? PQ[id] : isSrc[id] ? DF[id] : F[id] || DF[id]; });
     var srcs = ids.filter(function (id) { return isSrc[id]; });
     var loads = ids.filter(function (id) { return !isSrc[id] && sup[id] && ret[id]; });
+    var isUnit = {}; loads.forEach(function (id) { isUnit[id] = 1; });
 
-    // which sources run and which units have water
     function reach(adj, s) {
       var seen = {}, q = [s]; seen[s] = 1;
       while (q.length) { var a = q.shift(); (adj[a] || []).forEach(function (b) { if (seen[b] || shut[b] || isSrc[b]) return; seen[b] = 1; q.push(b); }); }
       return seen;
     }
-    var active = {}, flowing = {};
-    srcs.forEach(function (s) {
-      if (shut[s]) return;
-      var rs = reach(sup, s), rr = reach(ret, s);
-      loads.forEach(function (L) { if (!shut[L] && F[L] > 0 && rs[L] && rr[L]) { active[s] = 1; flowing[L] = 1; } });
-    });
-    var S = srcs.filter(function (s) { return active[s]; });
-    var byDesign = S.length > 0 && S.every(function (s) { return DF[s] > 0; });
-    function weight(s) { return byDesign ? DF[s] : 1; }
+    var rs = {}, rr = {};
+    srcs.forEach(function (s) { if (!shut[s]) { rs[s] = reach(sup, s); rr[s] = reach(ret, s); } });
 
-    // the flow in a network (supply or return): from the running sources outwards, each unit's flow back by the shortest way
-    function spread(adj) {
-      var dist = {}, order = [], q = [], par = {}, cap = {}, acc = {}, through = {}, edge = {};
-      S.forEach(function (s) { dist[s] = 0; q.push(s); });
-      while (q.length) {
-        var a = q.shift(); order.push(a);
-        (adj[a] || []).forEach(function (b) { if (dist[b] != null || shut[b] || isSrc[b]) return; dist[b] = dist[a] + 1; q.push(b); });
-      }
-      order.forEach(function (b) {
-        if (!dist[b]) { cap[b] = weight(b); return; }
-        par[b] = (adj[b] || []).filter(function (a) { return dist[a] === dist[b] - 1; });
-        cap[b] = par[b].reduce(function (t, a) { return t + cap[a]; }, 0);
+    // flows and temperatures for the units' flows Fx
+    function solve(Fx) {
+      var active = {}, flowing = {};
+      srcs.forEach(function (s) {
+        if (shut[s]) return;
+        loads.forEach(function (L) { if (!shut[L] && Fx[L] > 0 && rs[s][L] && rr[s][L]) { active[s] = 1; flowing[L] = 1; } });
       });
-      for (var i = order.length - 1; i >= 0; i--) {
-        var b = order[i], out = (flowing[b] ? F[b] : 0) + (acc[b] || 0);
-        through[b] = out;
-        if (!dist[b]) continue;
-        par[b].forEach(function (p) {
-          var share = cap[b] > 0 ? out * cap[p] / cap[b] : out / par[b].length;
-          edge[p + ">" + b] = (edge[p + ">" + b] || 0) + share;
-          acc[p] = (acc[p] || 0) + share;
+      var S = srcs.filter(function (s) { return active[s]; });
+      var byDesign = S.length > 0 && S.every(function (s) { return DF[s] > 0; });
+      function weight(s) { return byDesign ? DF[s] : 1; }
+      function spread(adj) {
+        var dist = {}, order = [], q = [], par = {}, cap = {}, acc = {}, through = {}, edge = {};
+        S.forEach(function (s) { dist[s] = 0; q.push(s); });
+        while (q.length) {
+          var a = q.shift(); order.push(a);
+          (adj[a] || []).forEach(function (b) { if (dist[b] != null || shut[b] || isSrc[b]) return; dist[b] = dist[a] + 1; q.push(b); });
+        }
+        order.forEach(function (b) {
+          if (!dist[b]) { cap[b] = weight(b); return; }
+          par[b] = (adj[b] || []).filter(function (a) { return dist[a] === dist[b] - 1; });
+          cap[b] = par[b].reduce(function (t, a) { return t + cap[a]; }, 0);
         });
+        for (var i = order.length - 1; i >= 0; i--) {
+          var b = order[i], o = (flowing[b] ? Fx[b] : 0) + (acc[b] || 0);
+          through[b] = o;
+          if (!dist[b]) continue;
+          par[b].forEach(function (p) {
+            var share = cap[b] > 0 ? o * cap[p] / cap[b] : o / par[b].length;
+            edge[p + ">" + b] = (edge[p + ">" + b] || 0) + share;
+            acc[p] = (acc[p] || 0) + share;
+          });
+        }
+        return { dist: dist, order: order, par: par, edge: edge, through: through };
       }
-      return { dist: dist, order: order, par: par, edge: edge, through: through };
+      var sp = spread(sup), rp = spread(ret);
+      var TS = {};
+      sp.order.forEach(function (b) {
+        if (!sp.dist[b]) { if (OUT[b] != null) TS[b] = OUT[b]; return; }
+        var t = 0, q = 0, tk = 0, k = 0;
+        sp.par[b].forEach(function (a) { if (TS[a] == null) return; var f = sp.edge[a + ">" + b] || 0; t += f * TS[a]; q += f; tk += TS[a]; k++; });
+        if (q > 0) TS[b] = t / q; else if (k) TS[b] = tk / k;
+      });
+      var TIN = {}, TOUT = {}, KW = {};
+      loads.forEach(function (L) {
+        var tin = TS[L], f = flowing[L] ? Fx[L] : 0, tout = LV[L], kw;
+        if (tout != null) { if (tin != null && f > 0) kw = CP * f * (tout - tin); }
+        else if (LD[L] != null && tin != null && f > 0) { tout = tin + LD[L] / (CP * f); kw = LD[L]; }
+        if (tin != null) TIN[L] = tin;
+        if (tout != null) TOUT[L] = tout;
+        if (kw != null) KW[L] = kw;
+      });
+      var TRT = {}, wq = {}, wt = {}, missing = [];
+      for (var j = rp.order.length - 1; j >= 0; j--) {
+        var b = rp.order[j], q0 = wq[b] || 0, t0 = wt[b] || 0;
+        if (flowing[b] && Fx[b] > 0) { if (TOUT[b] != null) { q0 += Fx[b]; t0 += Fx[b] * TOUT[b]; } else missing.push(b); }
+        if (q0 > 0) TRT[b] = t0 / q0;
+        if (!rp.dist[b]) continue;
+        rp.par[b].forEach(function (a) { var f = rp.edge[a + ">" + b] || 0; if (f > 0 && TRT[b] != null) { wq[a] = (wq[a] || 0) + f; wt[a] = (wt[a] || 0) + f * TRT[b]; } });
+      }
+      var src = {}, tot = { q: 0, kw: 0, kwKnown: true, tq: 0, ts: 0, rq: 0, rt: 0 };
+      srcs.forEach(function (s) {
+        var q = active[s] ? sp.through[s] || 0 : 0, o = OUT[s], back = active[s] ? TRT[s] : undefined, kw;
+        if (q > 0 && o != null && back != null) kw = CP * q * (back - o);
+        src[s] = { q: q, out: o, back: back, kw: kw, design: DF[s], pct: DF[s] > 0 ? q / DF[s] * 100 : undefined, over: DF[s] > 0 && q > DF[s] * 1.0001 };
+        if (q > 0) {
+          tot.q += q;
+          if (kw != null) tot.kw += kw; else tot.kwKnown = false;
+          if (o != null) { tot.tq += q; tot.ts += q * o; }
+          if (back != null) { tot.rq += q; tot.rt += q * back; }
+        }
+      });
+      var dir = {}, tEdge = {};
+      Object.keys(sp.edge).forEach(function (k) { var ab = k.split(">"); if (sp.edge[k] > 1e-9) { dir[k] = sp.edge[k]; if (TS[ab[0]] != null) tEdge[k] = TS[ab[0]]; } });
+      Object.keys(rp.edge).forEach(function (k) {
+        var ab = k.split(">"), back = ab[1] + ">" + ab[0];
+        if (rp.edge[k] > 1e-9) { dir[back] = (dir[back] || 0) + rp.edge[k]; if (TRT[ab[1]] != null) tEdge[back] = TRT[ab[1]]; }
+      });
+      var flow = {}, side = {};
+      ids.forEach(function (id) {
+        side[id] = isSrc[id] ? "source" : isUnit[id] ? "unit" : sup[id] ? "supply" : "return";
+        var v = isSrc[id] ? src[id].q : side[id] === "unit" ? (sp.through[id] || 0) : side[id] === "supply" ? sp.through[id] : rp.through[id];
+        flow[id] = v > 1e-9 ? v : 0;
+      });
+      return { active: active, flowing: flowing, flow: flow, side: side, tSupply: TS, tReturn: TRT, tIn: TIN, tOut: TOUT, kw: KW, source: src, dir: dir, tEdge: tEdge,
+        missing: missing, byDesign: byDesign, sources: S.length,
+        total: { q: tot.q, kw: tot.kwKnown ? tot.kw : undefined, out: tot.tq > 0 ? tot.ts / tot.tq : undefined, back: tot.rq > 0 ? tot.rt / tot.rq : undefined, sources: S.length } };
     }
-    var sp = spread(sup), rp = spread(ret);
 
-    // supply temperatures: the sources' leaving temperatures, mixed by flow
-    var TS = {};
-    sp.order.forEach(function (b) {
-      if (!sp.dist[b]) { if (OUT[b] != null) TS[b] = OUT[b]; return; }
-      var t = 0, q = 0, tk = 0, k = 0;
-      sp.par[b].forEach(function (a) { if (TS[a] == null) return; var f = sp.edge[a + ">" + b] || 0; t += f * TS[a]; q += f; tk += TS[a]; k++; });
-      if (q > 0) TS[b] = t / q; else if (k) TS[b] = tk / k;
-    });
-    // units: entering, leaving, load
-    var TIN = {}, TOUT = {}, KW = {};
-    loads.forEach(function (L) {
-      var tin = TS[L], f = flowing[L] ? F[L] : 0, tout = LV[L], kw;
-      if (tout != null) { if (tin != null && f > 0) kw = CP * f * (tout - tin); }
-      else if (LD[L] != null && tin != null && f > 0) { tout = tin + LD[L] / (CP * f); kw = LD[L]; }
-      if (tin != null) TIN[L] = tin;
-      if (tout != null) TOUT[L] = tout;
-      if (kw != null) KW[L] = kw;
-    });
-    // return temperatures: what comes back, mixed by flow (units without a leaving temperature are left out, and listed)
-    var TRT = {}, wq = {}, wt = {}, missing = [];
-    for (var j = rp.order.length - 1; j >= 0; j--) {
-      var b = rp.order[j], q0 = wq[b] || 0, t0 = wt[b] || 0;
-      if (flowing[b] && F[b] > 0) { if (TOUT[b] != null) { q0 += F[b]; t0 += F[b] * TOUT[b]; } else missing.push(b); }
-      if (q0 > 0) TRT[b] = t0 / q0;
-      if (!rp.dist[b]) continue;
-      rp.par[b].forEach(function (a) { var f = rp.edge[a + ">" + b] || 0; if (f > 0 && TRT[b] != null) { wq[a] = (wq[a] || 0) + f; wt[a] = (wt[a] || 0) + f * TRT[b]; } });
+    // ---------- pressures ----------
+    function pipeOf(a, b) { return ctx.pipes[C.id][[a, b].sort().join("|")] || {}; }
+    function pumpHead(p, q) {
+      var n = SPD[p], hd = PH[p], qd = PQ[p], x = q / (n * qd);
+      return { h: n * n * hd * (1.2 - 0.2 * x * x), beyond: x * x > 6 };
     }
-    // the sources
-    var src = {}, tot = { q: 0, kw: 0, kwKnown: true, tq: 0, ts: 0, rq: 0, rt: 0 };
-    srcs.forEach(function (s) {
-      var q = active[s] ? sp.through[s] || 0 : 0, out = OUT[s], back = active[s] ? TRT[s] : undefined, kw;
-      if (q > 0 && out != null && back != null) kw = CP * q * (back - out);
-      src[s] = { q: q, out: out, back: back, kw: kw, design: DF[s], pct: DF[s] > 0 ? q / DF[s] * 100 : undefined, over: DF[s] > 0 && q > DF[s] * 1.0001 };
-      if (q > 0) {
-        tot.q += q;
-        if (kw != null) tot.kw += kw; else tot.kwKnown = false;
-        if (out != null) { tot.tq += q; tot.ts += q * out; }
-        if (back != null) { tot.rq += q; tot.rt += q * back; }
+    // pressure lost through a branch that is not a unit (kPa): its drop at design flow, as the square of the flow,
+    // plus a static lift that does not change with flow (an open cooling tower: basin to spray nozzles)
+    function through(id, q) {
+      var d = DP[id] > 0 ? (QD[id] > 0 ? DP[id] * (q / QD[id]) * (q / QD[id]) : DP[id]) : 0;
+      return d + (LIFT[id] || 0);
+    }
+    function hydraulics(r) {
+      var running = ids.filter(function (id) { return isPump[id] && r.flow[id] > 0; });
+      if (!running.length) return { ok: false, why: ids.some(function (id) { return isPump[id]; }) ? "stopped" : "nopump" };
+      var lacking = running.filter(function (p) { return !(PH[p] > 0 && PQ[p] > 0); });
+      if (lacking.length) return { ok: false, why: "pumpdata", pumps: lacking };
+      var isRun = {}; running.forEach(function (p) { isRun[p] = 1; });
+      var edges = Object.keys(r.dir).map(function (k) {
+        var ab = k.split(">"), l = pipeOf(ab[0], ab[1]), pd = pipeDp(r.dir[k], l.cable, l.len);
+        pd.a = ab[0]; pd.b = ab[1]; pd.q = r.dir[k]; pd.k = k; return pd;
+      });
+      var pump = {}, fIn = {}, fOut = {}, bIn = {}, bOut = {}, uIn = {}, uOut = {};
+      running.forEach(function (p) {
+        var ph = pumpHead(p, r.flow[p]), own = through(p, r.flow[p]);
+        pump[p] = { q: r.flow[p], h: ph.h, beyond: ph.beyond, own: own, design: { q: PQ[p], h: PH[p] }, speed: SPD[p] };
+        fIn[p] = 0; fOut[p] = Math.max(0, ph.h) - own; bIn[p] = 0;
+      });
+      for (var pass = 0; pass < ids.length + 2; pass++) {
+        var changed = false;
+        edges.forEach(function (e) {
+          // forward: from the pumps' discharge, losing pressure, to the units' inlets
+          if (fOut[e.a] != null && !isRun[e.b]) {
+            var c = fOut[e.a] - e.dp;
+            if (isUnit[e.b]) { if (uIn[e.b] == null || c < uIn[e.b] - 1e-9) { uIn[e.b] = c; changed = true; } }
+            else if (fIn[e.b] == null || c < fIn[e.b] - 1e-9) { fIn[e.b] = c; fOut[e.b] = c - through(e.b, r.flow[e.b]); changed = true; }
+          }
+          // backward: from the pumps' suction, against the flow, gaining pressure, to the units' outlets
+          var down = isRun[e.b] ? 0 : isUnit[e.b] ? null : bIn[e.b];
+          if (down != null && !isRun[e.a]) {
+            var u = down + e.dp;
+            if (isUnit[e.a]) { if (uOut[e.a] == null || u > uOut[e.a] + 1e-9) { uOut[e.a] = u; changed = true; } }
+            else if (bOut[e.a] == null || u > bOut[e.a] + 1e-9) { bOut[e.a] = u; bIn[e.a] = u + through(e.a, r.flow[e.a]); changed = true; }
+          }
+        });
+        if (!changed) break;
       }
-    });
-    // every pipe: the way the water goes, how much, how warm
-    var dir = {}, tEdge = {};
-    Object.keys(sp.edge).forEach(function (k) { var ab = k.split(">"); if (sp.edge[k] > 1e-9) { dir[k] = sp.edge[k]; if (TS[ab[0]] != null) tEdge[k] = TS[ab[0]]; } });
-    Object.keys(rp.edge).forEach(function (k) {
-      var ab = k.split(">"), back = ab[1] + ">" + ab[0];
-      if (rp.edge[k] > 1e-9) { dir[back] = (dir[back] || 0) + rp.edge[k]; if (TRT[ab[1]] != null) tEdge[back] = TRT[ab[1]]; }
-    });
-    // what each branch shows
-    var flow = {}, side = {};
-    ids.forEach(function (id) {
-      side[id] = isSrc[id] ? "source" : sup[id] && ret[id] ? "unit" : sup[id] ? "supply" : "return";
-      var v = isSrc[id] ? (src[id].q) : side[id] === "unit" ? (sp.through[id] != null ? sp.through[id] : 0) : side[id] === "supply" ? sp.through[id] : rp.through[id];
-      flow[id] = v > 1e-9 ? v : 0;
-    });
-    var fu = "lps"; ["m3h", "gpm"].forEach(function (u) { if (units[u] > units[fu]) fu = u; });     // the unit most inputs use
-    return {
-      part: part, side: side, shut: shut, active: active, flowing: flowing, flow: flow, input: { flow: F, leaving: LV, load: LD, out: OUT, design: DF },
-      tSupply: TS, tReturn: TRT, tIn: TIN, tOut: TOUT, kw: KW, source: src, dir: dir, tEdge: tEdge, missing: missing,
-      total: { q: tot.q, kw: tot.kwKnown ? tot.kw : undefined, out: tot.tq > 0 ? tot.ts / tot.tq : undefined, back: tot.rq > 0 ? tot.rt / tot.rq : undefined, sources: S.length },
-      unit: { flow: fu, temp: units.F > units.C ? "F" : "C" },
-      byDesign: byDesign
-    };
+      var avail = {}, need = {}, idx = null;
+      loads.forEach(function (L) {
+        if (!r.flowing[L] || uIn[L] == null || uOut[L] == null) return;
+        avail[L] = uIn[L] - uOut[L];
+        if (DP[L] > 0) {
+          need[L] = DP[L];
+          var m = avail[L] - DP[L];
+          if (!idx || m < idx.margin) idx = { id: L, margin: m };
+        }
+      });
+      // relative pressure of every branch (inlet), and absolute (gauge) from an expansion tank
+      var rel = {};
+      Object.keys(fIn).forEach(function (id) { rel[id] = fIn[id]; });
+      Object.keys(bIn).forEach(function (id) { if (rel[id] == null) rel[id] = bIn[id]; });
+      running.forEach(function (p) { rel[p] = 0; });
+      // the reference: an expansion tank (closed circuit: its fill pressure where it joins), or else an open cooling
+      // tower (open circuit: its basin is at atmospheric pressure, 0 bar gauge, at the tower's height)
+      var tank = null;
+      Object.keys(FILL).forEach(function (t) {
+        if (tank) return;
+        var nb = (sup[t] || []).concat(ret[t] || []).filter(function (x) { return rel[x] != null || uIn[x] != null; })[0];
+        if (nb) tank = { id: t, at: nb, fill: FILL[t], r0: rel[nb] != null ? rel[nb] : uIn[nb] };
+      });
+      if (!tank) srcs.forEach(function (s) {
+        if (tank || !(LIFT[s] > 0) || !r.active[s]) return;
+        var o = bOut[s] != null ? bOut[s] : fOut[s];
+        if (o != null) tank = { id: s, at: s, fill: 0, r0: o, open: true };
+      });
+      var abs = null, absOut = null, low = [];
+      if (tank) {
+        var r0 = tank.r0, shift = tank.fill - r0, z0 = Z[tank.at] || 0;
+        abs = {}; absOut = {};
+        var put = function (id, v) { return v + shift - G * ((Z[id] || 0) - z0); };
+        Object.keys(rel).forEach(function (id) { abs[id] = put(id, rel[id]); });
+        Object.keys(uIn).forEach(function (id) { abs[id] = put(id, uIn[id]); });
+        Object.keys(uOut).forEach(function (id) { absOut[id] = put(id, uOut[id]); });
+        running.forEach(function (p) { absOut[p] = put(p, fOut[p]); });                          // discharge
+        Object.keys(abs).forEach(function (id) { if (abs[id] < LOW) low.push(id); });
+        Object.keys(absOut).forEach(function (id) { if (absOut[id] < LOW && low.indexOf(id) < 0) low.push(id); });
+      }
+      var pipe = {};
+      edges.forEach(function (e) { pipe[e.k] = { dp: e.dp, v: e.v, pam: e.pam, dn: e.dn, len: e.len, missing: !!e.missing, fast: e.pam > 400 || e.v > 3 }; });
+      return { ok: true, pump: pump, avail: avail, need: need, index: idx, rel: rel, uIn: uIn, uOut: uOut, abs: abs, absOut: absOut, tank: tank, low: low, pipe: pipe };
+    }
+
+    // a unit gets its design flow when it has the pressure for it; less when it has not (worked out until it settles)
+    // (more flow leaves less pressure, so the step is made smaller whenever the units' flows swing back and forth)
+    var scale = {}; loads.forEach(function (L) { scale[L] = 1; });
+    var r, h, it, w = 0.5, last = Infinity;
+    for (it = 0; it < 400; it++) {
+      var Fx = {}; loads.forEach(function (L) { if (F[L] != null) Fx[L] = F[L] * scale[L]; });
+      r = solve(Fx); h = hydraulics(r);
+      if (!h.ok) break;
+      var moved = 0;
+      loads.forEach(function (L) {
+        if (!(DP[L] > 0) || h.avail[L] == null || !(F[L] > 0)) return;
+        // fully open, the unit passes the flow at which its own drop equals what it has: Qd·√(available / needed)
+        var want = Math.min(1, Math.sqrt(Math.max(0, h.avail[L]) / DP[L]));
+        var ns = (1 - w) * scale[L] + w * want;
+        moved = Math.max(moved, Math.abs(ns - scale[L])); scale[L] = ns;
+      });
+      if (moved < 1e-6) break;
+      if (moved > last * 0.98) w = Math.max(0.02, w * 0.6);
+      last = moved;
+    }
+    var starved = {};
+    loads.forEach(function (L) { if (scale[L] < 0.995 && F[L] > 0 && r.flowing[L]) starved[L] = scale[L]; });
+    r.C = C; r.part = part; r.shut = shut; r.isPump = isPump; r.isUnit = isUnit; r.isSrc = isSrc; r.hyd = h; r.starved = starved; r.iterations = it;
+    r.input = { flow: F, leaving: LV, load: LD, out: OUT, design: DF, dp: DP, lift: LIFT, height: Z, fill: FILL, pumpHead: PH, pumpFlow: PQ, speed: SPD };
+    return r;
   }
 
   // ---------- words ----------
@@ -214,10 +443,13 @@
     var tr = kw / TR;
     return fix(kw, Math.abs(kw) >= 100 ? 0 : 1) + " kW (" + fix(tr, Math.abs(tr) >= 100 ? 0 : 1) + " TR)";
   }
-  // the flow unit as people type it, and back: for the quick inputs of a unit's card
+  function fmtKpa(kpa) { return kpa == null || isNaN(kpa) ? "" : fix(kpa, Math.abs(kpa) >= 100 ? 0 : 1) + " kPa"; }
+  function fmtBar(kpa) { return kpa == null || isNaN(kpa) ? "" : fix(kpa / 100, 2) + " bar"; }
+  function fmtHead(kpa) { return kpa == null || isNaN(kpa) ? "" : fix(kpa / G, 1) + " m"; }
   var FLOW_WORD = { lps: "l/s", m3h: "m³/h", gpm: "gpm" };
   function toUnit(lps, unit) { return unit === "m3h" ? lps * 3.6 : unit === "gpm" ? lps / 0.0630902 : lps; }
 
-  root.MPWater = { compute: compute, note: note, num: num, flowOf: flowOf, tempOf: tempOf, loadOf: loadOf, shutBy: shutBy,
-    fmtFlow: fmtFlow, fmtTemp: fmtTemp, fmtKw: fmtKw, FLOW_WORD: FLOW_WORD, toUnit: toUnit, CP: CP, TR: TR, SUP: SUP, RET: RET };
+  root.MPWater = { compute: compute, CIRCUITS: CIRCUITS, note: note, num: num, flowOf: flowOf, tempOf: tempOf, loadOf: loadOf, pressOf: pressOf, lengthOf: lengthOf,
+    dnOf: dnOf, pipeDp: pipeDp, shutBy: shutBy, fmtFlow: fmtFlow, fmtTemp: fmtTemp, fmtKw: fmtKw, fmtKpa: fmtKpa, fmtBar: fmtBar, fmtHead: fmtHead,
+    FLOW_WORD: FLOW_WORD, toUnit: toUnit, CP: CP, TR: TR, G: G, FITTINGS: FITTINGS, LOW: LOW };
 })(typeof window !== "undefined" ? window : this);

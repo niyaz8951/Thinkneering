@@ -449,23 +449,29 @@ describe("mp_* routes", () => {
     expect(g.nodes.filter((n: any) => n.parent === rootId).map((n: any) => n.title)).toEqual(["How this map works", "Chilled water system"]);
     const sys = by("Chilled water system")[0];
     expect(sys).toMatchObject({ special: ["Layout: columns"], verified: false });
-    expect(g.nodes.filter((n: any) => n.parent === sys.id).map((n: any) => n.title)).toEqual(["Chiller plant", "Supply (CHWS)", "Units", "Return (CHWR)"]);
+    expect(g.nodes.filter((n: any) => n.parent === sys.id).map((n: any) => n.title)).toEqual(["Condenser water", "Chiller plant", "Supply (CHWS)", "Units", "Return (CHWR)"]);
     expect(g.nodes.filter((n: any) => n.parent !== rootId && n.parent).every((n: any) => n.verified === false)).toBe(true);
     // the inputs the map reads
-    expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s"]);
-    expect(by("AHU-01, Level 1")[0].special).toEqual(["Flow: 12 l/s", "Leaving: 13.0 °C"]);
-    expect(by("Pump P-3 (standby)")[0].special).toEqual(["Pump: standby"]);
-    // pipes: every one Supply or Return, site piping; water goes round: chiller > supply > unit > return > pump > chiller
+    expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", expect.stringMatching(/^Place: \d+, \d+$/)]);
+    expect(by("AHU-01, Level 1")[0].special).toEqual(["Flow: 12 l/s", "Leaving: 13.0 °C", "Pressure drop: 60 kPa", "Height: 5 m", expect.stringMatching(/^Place: \d+, \d+$/)]);
+    expect(by("Chilled water pump P-3 (standby)")[0].special).toEqual(["Pump: standby", "Pump flow: 30 l/s", "Pump head: 18 m", "Pressure drop: 15 kPa", expect.stringMatching(/^Place: \d+, \d+$/)]);
+    expect(by("Expansion tank ET-1")[0].special[0]).toBe("Fill pressure: 1.7 bar");
+    expect(by("Cooling tower CT-1")[0].special.slice(0, 2)).toEqual(["Source: cooling tower", "Leaving: 32 °C"]);
+    // pipes: chilled or condenser water, supply or return, each with a size and a length, site piping;
+    // chilled water goes round: chiller > supply > unit > return > pump > chiller; condenser water: tower > pump > chiller > tower
     const pipes = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));
-    expect(pipes).toHaveLength(33);
-    expect(pipes.every((w: any) => (w.rel === "p-supply" || w.rel === "p-return") && w.map === made.id && w.by === "others")).toBe(true);
+    expect(pipes).toHaveLength(51);
+    expect(pipes.every((w: any) => ["p-supply", "p-return", "p-cw-supply", "p-cw-return"].includes(w.rel) && w.map === made.id && w.by === "others" && /^DN \d+$/.test(w.cable) && / m$/.test(w.len))).toBe(true);
+    expect(pipes.filter((w: any) => w.rel.startsWith("p-cw-"))).toHaveLength(15);
     const next = (from: string, rel: string) => pipes.filter((w: any) => w.rel === rel && w.from === from).map((w: any) => w.to);
     const reach = (from: string, rel: string) => { const on = new Set([from]); let grew = true; while (grew) { grew = false; for (const w of pipes) if (w.rel === rel && on.has(w.from) && !on.has(w.to)) { on.add(w.to); grew = true; } } return on; };
     for (const u of ["AHU-04, Level 2", "FCU group L2-A2 (FCU-L2-09 to 16)"]) {
       expect(reach("Chiller CH-2", "p-supply").has(u)).toBe(true);
       expect(reach(u, "p-return").has("Chiller CH-2")).toBe(true);
     }
-    expect(next("Pump P-1", "p-return")).toEqual(["Chiller CH-1"]);
+    expect(next("Chilled water pump P-1", "p-return")).toEqual(["Chiller CH-1"]);
+    expect(reach("Cooling tower CT-1", "p-cw-supply").has("Chiller CH-2")).toBe(true);
+    expect(reach("Chiller CH-2", "p-cw-return").has("Cooling tower CT-3")).toBe(true);
     // a template only for its kind
     expect(await refused("mp_create", { p_token: sbu, p_name: "X", p_kind: "piping", p_template: "electricity" })).toBe("Start a piping map blank or from the Chilled water template.");
     expect(await refused("mp_create", { p_token: sbu, p_name: "Y", p_kind: "wiring", p_template: "chilled-water" })).toBe("Start a wiring map blank or from the Electricity template.");
@@ -479,8 +485,8 @@ describe("mp_* routes", () => {
     expect((await ok("mp_get", { p_token: sbu, p_map_id: blank.id })).map.kind).toBe("piping");
     // pipe details are kept and checked like a wire's; a wiring diagram does not go into a piping map
     const hs = by("CHWS header, plant room")[0].id;
-    const saved = (await ok("mp_node_save", { p_token: sbu, p_node_id: rootId, p_patch: { links: [{ kind: "node", node: hs, rel: "p-supply", from_t: "Outlet", to_t: "Header", cable: "DN 200", signal: "CHWS", by: "others" }] } })).node;
-    expect(saved.links[0]).toMatchObject({ rel: "p-supply", from_t: "Outlet", to_t: "Header", cable: "DN 200", signal: "CHWS", by: "others" });
+    const saved = (await ok("mp_node_save", { p_token: sbu, p_node_id: rootId, p_patch: { links: [{ kind: "node", node: hs, rel: "p-cw-supply", from_t: "Outlet", to_t: "Header", cable: "DN 200", signal: "CWS", len: " 25 m ", by: "others" }] } })).node;
+    expect(saved.links[0]).toMatchObject({ rel: "p-cw-supply", from_t: "Outlet", to_t: "Header", cable: "DN 200", signal: "CWS", len: "25 m", by: "others" });
     expect(await refused("mp_node_save", { p_token: sbu, p_node_id: rootId, p_patch: { links: [{ kind: "node", node: hs, rel: "p-steam" }] } })).toBe("Choose what the link between the two branches means.");
     expect(await refused("mp_wiring_add", { p_token: sbu, p_node_id: by("AHU-02, Level 1")[0].id, p_template: "ahu-ec" })).toBe("A wiring diagram goes into a wiring map.");
     // refused: signed out, a user without the Maps tile, a reader of someone's private map
