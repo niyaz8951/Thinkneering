@@ -93,6 +93,13 @@ svg path.mpx.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5
 .mp-power.on { color: var(--text); }
 .mp-power p { margin: 0; }
 .mp-power .btn { flex: none; }
+/* the BMS (23 Oct 2026): a dot before a unit it commands, green and pulsing when it runs; a slow pulse on the command wire */
+.mp-n.mp-run .mp-t::before, .mp-n.mp-stop .mp-t::before, .mp-dot { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--text-soft); }
+.mp-n.mp-run .mp-t::before, .mp-dot.run { background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 50%, transparent); animation: mp-run 1.8s ease-out infinite; }
+@keyframes mp-run { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+svg path.mpx-pulse { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1 22; animation: mp-flow-slow 2.4s linear infinite; }
+@keyframes mp-flow-slow { to { stroke-dashoffset: -23; } }
+.mp-ctl .mp-rowwrap { display: flex; flex-wrap: wrap; gap: 6px; }
 /* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
 .mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);
   border-left: 3px solid var(--bc, var(--brand)); border-radius: 12px; box-shadow: var(--shadow); color: var(--text); cursor: auto; user-select: text;
@@ -268,5 +275,5 @@ svg path.mpx.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5
   .mp-grow, .mp-note, .mp-note-back { animation: none; }
   .mp-n { transition: none; }
   .mp-peek { animation: none; }
-  svg path.mpx-flow { animation: none; }
+  svg path.mpx-flow, svg path.mpx-pulse, .mp-n.mp-run .mp-t::before, .mp-dot.run { animation: none; }
 }

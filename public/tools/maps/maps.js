@@ -166,7 +166,7 @@
   // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen", flow: true, iso: {} };
+  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen", flow: true, iso: {}, cmd: {}, night: false };
   // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
   // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
   var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60, IND = 18, GCOL = 70;
@@ -205,7 +205,7 @@
   // special note "Source: ..." and through every branch that is not open: "Switch: open" starts open; Isolate /
   // Reconnect on a card changes it for this browser only (st.iso, never saved). The flow kinds are a list, so a water
   // map later only adds its pipe kinds here.
-  var FLOW_KINDS = ["w-power"];
+  var FLOW_KINDS = ["w-power"], CTL_KINDS = ["w-digital", "w-bus", "w-analog"];
   function noteVal(n, name) { var re = new RegExp("^\\s*" + name + "\\s*:\\s*(.+)$", "i"); for (var i = 0; i < n.special.length; i++) { var m = re.exec(n.special[i]); if (m) return m[1].trim(); } return ""; }
   function isOpen(id) { var n = N(id); if (st.iso[id] != null) return st.iso[id]; return /^open/i.test(noteVal(n, "switch")); }
   function power() {
@@ -221,7 +221,23 @@
     var on = {}, from = {}, q = [];
     sources.forEach(function (id) { if (!isOpen(id)) { on[id] = 1; q.push(id); } });
     while (q.length) { var a = q.shift(); (edges[a] || []).forEach(function (b) { if (on[b] || isOpen(b)) return; on[b] = 1; from[b] = a; q.push(b); }); }
-    return { on: on, from: from, part: inFlow, edges: edges, known: sources.length > 0 };
+    // the BMS (23 Oct 2026): a branch with "Control: BMS" commands the units its control wires reach. A unit runs when it
+    // has power, the BMS has not stopped it (st.cmd, simulation) and, at night, it is not on the occupied schedule.
+    var ctl = {}, bms = [], state = {}, why = {}, draw = {};
+    Object.keys(M.nodes).forEach(function (id) {
+      if (!/bms/i.test(noteVal(N(id), "control"))) return;
+      bms.push(id);
+      (N(id).links || []).forEach(function (l) { if (l.kind === "node" && N(l.node) && CTL_KINDS.indexOf(l.rel) >= 0) ctl[l.node] = id; });
+    });
+    var loads = Object.keys(inFlow).filter(function (id) { return !(edges[id] || []).length; });
+    loads.forEach(function (id) {
+      if (sources.length && !on[id]) { state[id] = "nopower"; return; }
+      if (ctl[id] && st.cmd[id] === false) { state[id] = "stopped"; return; }
+      if (ctl[id] && st.night && /occupied/i.test(noteVal(N(id), "schedule"))) { state[id] = "night"; return; }
+      state[id] = "running";
+      for (var x = id; x && !draw[x]; x = from[x]) draw[x] = 1;          // a running load draws current all the way up
+    });
+    return { on: on, from: from, part: inFlow, edges: edges, known: sources.length > 0, ctl: ctl, bms: bms, state: state, draw: draw, loads: loads };
   }
   function downstream(pw, id) { var seen = {}, q = [id], c = 0; while (q.length) { (pw.edges[q.shift()] || []).forEach(function (b) { if (!seen[b]) { seen[b] = 1; c++; q.push(b); } }); } return c; }
   function colsOf(n) { return n.kids.length > 0 && n.special.some(function (x) { return /^\s*layout\s*:\s*columns?\s*$/i.test(x); }); }
@@ -311,7 +327,7 @@
     var xl = store("localStorage", userKey(isWiring() ? "xlinks-w" : "xlinks")); if (xl === "all" || xl === "off" || xl === "chosen") st.xlinks = xl;
     $("mpCables").addEventListener("click", cableSchedule);
     st.flow = store("localStorage", userKey("flow")) !== "0";
-    $("mpReset").addEventListener("click", function () { st.iso = {}; peekEl = null; renderView(); Hub.toast("Simulation reset: every branch as the map says."); });
+    $("mpReset").addEventListener("click", function () { st.iso = {}; st.cmd = {}; st.night = false; peekEl = null; renderView(); Hub.toast("Simulation reset: every branch as the map says, BMS on day."); });
     $("mpFlow").addEventListener("click", function () { st.flow = !st.flow; store("localStorage", userKey("flow"), st.flow ? "1" : "0"); renderView(); });
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
@@ -482,7 +498,10 @@
       if (n.open) n.kids.forEach(walk);
     })(st.focus);
     var pw = isWiring() ? power() : null; lastPower = pw;
-    if (pw && pw.known) Object.keys(els).forEach(function (id) { if (pw.part[id] && !pw.on[id]) els[id].classList.add("mp-dead"); });
+    if (pw && pw.known) Object.keys(els).forEach(function (id) {
+      if (pw.part[id] && !pw.on[id]) els[id].classList.add("mp-dead");
+      if (pw.ctl[id] && pw.state[id]) els[id].classList.add(pw.state[id] === "running" ? "mp-run" : "mp-stop");
+    });
     Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
     // the notes card of a branch with nothing under it (peek), drawn where its next level would grow
     var pk = st.peek && els[st.peek] && st.peek !== st.focus && !N(st.peek).kids.length ? N(st.peek) : null, card = null;
@@ -638,8 +657,11 @@
       if (pw && FLOW_KINDS.indexOf(e.rel.id) >= 0) {
         var live = pw.known ? !!pw.on[e.from] && !!pw.on[e.to] : true;
         if (!live) p.classList.add("off");
-        else if (st.flow) svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-flow" }));
+        // energized but nothing it feeds runs: no current, so no dots (the line stays solid)
+        else if (st.flow && (!pw.known || pw.draw[e.to])) svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-flow" }));
       }
+      // a BMS command: a slow pulse while it runs the unit
+      if (pw && st.flow && pw.ctl[e.to] === e.from && pw.state[e.to] === "running") svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-pulse" }));
       if (sel && (e.from === sel || e.to === sel)) {
         var mine = e.from === sel, other = mine ? e.to : e.from, proxy = mine ? b !== e.to : a !== e.from;
         // the words sit near the other end, where the lines of a busy branch fan out (B(t) of the curve)
@@ -683,6 +705,10 @@
       var s2 = svgEl("svg", { viewBox: "0 0 34 10", width: "34", height: "10", "aria-hidden": "true" });
       s2.appendChild(svgEl("path", { d: "M2 5 L32 5", "class": "mpx off x-w-power" }));
       box.appendChild(el("span", { "class": "mp-lg", title: "Moving dots: current flowing. Grey: no flow (an end has no supply, or is open or isolated)." }, [s2, document.createTextNode("No flow")]));
+      if (Object.keys(lastPower && lastPower.ctl || {}).length) {
+        box.appendChild(el("span", { "class": "mp-lg" }, [el("i", { "class": "mp-dot run", "aria-hidden": "true" }), document.createTextNode("Running")]));
+        box.appendChild(el("span", { "class": "mp-lg" }, [el("i", { "class": "mp-dot", "aria-hidden": "true" }), document.createTextNode("Stopped")]));
+      }
     }
   }
 
@@ -719,6 +745,27 @@
         el("button", { type: "button", "class": "btn ghost sm", text: open ? (noteVal(n, "switch") && st.iso[n.id] == null ? "Close (simulation)" : "Reconnect (simulation)") : "Isolate (simulation)",
           title: "Tries it in this browser only: nothing is saved, a reload starts again.",
           onclick: function () { st.iso[n.id] = !open; peekEl = null; renderView(); } })]));
+    }
+    // a unit the BMS commands: its state and Start / Stop
+    if (pw && pw.ctl && pw.ctl[n.id]) {
+      var stt = pw.state[n.id] || "running", stopped = st.cmd[n.id] === false;
+      var ctlSays = { running: "Running: the BMS command is on, the run status goes back to the BMS.", stopped: "Stopped by the BMS.",
+        night: "Stopped: unoccupied (night) schedule of the BMS.", nopower: "No power: the BMS command cannot start it." }[stt];
+      box.appendChild(el("div", { "class": "mp-power mp-ctl" + (stt === "running" ? " on" : "") }, [el("p", { text: ctlSays }),
+        el("button", { type: "button", "class": "btn ghost sm", text: stopped ? "BMS: start (simulation)" : "BMS: stop (simulation)", title: "Tries it in this browser only: nothing is saved.",
+          onclick: function () { if (stopped) delete st.cmd[n.id]; else st.cmd[n.id] = false; peekEl = null; renderView(); } })]));
+    }
+    // the BMS itself: the schedule and every unit at once
+    if (pw && pw.bms && pw.bms.indexOf(n.id) >= 0) {
+      var mine = Object.keys(pw.ctl).filter(function (k) { return pw.ctl[k] === n.id; });
+      var run = mine.filter(function (k) { return pw.state[k] === "running"; }).length;
+      box.appendChild(el("div", { "class": "mp-power mp-ctl on" }, [
+        el("p", { text: (st.night ? "Night: unoccupied schedule. " : "Day: occupied schedule. ") + "Commands " + mine.length + " units, " + run + " running." }),
+        el("div", { "class": "mp-rowwrap" }, [
+          el("button", { type: "button", "class": "btn ghost sm", text: st.night ? "Switch to day" : "Switch to night", onclick: function () { st.night = !st.night; peekEl = null; renderView(); } }),
+          el("button", { type: "button", "class": "btn ghost sm", text: "Stop all", onclick: function () { mine.forEach(function (k) { st.cmd[k] = false; }); peekEl = null; renderView(); } }),
+          el("button", { type: "button", "class": "btn ghost sm", text: "Start all", onclick: function () { mine.forEach(function (k) { delete st.cmd[k]; }); peekEl = null; renderView(); } })]),
+        el("p", { "class": "small muted", text: "A simulation in this browser only: nothing is saved." })]));
     }
     peekEl = box;
     if (E) { if (retry && retry.id === n.id) status("Not saved yet.", true, true); }
@@ -938,7 +985,7 @@
     legend(map && anyX && st.xlinks !== "off" ? xi : null);
     var hasFlow = isWiring() && xi.list.some(function (e) { return FLOW_KINDS.indexOf(e.rel.id) >= 0; });
     $("mpFlow").hidden = !hasFlow || !map; $("mpFlow").setAttribute("aria-pressed", st.flow ? "true" : "false");
-    var anyIso = Object.keys(st.iso).length > 0;
+    var anyIso = Object.keys(st.iso).length > 0 || Object.keys(st.cmd).length > 0 || st.night;
     $("mpReset").hidden = !anyIso || !map;
     $("mpHint").textContent = COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");

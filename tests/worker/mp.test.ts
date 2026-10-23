@@ -383,14 +383,22 @@ describe("mp_* routes", () => {
     expect(tops).toEqual(["How this map works", "Power distribution to HVAC equipment"]);
     expect(by("Power distribution to HVAC equipment")[0]).toMatchObject({ special: ["Layout: columns"], verified: false });
     const cols = g.nodes.filter((n: any) => n.parent === by("Power distribution to HVAC equipment")[0].id).map((n: any) => n.title);
-    expect(cols).toEqual(["Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment"]);
+    expect(cols).toEqual(["Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment", "Controls"]);
+    // the BMS commands every chiller, AHU and FCU circuit; AHUs and FCU circuits follow the occupied schedule
+    const bms = by("BMS")[0];
+    expect(bms.special).toEqual(["Control: BMS"]);
+    expect(bms.links).toHaveLength(12);
+    expect(bms.links.every((l: any) => l.rel === "w-bus" || l.rel === "w-digital")).toBe(true);
+    expect(by("AHU-03, Level 2")[0].special).toEqual(["Schedule: occupied"]);
+    expect(by("Chiller CH-1")[0].special).toEqual([]);
     expect(by("Utility supply (MV)")[0].special).toEqual(["Source: utility"]);
     expect(by("Generator incomer Q2")[0].special).toEqual(["Switch: open"]);
     const wires = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));
-    expect(wires.every((w: any) => w.rel === "w-power" && w.map === made.id && w.by === "others")).toBe(true);
+    expect(wires.every((w: any) => (w.rel === "w-power" || w.from === "BMS") && w.map === made.id && w.by === "others")).toBe(true);
+    expect(wires.filter((w: any) => w.rel === "w-power")).toHaveLength(24);
     // power reaches every chiller, AHU and FCU circuit from the utility through closed branches
     const on = new Set(["Utility supply (MV)"]); let grew = true;
-    while (grew) { grew = false; for (const w of wires) if (on.has(w.from) && !on.has(w.to) && w.to !== "Generator incomer Q2") { on.add(w.to); grew = true; } }
+    while (grew) { grew = false; for (const w of wires) if (w.rel === "w-power" && on.has(w.from) && !on.has(w.to) && w.to !== "Generator incomer Q2") { on.add(w.to); grew = true; } }
     for (const t of ["Chiller CH-3", "AHU-04, Level 2", "FCU circuit L2-A2 (FCU-L2-09 to 16)"]) expect(on.has(t)).toBe(true);
     // a template only for a wiring map, and only Electricity
     expect(await refused("mp_create", { p_token: sbu, p_name: "X", p_kind: "knowledge", p_template: "electricity" })).toBe("Start a wiring map blank or from the Electricity template.");

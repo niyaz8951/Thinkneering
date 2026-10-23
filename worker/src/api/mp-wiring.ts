@@ -14,7 +14,9 @@
    renamed the panels and equipment. No figures that depend on the project (voltages, ratings, cable sizes) are written
    in. The map shows current flowing (maps.js): special note "Source: ..." marks where power comes from, "Switch: open"
    a branch that passes no power until it is closed (the generator incomer); power flows along Power wires, from end to
-   end, through every branch that is not open. */
+   end, through every branch that is not open. The BMS (owner, same day: "just do BMS for now"): the branch with the
+   special note "Control: BMS" starts and stops the units its control wires reach; "Schedule: occupied" units stop at
+   night; a stopped unit draws no current, so its power line stays energized without flow. */
 import type { Env } from "../env";
 import { uuid } from "../lib/sql";
 
@@ -27,17 +29,22 @@ export interface WiringSeed { guide: WNode; nodes: WNode[]; wires: Wire[] }
 
 const COLS = "Layout: columns";
 const SITE = "By the electrical design";
+const OCC = "Schedule: occupied";
 
 function guide(): WNode {
   return { key: "guide", title: "How this map works", notes:
     "The power supply of a building's HVAC equipment, as one map: from the utility supply and the standby generator, through the main switchboard, " +
     "sub-main boards and distribution boards, right up to the chillers, AHUs and FCUs. Open the diagram branch: its columns run from left to right, " +
-    "Supply | Main distribution | Sub-distribution | Final distribution | HVAC equipment.\n\n" +
+    "Supply | Main distribution | Sub-distribution | Final distribution | HVAC equipment | Controls.\n\n" +
     "Current flow: moving dots run along every power line that has supply, from the source to the load. A grey line and a faded branch have no supply. " +
     "Click a panel or a piece of equipment: its card says where its power comes from, and Isolate / Reconnect tries what happens downstream " +
     "(a simulation in your browser only: nothing is saved, a reload starts again). The generator incomer starts open: isolate the utility supply, " +
     "close the generator incomer and see the building run on standby.\n\n" +
-    "Special notes the flow reads: \"Source: utility\" or \"Source: standby\" (power starts here), \"Switch: open\" (passes no power until closed). " +
+    "BMS: the BMS (Controls column) starts and stops each chiller, AHU and FCU circuit through its control wires and reads back the run status. " +
+    "Click the BMS: Day / Night switches the schedule (units marked \"Schedule: occupied\" stop at night), Start all / Stop all; click a unit: BMS Start / Stop. " +
+    "A running unit has a green dot; a stopped one draws no current, so the dots stop on its power line, and on the feeders above it when nothing they feed runs.\n\n" +
+    "Special notes the map reads: \"Source: utility\" or \"Source: standby\" (power starts here), \"Switch: open\" (passes no power until closed), " +
+    "\"Control: BMS\" (this branch commands the units its control wires reach), \"Schedule: occupied\" (stops at night). " +
     "Wires: Power carries the flow; Earth, Control supply, signals and buses can be added and are drawn but carry no flow.\n\n" +
     "This is a typical example, not the project's drawing: every branch is \"to verify\". Rename the boards and equipment as the project's single-line diagram, " +
     "add or delete branches, and fill each wire's cable and terminals (Edit, then the wire's Change). Cable schedule (above the map) gives every wire as an Excel list.",
@@ -69,11 +76,14 @@ function building(): { node: WNode; wires: Wire[] } {
         { key: "chg", title: "Chillers", kids: [
           { key: "ch1", title: "Chiller CH-1" }, { key: "ch2", title: "Chiller CH-2" }, { key: "ch3", title: "Chiller CH-3" }] },
         { key: "ahug", title: "AHUs", kids: [
-          { key: "ahu1", title: "AHU-01, Level 1" }, { key: "ahu2", title: "AHU-02, Level 1" }, { key: "ahu3", title: "AHU-03, Level 2" }, { key: "ahu4", title: "AHU-04, Level 2" }] },
+          { key: "ahu1", title: "AHU-01, Level 1", special: [OCC] }, { key: "ahu2", title: "AHU-02, Level 1", special: [OCC] },
+          { key: "ahu3", title: "AHU-03, Level 2", special: [OCC] }, { key: "ahu4", title: "AHU-04, Level 2", special: [OCC] }] },
         { key: "fcug", title: "FCUs", notes: "One final circuit feeds a group of FCUs, looped from unit to unit.", kids: [
-          { key: "f1a1", title: "FCU circuit L1-A1 (FCU-L1-01 to 08)" }, { key: "f1a2", title: "FCU circuit L1-A2 (FCU-L1-09 to 16)" },
-          { key: "f1b1", title: "FCU circuit L1-B1 (FCU-L1-17 to 24)" },
-          { key: "f2a1", title: "FCU circuit L2-A1 (FCU-L2-01 to 08)" }, { key: "f2a2", title: "FCU circuit L2-A2 (FCU-L2-09 to 16)" }] }] }
+          { key: "f1a1", title: "FCU circuit L1-A1 (FCU-L1-01 to 08)", special: [OCC] }, { key: "f1a2", title: "FCU circuit L1-A2 (FCU-L1-09 to 16)", special: [OCC] },
+          { key: "f1b1", title: "FCU circuit L1-B1 (FCU-L1-17 to 24)", special: [OCC] },
+          { key: "f2a1", title: "FCU circuit L2-A1 (FCU-L2-01 to 08)", special: [OCC] }, { key: "f2a2", title: "FCU circuit L2-A2 (FCU-L2-09 to 16)", special: [OCC] }] }] },
+      { key: "ctl", title: "Controls", notes: "What commands the equipment.", kids: [
+        { key: "bms", title: "BMS", special: ["Control: BMS"], notes: "Starts and stops each chiller, AHU and FCU circuit, reads back its run status, and runs the occupied / unoccupied schedule. By the controls contractor." }] }
     ] };
   const w = (from: string, to: string, signal: string, extra: Partial<Wire> = {}): Wire => ({ from, to, rel: "w-power", signal, cable: SITE, by: "others", ...extra });
   const wires: Wire[] = [
@@ -85,7 +95,11 @@ function building(): { node: WNode; wires: Wire[] } {
     w("mcc", "ahu1", "3Ph + PE"), w("mcc", "ahu2", "3Ph + PE"), w("mcc", "ahu3", "3Ph + PE"), w("mcc", "ahu4", "3Ph + PE"),
     w("smdb1", "db1a", "Sub-main 3Ph + N + PE"), w("smdb1", "db1b", "Sub-main 3Ph + N + PE"), w("smdb2", "db2a", "Sub-main 3Ph + N + PE"),
     w("db1a", "f1a1", "Final circuit 1Ph + N + PE"), w("db1a", "f1a2", "Final circuit 1Ph + N + PE"), w("db1b", "f1b1", "Final circuit 1Ph + N + PE"),
-    w("db2a", "f2a1", "Final circuit 1Ph + N + PE"), w("db2a", "f2a2", "Final circuit 1Ph + N + PE")
+    w("db2a", "f2a1", "Final circuit 1Ph + N + PE"), w("db2a", "f2a2", "Final circuit 1Ph + N + PE"),
+    // the BMS: one control wire to each unit (12, the most a branch holds)
+    ...["ch1", "ch2", "ch3"].map((k) => ({ from: "bms", to: k, rel: "w-bus", signal: "Enable / disable, run status (BACnet or Modbus)", cable: "As the protocol asks", by: "others" as const })),
+    ...["ahu1", "ahu2", "ahu3", "ahu4"].map((k) => ({ from: "bms", to: k, rel: "w-digital", signal: "Start / stop, run status", by: "others" as const })),
+    ...["f1a1", "f1a2", "f1b1", "f2a1", "f2a2"].map((k) => ({ from: "bms", to: k, rel: "w-bus", signal: "On / off through the room controllers", by: "others" as const }))
   ];
   return { node, wires };
 }
