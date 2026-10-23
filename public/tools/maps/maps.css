@@ -102,6 +102,17 @@ svg path.mpx.x-p-return, svg path.mpx.x-p-cw-return { stroke-dasharray: 10 4; }
 .mp-wq::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--wq, var(--text-soft)); }
 .mp-wq.sup { --wq: var(--brand); } .mp-wq.ret { --wq: var(--warn); } .mp-wq.unit { --wq: var(--ok); }
 .mp-wq.warn { color: var(--warn); }
+.mp-wq.pw { --wq: var(--danger); }
+.mp-wq .mp-ico { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--warn); }
+.mp-wq.pw.warn::before { display: none; }
+.mp-n.mp-over .mp-t { color: var(--warn); }
+.mp-n.mp-shed { opacity: .5; }
+.mp-n.mp-shed .mp-t { text-decoration: line-through; text-decoration-color: var(--warn); }
+svg path.mpx.shed, .sxp.shed { stroke: var(--warn); stroke-dasharray: 6 5; opacity: .9; }
+svg path.mpx.lim, .sxp.lim { stroke: var(--warn); stroke-dasharray: 3 4; }
+svg path.mpx.warm, .sxp.warm { stroke: var(--warn); }
+.sxn.warn { color: var(--warn); }
+.sx-label.warn b { color: var(--warn); }
 .mp-water p { margin: 0; }
 .mp-wform { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .mp-wfield { flex: 1 1 110px; min-width: 0; gap: 3px; }

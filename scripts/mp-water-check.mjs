@@ -139,6 +139,37 @@ assert.equal(W.dnOf("6 in").dn, 150); assert.equal(W.dnOf('4"').dn, 100); assert
 assert.equal(W.num("1,207 kW"), 1207); assert.equal(W.num("12,5 l/s"), 12.5);
 assert.equal(W.pressOf("2 bar"), 200); near(W.pressOf("10 psi"), 68.9476, 1e-6, "psi");
 
+// summed loads: every header, riser and pipe run carries its units' loads (owner, 23 Oct 2026)
+r = W.compute(nodes); chw = r.circuits.chw;
+const ahuKw = ["ahu1", "ahu2", "ahu3", "ahu4"].reduce((t, u) => t + chw.kw[u], 0), unitsKw = Object.keys(chw.isUnit).reduce((t, u) => t + (chw.kw[u] || 0), 0);
+near(chw.carried.rs, ahuKw, 0.01, "the AHU riser carries the 4 AHUs"); near(chw.carried.hs, unitsKw, 0.01, "the CHWS header carries every unit");
+near(chw.carried.rr, ahuKw, 0.01, "the return riser collects the 4 AHUs"); near(chw.carried.hs, chw.total.kw, 0.5, "= the plant's load");
+near(chw.carried.sl2, chw.kw.f2a1 + chw.kw.f2a2, 0.01, "the Level 2 branch carries its 2 FCU groups");
+assert.equal(chw.source.ch1.capacity, 750); assert.ok(!chw.source.ch1.atCap, "650 kW of 750: not at capacity");
+// a chiller over its capacity: stop CH-1 (and its pump): CH-2 takes everything, runs at 750 kW, its leaving water rises
+r = W.compute(nodes, { ch1: true, p1: true }); chw = r.circuits.chw;
+const c2 = chw.source.ch2;
+assert.equal(c2.atCap, true); near(c2.kw, 750, 0.5, "CH-2 at its capacity");
+near(c2.out, c2.back - 750 / (4.19 * c2.q), 1e-6, "leaving = return − capacity / (4.19 × flow)");
+assert.ok(c2.out > 6.7 + 0.5 && c2.set === 6.7, `the supply rises above the 6.7 °C set point (${c2.out.toFixed(2)} °C)`);
+near(chw.tIn.ahu1, c2.out, 1e-6, "the units get the warmer water");
+near(r.reject.ch2, 750 * (1 + 1 / 5.5), 0.5, "it rejects only what it makes");
+// units given by Load cannot be cooled less: the shortfall is said
+const n7 = mapOf().nodes;
+for (const u of ["ahu1", "ahu2", "ahu3", "ahu4"]) { setNote(n7[u], "Leaving", ""); setNote(n7[u], "Load", "300 kW"); }
+r = W.compute(n7, { ch1: true, p1: true }); chw = r.circuits.chw;
+assert.ok(chw.source.ch2.short > 0, "units by Load over the capacity: short"); near(chw.source.ch2.kw, 750, 0.5, "it gives its capacity");
+// a riser's Max flow: lowered to 35 l/s, the AHUs share it in proportion to their design flows
+const n8 = mapOf().nodes; setNote(n8.rs, "Max flow", "35 l/s");
+r = W.compute(n8); chw = r.circuits.chw;
+assert.ok(chw.flow.rs <= 35.0001 && chw.flow.rs > 34.9, `riser at its max flow (${chw.flow.rs})`);
+for (const u of ["ahu1", "ahu2", "ahu3", "ahu4"]) { assert.equal(chw.limited[u].by, "rs"); near(chw.flow[u], chw.input.flow[u] * 35 / 43, 0.01, `${u} gets its share`); }
+assert.equal(chw.limitAt.rs.max, 35); assert.ok(r.limEdge["rs>ahu1"], "the riser's pipes to the AHUs are marked");
+assert.ok(!chw.limited.f1a1, "the FCUs are not on the riser");
+// a return riser's max flow limits the units it collects from
+const n9 = mapOf().nodes; setNote(n9.rr, "Max flow", "35 l/s");
+r = W.compute(n9); chw = r.circuits.chw;
+assert.equal(chw.limited.ahu3.by, "rr"); assert.ok(chw.flow.rr <= 35.0001);
 assert.equal(W.compute({ a: { id: "a", special: [], links: [] } }), null);
 console.log("mp-water check: the Chilled water example works out (52.4 l/s, 12.6 °C, 1,304 kW; condenser 36.8 °C; " +
-  `last FCU group has ${avail.toFixed(1)} kPa for 40 kPa).`);
+  `last FCU group has ${avail.toFixed(1)} kPa for 40 kPa); summed loads, a chiller at capacity, a riser at its max flow.`);

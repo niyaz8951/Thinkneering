@@ -399,8 +399,11 @@ describe("mp_* routes", () => {
     expect(bms.special).toEqual(["Control: BMS"]);
     expect(bms.links).toHaveLength(12);
     expect(bms.links.every((l: any) => l.rel === "w-bus" || l.rel === "w-digital")).toBe(true);
-    expect(by("AHU-03, Level 2")[0].special).toEqual(["Schedule: occupied"]);
-    expect(by("Chiller CH-1")[0].special).toEqual([]);
+    // the load: what each load absorbs, each board's maximum, the shedding order
+    expect(by("AHU-03, Level 2")[0].special).toEqual(["Schedule: occupied", "Power: 30 kW", "Priority: 2"]);
+    expect(by("Chiller CH-1")[0].special).toEqual(["Power: 320 kW", "Priority: 3"]);
+    expect(by("MCC-AHU, AHU plant rooms")[0].special).toEqual(["Max power: 150 kW"]);
+    expect(by("Standby generator G-1")[0].special).toEqual(["Source: standby", "Max power: 1000 kVA"]);
     expect(by("Utility supply (MV)")[0].special).toEqual(["Source: utility"]);
     expect(by("Generator incomer Q2")[0].special).toEqual(["Switch: open"]);
     const wires = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));
@@ -435,7 +438,7 @@ describe("mp_* routes", () => {
     expect(add.added).toBeGreaterThan(15);
     const g2 = await ok("mp_get", { p_token: sbu, p_map_id: made.id });
     const a1 = g2.nodes.find((n: any) => n.id === ahu1.id);
-    expect(a1.special).toEqual(["Schedule: occupied", "Layout: columns"]);
+    expect(a1.special).toEqual(["Schedule: occupied", "Power: 30 kW", "Priority: 2", "Layout: columns"]);
     expect(g2.nodes.filter((n: any) => n.parent === ahu1.id).map((n: any) => n.title)).toEqual(["Unit control panel", "On the unit", "Site (by others)"]);
     const entry = a1.links.find((l: any) => l.signal === "Incoming supply");
     expect(g2.nodes.find((n: any) => n.id === entry.node).title).toBe("Main isolator (Q0)");
@@ -566,7 +569,8 @@ describe("mp_* routes", () => {
     expect(by("AHU-01, Level 1")[0].special.at(-1)).toBe("Place: 1250, 400");
     expect(g.nodes.filter((n: any) => n.parent !== rootId && n.parent).every((n: any) => n.verified === false)).toBe(true);
     // the inputs the map reads
-    expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", expect.stringMatching(/^Place: \d+, \d+$/)]);
+    expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", "Capacity: 750 kW", expect.stringMatching(/^Place: \d+, \d+$/)]);
+    expect(by("CHWS riser to AHU plant rooms")[0].special).toContain("Max flow: 45 l/s");
     expect(by("AHU-01, Level 1")[0].special).toEqual(["Flow: 12 l/s", "Leaving: 13.0 °C", "Pressure drop: 60 kPa", "Height: 5 m", expect.stringMatching(/^Place: \d+, \d+$/)]);
     expect(by("Chilled water pump P-3 (standby)")[0].special).toEqual(["Pump: standby", "Pump flow: 30 l/s", "Pump head: 18 m", "Pressure drop: 15 kPa", expect.stringMatching(/^Place: \d+, \d+$/)]);
     expect(by("Expansion tank ET-1")[0].special[0]).toBe("Fill pressure: 1.7 bar");

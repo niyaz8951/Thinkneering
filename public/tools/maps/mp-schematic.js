@@ -186,7 +186,7 @@
       var na = NORMAL[p._sa], nb = NORMAL[p._sb], pts = route(p._pa, p._sa, p._pb, p._sb, stub(box[p.a]), stub(box[p.b]));
       var A1 = pts[1], B1 = pts[pts.length - 2];
       var d = "M" + pts.map(function (q) { return Math.round(q.x * 10) / 10 + " " + Math.round(q.y * 10) / 10; }).join("L");
-      var path = svgEl("path", { d: d, "class": "sxp x-" + p.rel + (p.minor ? " minor" : "") + (p.q || p.live ? "" : " off") });
+      var path = svgEl("path", { d: d, "class": "sxp x-" + p.rel + (p.minor ? " minor" : "") + (p.shed ? " shed" : p.lim ? " lim" : p.warm ? " warm" : p.q || p.live ? "" : " off") });
       gPipes.appendChild(path);
       // the longest straight piece carries the arrow and the words
       var best = 0, mid = null, ang = 0;
@@ -212,7 +212,7 @@
     // headers first: long and fixed, their names go above them; the rest find room around them
     opt.items.slice().sort(function (u, v) { return (u.kind === "header" ? 0 : 1) - (v.kind === "header" ? 0 : 1); }).forEach(function (it) {
       var b = box[it.id]; if (!b) return;
-      var g = svgEl("g", { "class": "sxn" + (it.dead ? " dead" : "") + (it.sel ? " sel" : "") + (b.tray ? " tray" : "") + (it.outside ? " out" : ""), "data-node": it.id, "data-sx": "1", tabindex: "0",
+      var g = svgEl("g", { "class": "sxn" + (it.dead ? " dead" : "") + (it.sel ? " sel" : "") + (b.tray ? " tray" : "") + (it.outside ? " out" : "") + (it.warn ? " warn" : ""), "data-node": it.id, "data-sx": "1", tabindex: "0",
         transform: "translate(" + b.x + " " + b.y + ")", role: "treeitem", "aria-label": it.title });
       g.appendChild(svgEl("rect", { "class": "sx-hit", x: -6, y: -6, width: b.w + 12, height: b.h + 12, rx: 8 }));
       var inner = svgEl("g", {}); inner.innerHTML = art(it.kind, b.w, b.h, it.sign);
@@ -220,7 +220,7 @@
       gNodes.appendChild(g);
       // the name and figures beside the symbol: on the side that no pipe uses and that covers the fewest other symbols
       // and names (in the order below, right, left, above; a horizontal header above, then below)
-      var lab = el("div", { "class": "sx-label" + (it.dead ? " dead" : "") + (it.sel ? " sel" : ""), "data-node": it.id }, opt.label(it.id));
+      var lab = el("div", { "class": "sx-label" + (it.dead ? " dead" : "") + (it.sel ? " sel" : "") + (it.warn ? " warn" : ""), "data-node": it.id }, opt.label(it.id));
       lab.style.left = "0px"; lab.style.top = "0px"; lab.style.visibility = "hidden";
       stage.appendChild(lab);
       var lw = lab.offsetWidth, lh = lab.offsetHeight, hdr = b.bar && b.w >= b.h;

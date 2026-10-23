@@ -46,7 +46,11 @@ function guide(): WNode {
     "A unit with less than it needs gets less water (marked \"short of pressure\"). With the expansion tank's fill pressure and the heights, " +
     "every branch has its pressure in bar; under 0.3 bar is flagged (air gets in at high points).\n\n" +
     "Try it: lower a pump's head in its card and see the last unit go short; stop P-1 and start P-3; close an AHU's valve. " +
-    "Nothing you try in a card's simulation buttons is saved; the boxes (flow, head, temperatures) are saved to the map.\n\n" +
+    "Limits: a chiller's \"Capacity\" (and a tower's) is the most it can do: over it, it runs at capacity and its leaving water rises (stop CH-2: CH-1 takes the whole load " +
+    "and the supply goes warmer, drawn in amber); a header's, riser's or pipe run's \"Max flow\" (its balancing valve) is the most it passes: the units it feeds share it " +
+    "and their pipes turn amber (lower the AHU riser's Max flow to 35 l/s). Every header, riser and pipe run shows the load it carries (the sum of its units). " +
+    "Nothing you try in a card's simulation buttons is saved; the boxes (flow, head, temperatures, capacity, max flow) are saved to the map.\n\n" +
+
     "This is a typical example, not the project's drawing: every branch is \"to verify\" and every figure is an example. " +
     "Rename the equipment as the project's schematic and type the selections' figures.",
     kids: [] };
@@ -54,14 +58,14 @@ function guide(): WNode {
 
 const P = (x: number, y: number, w?: number, h?: number) => "Place: " + [x, y].concat(w ? [w, h || 14] : []).join(", ");
 const CT = (n: number, x: number): WNode => ({ key: "ct" + n, title: "Cooling tower CT-" + n,
-  special: ["Source: cooling tower", "Leaving: 32 °C", "Design flow: 38 l/s", "Static lift: 4 m", "Pressure drop: 20 kPa", "Height: 18 m", P(x, 40)],
-  notes: "Open counterflow tower on the roof. Leaving water 32 °C is a Gulf design figure (wet bulb about 29 °C + 3 K approach). Static lift = basin water level to the spray nozzles; Pressure drop = the nozzles at design flow." });
+  special: ["Source: cooling tower", "Leaving: 32 °C", "Design flow: 38 l/s", "Static lift: 4 m", "Pressure drop: 20 kPa", "Height: 18 m", "Capacity: 900 kW", P(x, 40)],
+  notes: "Open counterflow tower on the roof. Capacity: the heat it rejects at its design conditions (above it, its leaving water rises). Leaving water 32 °C is a Gulf design figure (wet bulb about 29 °C + 3 K approach). Static lift = basin water level to the spray nozzles; Pressure drop = the nozzles at design flow." });
 const CWP = (n: number, x: number, standby: boolean): WNode => ({ key: "cwp" + n, title: "Condenser water pump CWP-" + n + (standby ? " (standby)" : ""),
   special: [standby ? "Pump: standby" : "Pump: duty", "Pump flow: 38 l/s", "Pump head: 15 m", "Pressure drop: 15 kPa", P(x, 380)],
   notes: "Draws from the towers' basins (CWS header) and pushes into its chiller's condenser. Pressure drop = suction strainer, check valve and isolating valves at the pump flow." });
 const CH = (n: number, x: number): WNode => ({ key: "ch" + n, title: "Chiller CH-" + n,
-  special: ["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", P(x, 520)],
-  notes: "Water-cooled chiller: evaporator on the chilled water, condenser on the condenser water. Pressure drop = evaporator at the design flow; the condenser flow is constant, set by its balancing valve." });
+  special: ["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", "Capacity: 750 kW", P(x, 520)],
+  notes: "Water-cooled chiller: evaporator on the chilled water, condenser on the condenser water. Capacity 750 kW (213 TR): with more load it cannot hold 6.7 °C and its leaving water rises (stop CH-2 to see CH-1 at capacity). Pressure drop = evaporator at the design flow; the condenser flow is constant, set by its balancing valve." });
 const CHP = (n: number, x: number, standby: boolean): WNode => ({ key: "p" + n, title: "Chilled water pump P-" + n + (standby ? " (standby)" : ""),
   special: [standby ? "Pump: standby" : "Pump: duty", "Pump flow: 30 l/s", "Pump head: 18 m", "Pressure drop: 15 kPa", P(x, 880)],
   notes: standby ? "Standby pump with its chiller: start it in its card to try it." : "Variable primary: one pump per chiller, from the suction header into its chiller's evaporator. Pressure drop = suction strainer, check valve and isolating valves at the pump flow." });
@@ -91,7 +95,8 @@ function building(): { node: WNode; wires: Wire[] } {
           notes: "On the return before the pumps: takes out the air the water releases." }] },
       { key: "sup", title: "Supply (CHWS)", notes: "Chilled water supply: from the chillers to the units, each unit under the pipe that feeds it.", kids: [
         { key: "hs", title: "CHWS header, plant room", special: ["Height: 0 m", P(1040, 700, 16, 160)], notes: "Collects the chillers' supply and sends it to the risers." },
-        { ...RUN("rs", "CHWS riser to AHU plant rooms", 5, P(1150, 760)), kids: [
+        { key: "rs", title: "CHWS riser to AHU plant rooms", special: ["Height: 5 m", "Max flow: 45 l/s", P(1150, 760)],
+          notes: "Max flow 45 l/s: the riser's balancing valve setting (and its size, DN 200 at under 2 m/s). Lower it and the AHUs share less water.", kids: [
           UNIT("ahu1", "AHU-01, Level 1", "12 l/s", "13.0 °C", "60 kPa", 5, P(1250, 400)), UNIT("ahu2", "AHU-02, Level 1", "12 l/s", "13.0 °C", "60 kPa", 5, P(1250, 570)),
           UNIT("ahu3", "AHU-03, Level 2", "9.5 l/s", "12.5 °C", "60 kPa", 10, P(1250, 60)), UNIT("ahu4", "AHU-04, Level 2", "9.5 l/s", "12.5 °C", "60 kPa", 10, P(1250, 230))] },
         { ...RUN("sl1", "CHWS branch, Level 1", 5, P(1580, 560)), kids: [

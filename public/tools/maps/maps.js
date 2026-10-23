@@ -20,6 +20,7 @@
   var ICON = {
     note: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 2.5h9v11h-9zM6 6h4M6 8.5h4M6 11h2.5"/></svg>',
     link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.8 9.2l2.4-2.4M7 4.6l1-1a2.6 2.6 0 013.7 3.7l-1 1M9 11.4l-1 1a2.6 2.6 0 01-3.7-3.7l1-1"/></svg>',
+    warn: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.8 15 14.2H1z"/><path d="M8 6v4M8 12.2v.1"/></svg>',
     focus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></svg>'
   };
   function ico(name) { return el("span", { "class": "mp-ico", "aria-hidden": "true", html: ICON[name] }); }
@@ -242,65 +243,47 @@
   function isOpen(id) { var n = N(id); if (st.iso[id] != null) return st.iso[id]; return /^open/i.test(noteVal(n, "switch")); }
   function isBms(id) { return /bms/i.test(noteVal(N(id), "control")); }
   function isFire(id) { return /fire/i.test(noteVal(N(id), "control")); }
-  function power() {
-    var adj = {}, inFlow = {}, any = false, sources = [];
-    Object.keys(M.nodes).forEach(function (id) {
-      (N(id).links || []).forEach(function (l) {
-        if (l.kind !== "node" || !N(l.node) || l.node === id || FLOW_KINDS.indexOf(l.rel) < 0) return;
-        any = true; (adj[id] = adj[id] || []).push(l.node); (adj[l.node] = adj[l.node] || []).push(id); inFlow[id] = inFlow[l.node] = 1;
-      });
-      if (noteVal(N(id), "source")) sources.push(id);
-    });
-    if (!any) return null;
-    var on = {}, from = {}, kids = {}, q = [];
-    sources.forEach(function (id) { if (!isOpen(id)) { on[id] = 1; q.push(id); } });
-    while (q.length) { var a = q.shift(); (adj[a] || []).forEach(function (b) { if (on[b] || isOpen(b)) return; on[b] = 1; from[b] = a; (kids[a] = kids[a] || []).push(b); q.push(b); }); }
-    // the BMS (23 Oct 2026): a branch with "Control: BMS" commands the branches a control wire joins it to (either end).
-    // A load runs when it has power and no branch on its way to the source that the BMS commands is stopped (by the BMS,
-    // or at night when it is on the occupied schedule): the fans of an AHU's diagram follow the AHU's command.
-    // interlocks and the fire alarm (23 Oct 2026, owner: "signals must be interconnected"): a control wire between two
-    // branches that are not the BMS makes the one the BMS does not command follow the one it does (a chiller starts its
-    // own pump); a branch with "Control: fire alarm" stops what its control wires reach while the alarm is on (st.fire).
-    var ctl = {}, bms = [], state = {}, draw = {}, follow = {}, fire = {}, fires = [], pairs = [];
-    Object.keys(M.nodes).forEach(function (id) { if (isBms(id)) bms.push(id); if (isFire(id)) fires.push(id); });
-    Object.keys(M.nodes).forEach(function (id) {
-      (N(id).links || []).forEach(function (l) {
-        if (l.kind !== "node" || !N(l.node) || CTL_KINDS.indexOf(l.rel) < 0) return;
-        if (isFire(id) && !isFire(l.node)) fire[l.node] = id; else if (isFire(l.node) && !isFire(id)) fire[id] = l.node;
-        else if (isBms(id) && !isBms(l.node)) ctl[l.node] = id; else if (isBms(l.node) && !isBms(id)) ctl[id] = l.node;
-        else if (!isBms(id) && !isBms(l.node)) pairs.push([id, l.node]);
-      });
-    });
-    pairs.forEach(function (p) { if (ctl[p[0]] && !ctl[p[1]]) follow[p[1]] = p[0]; else if (ctl[p[1]] && !ctl[p[0]]) follow[p[0]] = p[1]; });
-    function own(id) { if (st.cmd[id] === false) return "stopped"; if (st.night && /occupied/i.test(noteVal(N(id), "schedule"))) return "night"; return ""; }
-    var asking = {};
-    function why(id) {                         // why a commanding unit is not running ("" = it runs)
-      if (sources.length && inFlow[id] && !on[id]) return "nopower";
-      return blocked(id);
+  // the flow of current, the commands and the load (mp-power.js): the simulation (isolated branches, BMS commands, night,
+  // fire alarm) is this browser's only
+  function power() { return window.MPPower ? window.MPPower.compute(M.nodes, { iso: st.iso, cmd: st.cmd, night: st.night, fire: st.fire }) : null; }
+  // ---------- the load of a wiring map (owner, 23 Oct 2026; mp-power.js works it out) ----------
+  function fmtKw(v) { return window.MPPower.fmtKw(v); }
+  // a line under a branch: what it carries now, of its Max power; a warning sign when it is over or sheds; a shed load says so
+  function powerLine(n) {
+    var pw = lastPower; if (!pw || n.id === st.focus || !pw.part[n.id]) return null;
+    var id = n.id, by = pw.shed[id], d = pw.dem[id] || 0, mx = pw.max[id], own = pw.power[id], feeds = (pw.kids[id] || []).length, t = "", warn = false;
+    if (by) { t = "shed" + (own != null ? " (" + fmtKw(own) + ")" : "") + ": over the max of " + N(by).title; warn = true; }
+    else if (mx != null) {
+      var over = pw.over.indexOf(id) >= 0, sheds = pw.sheds[id] || 0;
+      t = !pw.on[id] ? "no supply · max " + fmtKw(mx) : fmtKw(d) + " of " + fmtKw(mx) + " (" + Math.round(d / mx * 100) + " %)" + (sheds ? " · " + sheds + " shed" : "") + (over ? " · over its max" : "");
+      warn = over || sheds > 0;
     }
-    function blocked(id) {
-      for (var x = id; x; x = from[x]) {
-        if (ctl[x]) { var o = own(x); if (o) return o; }
-        if (st.fire && fire[x]) return "fire";
-        if (follow[x] && !asking[x]) { asking[x] = 1; var w = why(follow[x]); delete asking[x]; if (w) return "interlock"; }
+    else if (feeds && d > 0) t = fmtKw(d);
+    else if (own != null) { var s = pw.state[id]; t = fmtKw(own) + (s && s !== "running" ? " · off" : !pw.on[id] && pw.known ? " · no supply" : ""); }
+    if (!t) return null;
+    return el("span", { "class": "mp-wq pw" + (warn ? " warn" : ""), title: warn ? "Over its Max power: loads are shed to stay within it" : "" }, [warn ? ico("warn") : null, document.createTextNode(t)]);
+  }
+  // the card: what it absorbs or carries, and the boxes for its figures
+  function powerCard(n, pw) {
+    var id = n.id, by = pw.shed[id], d = pw.dem[id] || 0, c = pw.cdem[id], mx = pw.max[id], own = pw.power[id], feeds = (pw.kids[id] || []).length || (pw.cdem[id] && own == null);
+    var says = [], pri = pw.priority[id], div = pw.diversity[id];
+    if (by) says.push("Shed to keep " + N(by).title + " within its max of " + fmtKw(pw.max[by]) + (pri != null ? " (Priority " + pri + ")." : " (no Priority: shed first).") + " Lower the load there, raise its max, or give this load a lower Priority number.");
+    else if (feeds || mx != null) {
+      says.push("Carries " + fmtKw(d) + " now" + (c != null && c > d + 0.05 ? " (connected " + fmtKw(c) + ")" : "") + (div ? ", diversity " + div : "") + ".");
+      if (mx != null) {
+        var over = pw.over.indexOf(id) >= 0, sheds = pw.sheds[id] || 0;
+        says.push("Max power " + fmtKw(mx) + ": " + Math.round(d / mx * 100) + " %" + (over ? ", over it with nothing left to shed." : sheds ? ", kept by shedding " + plural(sheds, "load") + " (greyed out)." : ", spare " + fmtKw(mx - d) + "."));
       }
-      return "";
+    } else if (own != null) says.push("Absorbs " + fmtKw(own) + " when it runs" + (pri != null ? ", Priority " + pri : ", no Priority (shed first)") + ".");
+    else says.push("Give it its Power (what it absorbs running) to see the loads summed up to the supply.");
+    var box = el("div", { "class": "mp-power" + (by || (pw.sheds[id] || pw.over.indexOf(id) >= 0) ? " alarm" : " on") }, [el("p", { text: says.join(" ") })]);
+    if (canEdit() && !st.note) {
+      var fields = feeds || mx != null
+        ? [{ note: "Max power", label: "Max power", unit: "kW", kind: "kw", value: mx }, { note: "Diversity", label: "Diversity", unit: "", kind: "div", value: div }]
+        : [{ note: "Power", label: "Power", unit: "kW", kind: "kw", value: own }, { note: "Priority", label: "Priority", unit: "", kind: "pri", value: pri }];
+      figureForm(n, fields).forEach(function (x) { box.appendChild(x); });
     }
-    var loads = Object.keys(inFlow).filter(function (id) { return sources.indexOf(id) < 0 && (on[id] ? !(kids[id] || []).length : (adj[id] || []).length <= 1); });
-    loads.forEach(function (id) {
-      if (sources.length && !on[id]) { state[id] = "nopower"; return; }
-      var b = blocked(id); if (b) { state[id] = b; return; }
-      state[id] = "running";
-      for (var x = id; x && !draw[x]; x = from[x]) draw[x] = 1;          // a running load draws current all the way up
-    });
-    // a unit the BMS commands that has its own diagram under it is not a load itself: its state is its command's
-    var cmd = {};
-    [ctl, follow, fire].forEach(function (m) { Object.keys(m).forEach(function (id) { cmd[id] = 1; }); });
-    Object.keys(cmd).forEach(function (id) { if (state[id]) return; state[id] = sources.length && inFlow[id] && !on[id] ? "nopower" : blocked(id) || "running"; });
-    // does a command b (BMS, interlock or fire alarm)? its wire pulses towards b while b runs (the fire alarm's while it sounds)
-    function commands(a, b) { return fire[b] === a ? (st.fire ? "fire" : "") : (ctl[b] === a || follow[b] === a) && state[b] === "running" ? "run" : ""; }
-    return { on: on, from: from, kids: kids, part: inFlow, adj: adj, known: sources.length > 0, ctl: ctl, bms: bms, state: state, draw: draw, loads: loads,
-      follow: follow, fire: fire, fires: fires, cmd: cmd, commands: commands };
+    return box;
   }
   // ---------- water (piping maps, 23 Oct 2026) ----------
   // mp-water.js works it out from the special notes and the Close valve / Stop pump simulation (st.iso: true = shut,
@@ -337,14 +320,16 @@
           t.push(s.out != null && s.back != null ? wRange(s.out, s.back) : s.out != null ? "out " + wTemp(s.out) : "leaving not given");
           t.push(wFlow(q) + (s.pct != null ? " (" + Math.round(s.pct) + " %" + (s.over ? ", above design)" : ")") : ""));
           warn = !!s.over;
-          if (s.kw != null && !compact) t.push(W().fmtKw(s.kw));
+          if (s.kw != null && (!compact || s.capacity)) t.push(s.capacity ? kwShort(s.kw) + " of " + kwShort(s.capacity) + (s.atCap ? " (at capacity" + (s.short ? ", " + kwShort(s.short) + " short)" : ")") : "") : W().fmtKw(s.kw));
+          if (s.atCap) warn = true;
         }
         if (w.noCondenser.indexOf(id) >= 0 && r.C.id === "chw") { t.push("no condenser water"); warn = true; }
       } else if (side === "unit") {
-        var f = r.input.flow[id], part = r.starved[id];
+        var f = r.input.flow[id], part = r.starved[id], lim = r.limited[id];
         if (!q) { t.push(r.shut[id] ? "Valve closed" : f > 0 ? "No flow: not reached both ways" : "Flow not given"); warn = !r.shut[id] && !(f > 0); }
         else {
-          t.push(part ? wFlow(q) + " of " + wFlow(f) : wFlow(q));
+          t.push(part || lim ? wFlow(q) + " of " + wFlow(f) : wFlow(q));
+          if (lim) { t.push("limited by " + N(lim.by).title); warn = true; }
           var ti = r.tIn[id], to = r.tOut[id];
           if (ti != null && to != null) t.push(wRange(ti, to)); else if (to != null) t.push("leaving " + wTemp(to)); else { t.push("leaving not given"); warn = true; }
           var kw = r.kw[id];
@@ -358,17 +343,32 @@
       } else {
         if (!q) t.push(r.shut[id] ? (isPumpLike(n) ? "Stopped" : "Valve closed") : "No flow");
         else {
-          t.push(wFlow(q));
+          var mf = r.input.maxFlow[id], at = r.limitAt[id];
+          t.push(mf ? wFlow(q) + " of " + wFlow(mf) + " max" + (at ? " (wants " + wFlow(at.want) + ")" : "") : wFlow(q));
+          if (at) warn = true;
           var tt = side === "supply" ? r.tSupply[id] : r.tReturn[id]; if (tt != null) t.push(wTemp(tt));
+          if (r.carried[id] > 0) t.push(kwShort(r.carried[id]));
           if (h && h.pump[id]) { t.push(W().fmtHead(h.pump[id].h) + " head"); if (h.pump[id].beyond) { t.push("off its curve"); warn = true; } }
           var p = pressAt(r, id); if (p != null && !h.pump[id]) t.push(wBar(p));
           if (h && h.low.indexOf(id) >= 0) { t.push("low pressure"); warn = true; }
         }
       }
-      lines.push(el("span", { "class": "mp-wq " + cls + (warn ? " warn" : "") }, [cs.length > 1 ? el("b", { text: r.C.short + " " }) : null, document.createTextNode(t.join(" · "))]));
+      lines.push(el("span", { "class": "mp-wq " + cls + (warn ? " warn" : "") }, [warn ? ico("warn") : null, cs.length > 1 ? el("b", { text: r.C.short + " " }) : null, document.createTextNode(t.join(" · "))]));
     });
     return lines;
   }
+  // a pipe a limit shows on: "lim" downstream of a branch at its max flow, "warm" supply above the set point (a chiller at capacity)
+  function waterLimit(a, b) {
+    var w = lastWater; if (!w) return "";
+    if (w.limEdge[a + ">" + b] || w.limEdge[b + ">" + a]) return "lim";
+    var k = w.dir[a + ">" + b] ? a + ">" + b : b + ">" + a, c = w.circuits[w.edge[k]];
+    if (c && c.setpoint < Infinity && w.tEdge[k] != null && c.side[a] !== "return" && c.side[b] !== "return" && w.tEdge[k] > c.setpoint + 0.3 && !(c.isUnit[a] && c.isUnit[b])) {
+      var pr = N(a).links.concat(N(b).links).some(function (l) { return (l.node === a || l.node === b) && /supply$/.test(l.rel); });
+      if (pr) return "warm";
+    }
+    return "";
+  }
+  function kwShort(kw) { return Math.round(kw).toLocaleString("en-US") + " kW"; }
   function waterLine(n) { var l = waterFigures(n); return l.length ? (l.length === 1 ? l[0] : el("span", { "class": "mp-wqs" }, l)) : null; }
   // where the water of a branch comes from and goes to, on one circuit
   function waterWays(r, id) {
@@ -393,6 +393,8 @@
       if (s.back != null) out.push("The water comes back at " + wTemp(s.back) + (s.out != null ? " (ΔT " + wDelta(s.back - s.out) + ")" : "") + ".");
       if (s.kw != null) out.push((r.C.id === "cw" ? "Rejects " : "Load ") + W().fmtKw(s.kw) + ".");
       if (s.design) out.push("Design flow " + wFlow(s.design) + ": " + Math.round(s.pct) + " %" + (s.over ? ", above its design flow." : "."));
+      if (s.capacity) out.push(s.atCap ? "At its capacity of " + W().fmtKw(s.capacity) + ": it cannot hold " + wTemp(s.set) + ", so its water leaves at " + wTemp(s.out) + (s.short ? "; the units given by their load are " + W().fmtKw(s.short) + " short" : "") + ". Start another chiller, or lower the load."
+        : "Capacity " + W().fmtKw(s.capacity) + ": " + Math.round((s.kw || 0) / s.capacity * 100) + " % used.");
       else if (!r.byDesign && r.sources > 1) out.push("No design flow given: the flow is shared equally between the running sources.");
       if (r.C.id === "chw" && w.reject[id] != null) out.push("Rejects " + W().fmtKw(w.reject[id]) + " to the condenser water" + (w.copAssumed.indexOf(id) >= 0 ? " (COP not given: 5.0 taken)." : "."));
       if (r.C.id === "chw" && w.noCondenser.indexOf(id) >= 0) out.push("No condenser water reaches it: start its condenser water pump, or it trips on high pressure.");
@@ -403,7 +405,8 @@
       var f = r.input.flow[id], part = r.starved[id];
       if (!q) return r.shut[id] ? "Valve closed: no water through it." : f > 0 ? "No flow: no running source reaches it both ways (supply and return)." : "No flow given. Give it its design water flow (Flow below, or a special note \"Flow: 12 l/s\").";
       var ti = r.tIn[id], to = r.tOut[id], kw = r.kw[id];
-      out.push("Takes " + wFlow(q) + (part ? " of its " + wFlow(f) : "") + (ti != null ? " at " + wTemp(ti) : "") + (ways.from.length ? " from " + names(ways.from) : "") + ".");
+      out.push("Takes " + wFlow(q) + (part || r.limited[id] ? " of its " + wFlow(f) : "") + (ti != null ? " at " + wTemp(ti) : "") + (ways.from.length ? " from " + names(ways.from) : "") + ".");
+      if (r.limited[id]) out.push("Limited by the max flow of " + N(r.limited[id].by).title + " (" + wFlow(r.input.maxFlow[r.limited[id].by]) + "): the units on it share it, each " + Math.round(r.limited[id].f * 100) + " % of its design flow.");
       if (to != null) out.push("Sends it back at " + wTemp(to) + (ways.to.length ? " to " + names(ways.to) : "") + (r.input.leaving[id] == null ? " (worked out from its load)" : "") + ".");
       else out.push("No leaving temperature given: it is left out of the mixed return.");
       if (kw != null) out.push((r.C.id === "cw" ? "Heat " : "Load ") + W().fmtKw(kw) + " = 4.19 × flow in l/s × ΔT" + (ti != null && to != null ? " " + wDelta(to - ti) : "") + ".");
@@ -422,6 +425,8 @@
     var temp = side === "supply" ? r.tSupply[id] : r.tReturn[id];
     out.push((side === "supply" ? "Carries " : "Collects ") + wFlow(q) + (temp != null ? " at " + wTemp(temp) : "") +
       (ways.from.length ? " from " + names(ways.from) : "") + (ways.to.length ? " to " + names(ways.to) : "") + ".");
+    if (r.carried[id] > 0) out.push("Load " + W().fmtKw(r.carried[id]) + ": the units it " + (side === "supply" ? "feeds" : "collects from") + ".");
+    if (r.input.maxFlow[id]) out.push(r.limitAt[id] ? "Max flow " + wFlow(r.input.maxFlow[id]) + ": its units want " + wFlow(r.limitAt[id].want) + ", so each gets less (amber pipes). Raise it, or size up." : "Max flow " + wFlow(r.input.maxFlow[id]) + ": " + Math.round(q / r.input.maxFlow[id] * 100) + " % used.");
     if (h && h.pump[id]) {
       var pp = h.pump[id];
       out.push("Runs at " + wFlow(pp.q) + " and " + W().fmtHead(pp.h) + " (" + wKpa(pp.h) + ") on its curve: design " + wFlow(pp.design.q) + " at " + W().fmtHead(pp.design.h) +
@@ -452,9 +457,11 @@
       { note: "Speed", label: "Speed", unit: "%", kind: "pct", value: noteVal(n, "speed") ? r.input.speed[id] * 100 : null }];
     if (r.isSrc[id] && r.C.id === "chw") return [{ note: "Leaving", label: "Leaving", unit: tw, kind: "temp", value: tOf(r.input.out[id]) },
       { note: "Design flow", label: "Design flow", unit: fw, kind: "flow", value: qOf(r.input.design[id]) },
-      { note: "COP", label: "COP", unit: "", kind: "num", value: W().num(noteVal(n, "cop")) || null }];
+      { note: "COP", label: "COP", unit: "", kind: "num", value: W().num(noteVal(n, "cop")) || null },
+      { note: "Capacity", label: "Capacity", unit: "kW", kind: "kw", value: r.input.capacity[id] }];
     if (r.isSrc[id]) return [{ note: "Leaving", label: "Leaving", unit: tw, kind: "temp", value: tOf(r.input.out[id]) },
-      { note: "Design flow", label: "Design flow", unit: fw, kind: "flow", value: qOf(r.input.design[id]) }];
+      { note: "Design flow", label: "Design flow", unit: fw, kind: "flow", value: qOf(r.input.design[id]) },
+      { note: "Capacity", label: "Capacity", unit: "kW", kind: "kw", value: r.input.capacity[id] }];
     if (r.isUnit[id]) {
       var useLoad = r.input.leaving[id] == null && r.input.load[id] != null && r.C.id === "chw";
       var flowNote = cs.length > 1 && r.C.id === "cw" ? "Condenser flow" : "Flow";
@@ -462,6 +469,8 @@
         useLoad ? { note: "Load", label: "Load", unit: "kW", kind: "kw", value: r.input.load[id] } : { note: "Leaving", label: "Leaving", unit: tw, kind: "temp", value: tOf(r.input.leaving[id]) },
         { note: "Pressure drop", label: "Pressure drop", unit: "kPa", kind: "kpa", value: r.input.dp[id] }];
     }
+    // a header, riser or pipe run: its max flow (balancing valve)
+    if (!r.isSrc[id] && cs.length === 1) return [{ note: "Max flow", label: "Max flow", unit: fw, kind: "flow", value: qOf(r.input.maxFlow[id]) }];
     return [];
   }
   function waterCard(n) {
@@ -471,37 +480,40 @@
       tank ? null : el("button", { type: "button", "class": "btn ghost sm", text: label + " (simulation)", title: "Tries it in this browser only: nothing is saved, a reload starts again.",
         onclick: function () { st.iso[id] = !shut; peekEl = null; renderView(); } })]);
     var fields = canEdit() && !st.note ? waterFields(n) : [];
-    if (fields.length) {
-      var err = el("p", { "class": "mp-err", role: "alert" }), tu = lastWater.unit.temp;
-      var inputs = fields.map(function (f) {
-        var i = el("input", { "class": "input", type: "text", inputmode: "decimal", autocomplete: "off", "aria-label": f.label, value: f.value == null || isNaN(f.value) ? "" : String(+(+f.value).toFixed(3)) });
-        f.i = i; return el("label", { "class": "field mp-wfield" }, [el("span", { text: f.label + (f.unit ? " (" + f.unit + ")" : "") }), i]);
-      });
-      var save = el("button", { type: "button", "class": "btn sm", text: "Save", onclick: function () {
-        err.textContent = "";
-        var list = n.special.slice(), bad = "";
-        fields.forEach(function (f) {
-          if (bad) return;
-          var raw = f.i.value.trim(), x = W().num(raw);
-          if (!raw) { list = withNote(list, f.note, ""); return; }
-          if (isNaN(x) || !/^-?\d+(?:[.,]\d+)?$/.test(raw)) { bad = f.label + ": type a number, for example 12.5."; return; }
-          if (f.kind === "temp") { var c = tu === "F" ? (x - 32) / 1.8 : x; if (c < -20 || c > 100) { bad = "A water temperature between -20 and 100 °C."; return; } }
-          else if (f.kind === "pct") { if (x < 20 || x > 110) { bad = "Speed between 20 and 110 %."; return; } }
-          else if (f.kind === "num") { if (!(x > 0.5) || x > 20) { bad = "A COP between 0.5 and 20."; return; } }
-          else if (f.kind === "bar") { if (!(x > 0) || x > 25) { bad = "A fill pressure between 0 and 25 bar."; return; } }
-          else if (!(x > 0) || x > 100000) { bad = f.label + ": a value above zero."; return; }
-          list = withNote(list, f.note, String(+x.toFixed(3)) + (f.unit ? " " + f.unit : ""));
-        });
-        if (bad) { err.textContent = bad; return; }
-        if (list.length > 20) { err.textContent = "A branch holds up to 20 special notes."; return; }
-        if (list.join("\n") === n.special.join("\n")) return;
-        peekEl = null; setList(n, "special", list);
-      } });
-      fields.forEach(function (f) { f.i.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); save.click(); } }); });
-      box.appendChild(el("div", { "class": "mp-wform" }, inputs.concat([save])));
-      box.appendChild(err);
-    }
+    if (fields.length) figureForm(n, fields).forEach(function (x) { box.appendChild(x); });
     return box;
+  }
+  // boxes for the figures of a card (water or power): each saves its special note "Name: value unit" (empty removes it)
+  function figureForm(n, fields) {
+    var err = el("p", { "class": "mp-err", role: "alert" }), tu = lastWater ? lastWater.unit.temp : "C";
+    var inputs = fields.map(function (f) {
+      var i = el("input", { "class": "input", type: "text", inputmode: "decimal", autocomplete: "off", "aria-label": f.label, value: f.value == null || isNaN(f.value) ? "" : String(+(+f.value).toFixed(3)) });
+      f.i = i; return el("label", { "class": "field mp-wfield" }, [el("span", { text: f.label + (f.unit ? " (" + f.unit + ")" : "") }), i]);
+    });
+    var save = el("button", { type: "button", "class": "btn sm", text: "Save", onclick: function () {
+      err.textContent = "";
+      var list = n.special.slice(), bad = "";
+      fields.forEach(function (f) {
+        if (bad) return;
+        var raw = f.i.value.trim(), x = parseFloat(raw.replace(",", "."));
+        if (!raw) { list = withNote(list, f.note, ""); return; }
+        if (isNaN(x) || !/^-?\d+(?:[.,]\d+)?$/.test(raw)) { bad = f.label + ": type a number, for example 12.5."; return; }
+        if (f.kind === "temp") { var c = tu === "F" ? (x - 32) / 1.8 : x; if (c < -20 || c > 100) { bad = "A water temperature between -20 and 100 °C."; return; } }
+        else if (f.kind === "pct") { if (x < 20 || x > 110) { bad = "Speed between 20 and 110 %."; return; } }
+        else if (f.kind === "num") { if (!(x > 0.5) || x > 20) { bad = "A COP between 0.5 and 20."; return; } }
+        else if (f.kind === "bar") { if (!(x > 0) || x > 25) { bad = "A fill pressure between 0 and 25 bar."; return; } }
+        else if (f.kind === "div") { if (!(x >= 0.1 && x <= 1)) { bad = "Diversity between 0.1 and 1 (1 = everything at once)."; return; } }
+        else if (f.kind === "pri") { if (!(x >= 1 && x <= 9) || x % 1) { bad = "Priority: a whole number from 1 (kept longest) to 9."; return; } }
+        else if (!(x > 0) || x > 100000) { bad = f.label + ": a value above zero."; return; }
+        list = withNote(list, f.note, String(+x.toFixed(3)) + (f.unit ? " " + f.unit : ""));
+      });
+      if (bad) { err.textContent = bad; return; }
+      if (list.length > 20) { err.textContent = "A branch holds up to 20 special notes."; return; }
+      if (list.join("\n") === n.special.join("\n")) return;
+      peekEl = null; setList(n, "special", list);
+    } });
+    fields.forEach(function (f) { f.i.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); save.click(); } }); });
+    return [el("div", { "class": "mp-wform" }, inputs.concat([save])), err];
   }
   // ---------- the 2D view of a piping map (owner, 23 Oct 2026; mp-schematic.js draws it) ----------
   // Every branch with a special note "Place: x, y" (headers "x, y, w, h") or on a pipe is drawn as its symbol; the pipes
@@ -556,7 +568,7 @@
         var q = flowing ? (child === l.node ? 1 : -1) : 0;
         if (pairs[key]) { var o = pairs[key]; if (!o.q && q) o.q = (o.a === a) === (q > 0) ? 1 : -1; o.live = o.live || live; if (!o.pulse && pulse) o.pulse = (o.a === a) === (pulse > 0) ? 1 : -1; return; }
         var chosen = st.sel === id || st.sel === l.node || st.sel === a || st.sel === b, full = wireText(l, rel, id), other = b;
-        pipes.push(pairs[key] = { a: a, b: b, rel: rel.id, q: q, live: live, pulse: pulse, minor: !power, speed: "0.9", chosen: chosen,
+        pipes.push(pairs[key] = { a: a, b: b, rel: rel.id, q: q, live: live, pulse: pulse, minor: !power, shed: power && !!(pw && (pw.shed[id] || pw.shed[l.node])), speed: "0.9", chosen: chosen,
           label: chosen ? full : [l.signal || rel.label, l.cable || ""].filter(Boolean).join(" · "), title: full,
           go: function () { flush(); st.sel = other; st.peek = other; renderView(); } });
       });
@@ -567,7 +579,7 @@
       if (sxDrag && sxDrag.id === id && sxDrag.moved) pl = { x: sxDrag.x, y: sxDrag.y, w: sxDrag.w, h: sxDrag.h };
       var kind = S ? S.of(n) : "";
       items.push({ id: id, kind: kind, place: pl, sign: kind && S ? S.svg(kind) : "", title: n.title, sel: st.sel === id, outside: !!outside[id],
-        dead: !!(pw && pw.known && pw.part[id] && !pw.on[id]) });
+        dead: !!(pw && pw.known && pw.part[id] && !pw.on[id]), warn: !!(pw && (pw.sheds[id] || pw.over.indexOf(id) >= 0 || pw.shed[id])) });
     });
     // how far from a source along the power wires (switches as drawn, not as tried): the order of the rows
     var adj = {}, far = {}, q = [];
@@ -594,7 +606,7 @@
       var wp = wiringParts();
       lastSx = window.MPSchematic.draw(stage, { items: wp.items, pipes: wp.pipes, pipeLabels: st.sxLabels, flowOn: st.flow, edit: st.edit && canEdit(), el: el,
         habit: { chiller: "tb", ahu: "tb", fcu: "tb", breaker: "tb", transformer: "tb", generator: "tb", utility: "tb" },
-        label: function (id) { var n = N(id); return [el("b", { text: n.title }), wireState(wp.pw, id)]; } });
+        label: function (id) { var n = N(id); return [el("b", { text: n.title }), powerLine(n), wireState(wp.pw, id)]; } });
       return schematicFrame(lastSx);
     }
     each(M.root, function (n) {
@@ -604,7 +616,8 @@
       if (sxDrag && sxDrag.id === n.id && sxDrag.moved) pl = { x: sxDrag.x, y: sxDrag.y, w: pl ? pl.w : 0, h: pl ? pl.h : 0 };
       var kind = S ? S.of(n) : "";
       items.push({ id: n.id, kind: kind, place: pl, sign: kind && S ? S.svg(kind) : "", title: n.title, sel: st.sel === n.id,
-        dead: !!(w && w.part[n.id] && !anyFlow(n.id) && !isTank(n.id)) });
+        dead: !!(w && w.part[n.id] && !anyFlow(n.id) && !isTank(n.id)),
+        warn: circuitsOf(n.id).some(function (r) { return (r.source[n.id] && r.source[n.id].atCap) || r.limitAt[n.id] || r.limited[n.id]; }) });
       drawn[n.id] = 1;
     });
     var pipes = [], qMax = 1e-9, chw = w && w.circuits.chw;
@@ -620,7 +633,7 @@
         var valveAt = rel.id === "p-return" && chw ? (chw.isUnit[n.id] ? "a" : chw.isUnit[l.node] ? "b" : null) : null;
         var other = l.node;
         pipes.push({ a: n.id, b: l.node, rel: rel.id, q: q, speed: (1.9 - 1.3 * Math.min(1, Math.abs(q) / qMax)).toFixed(2), chosen: chosen,
-          label: chosen ? full : short, title: full, valveAt: valveAt, go: function () { flush(); st.sel = other; st.peek = other; renderView(); } });
+          label: chosen ? full : short, title: full, valveAt: valveAt, lim: q && waterLimit(n.id, l.node) === "lim", warm: q && waterLimit(n.id, l.node) === "warm", go: function () { flush(); st.sel = other; st.peek = other; renderView(); } });
       });
     });
     var res = window.MPSchematic.draw(stage, { items: items, pipes: pipes, pipeLabels: mode, flowOn: st.flow, edit: st.edit && canEdit(), el: el,
@@ -959,6 +972,7 @@
     ].concat(marks(n)));
     if (st.special && n.special.length) e.appendChild(el("span", { "class": "mp-sps" }, n.special.slice(0, 6).map(function (s) { return el("span", { text: s }); })));
     var wl = waterLine(n); if (wl) e.appendChild(wl);
+    var pl = powerLine(n); if (pl) e.appendChild(pl);
     if (kids) e.appendChild(el("button", { type: "button", "class": "mp-tg", tabindex: "-1", "data-act": "toggle", "aria-hidden": "true",
       title: n.open ? "Close" : "Open " + plural(kids, "branch", "branches"), text: n.open ? "−" : String(kids) }));
     return e;
@@ -980,10 +994,15 @@
       if (n.open && colsOf(n)) n.kids.forEach(function openAll(k) { var c = N(k); if (!c.kids.length) return; if (colsOf(c)) { c.open = false; return; } c.open = true; c.kids.forEach(openAll); });
       if (n.open) n.kids.forEach(walk);
     })(st.focus);
-    var pw = isWiring() ? power() : null; lastPower = pw;
-    if (lastWater) Object.keys(els).forEach(function (id) { if (lastWater.part[id] && !anyFlow(id) && !isTank(id)) els[id].classList.add("mp-dead"); });
+    var pw = lastPower;
+    if (lastWater) Object.keys(els).forEach(function (id) {
+      if (lastWater.part[id] && !anyFlow(id) && !isTank(id)) els[id].classList.add("mp-dead");
+      if (circuitsOf(id).some(function (r) { return (r.source[id] && r.source[id].atCap) || r.limitAt[id]; })) els[id].classList.add("mp-over");
+    });
     if (pw && pw.known) Object.keys(els).forEach(function (id) {
       if (pw.part[id] && !pw.on[id]) els[id].classList.add("mp-dead");
+      if (pw.shed[id]) els[id].classList.add("mp-shed");
+      if (pw.sheds[id] || pw.over.indexOf(id) >= 0) els[id].classList.add("mp-over");
       if (pw.cmd[id] && pw.state[id]) els[id].classList.add(pw.state[id] === "running" ? "mp-run" : "mp-stop");
       if (st.fire && pw.fires.indexOf(id) >= 0) els[id].classList.add("mp-alarm");
     });
@@ -1195,7 +1214,7 @@
       var pw = lastPower;
       if (pw && FLOW_KINDS.indexOf(e.rel.id) >= 0) {
         var live = pw.known ? !!pw.on[e.from] && !!pw.on[e.to] : true;
-        if (!live) p.classList.add("off");
+        if (!live) p.classList.add(pw.shed[e.from] || pw.shed[e.to] ? "shed" : "off");
         else if (st.flow) {
           // the dots run the way the current goes (away from the source), whichever end the wire was added from;
           // energized but nothing it feeds runs: no current, so no dots (the line stays solid)
@@ -1208,7 +1227,8 @@
       if (wf && e.rel.pipe) {
         var fw = wf.dir[e.from + ">" + e.to], bw = wf.dir[e.to + ">" + e.from];
         if (!fw && !bw) p.classList.add("off");
-        else if (st.flow) {
+        else { var wc = waterLimit(e.from, e.to); if (wc) p.classList.add(wc); }
+        if ((fw || bw) && st.flow) {
           var dots = svgEl("path", { d: p.getAttribute("d"), "class": "mpx-flow" + (bw && !fw ? " rev" : "") });
           dots.style.animationDuration = (1.9 - 1.3 * Math.min(1, (fw || bw) / qMax)).toFixed(2) + "s";
           svg.appendChild(dots);
@@ -1314,13 +1334,15 @@
       var open = isOpen(n.id), live = !!pw.on[n.id], feeds = downstream(pw, n.id), sw = /./.test(noteVal(n, "switch")) || st.iso[n.id] != null;
       // where its power comes from: the branch that feeds it and the source behind (the whole path is the line on the map)
       var says = live ? (noteVal(n, "source") ? "Source of power." : "Fed by " + path[0] + (path.length > 1 ? ", from " + path[path.length - 1] : "") + ".")
-        : open ? (sw && !st.iso[n.id] ? "Open: passes no power until it is closed." : "Isolated: no power here or downstream.") : "No supply: something upstream is open or isolated.";
+        : open ? (sw && !st.iso[n.id] ? "Open: passes no power until it is closed." : "Isolated: no power here or downstream.")
+        : pw.shed[n.id] ? "Shed: its supply is opened to keep " + N(pw.shed[n.id]).title + " within its max." : "No supply: something upstream is open, isolated or shed.";
       box.appendChild(el("div", { "class": "mp-power" + (live ? " on" : "") }, [
         el("p", { text: says + (feeds ? " Feeds " + feeds + (feeds === 1 ? " branch." : " branches.") : "") }),
         el("button", { type: "button", "class": "btn ghost sm", text: open ? (noteVal(n, "switch") && st.iso[n.id] == null ? "Close (simulation)" : "Reconnect (simulation)") : "Isolate (simulation)",
           title: "Tries it in this browser only: nothing is saved, a reload starts again.",
           onclick: function () { st.iso[n.id] = !open; peekEl = null; renderView(); } })]));
     }
+    if (pw && pw.part[n.id]) box.appendChild(powerCard(n, pw));
     // a unit the BMS commands: its state and Start / Stop
     if (pw && pw.cmd && pw.cmd[n.id]) {
       var stt = pw.state[n.id] || "running", stopped = st.cmd[n.id] === false, master = pw.follow[n.id] ? N(pw.follow[n.id]).title : "";
@@ -1583,6 +1605,11 @@
         else badge("warn", r.C.name + ": no water flowing");
         var over = Object.keys(r.source).filter(function (k) { return r.source[k].over; });
         if (over.length) badge("warn", plural(over.length, "source") + " above design flow", who(over));
+        var atCap = Object.keys(r.source).filter(function (k) { return r.source[k].atCap; });
+        if (atCap.length) badge("warn", plural(atCap.length, r.C.id === "cw" ? "tower" : "chiller") + " at capacity: supply " + wTemp(Math.max.apply(null, atCap.map(function (k) { return r.source[k].out; }))),
+          who(atCap) + "\nOver its Capacity: it runs at it and its leaving water rises (amber supply pipes).", function () { flush(); reveal(atCap[0]); });
+        var lims = Object.keys(r.limitAt);
+        if (lims.length) badge("warn", plural(Object.keys(r.limited).length, "unit") + " limited by a max flow", who(lims), function () { flush(); reveal(lims[0]); });
         if (r.missing.length) badge("warn", plural(r.missing.length, "unit") + " without a leaving temperature", who(r.missing));
         var h = r.hyd;
         if (h && h.ok) {
@@ -1603,11 +1630,23 @@
       if (w.noCondenser.length) badge("warn", plural(w.noCondenser.length, "chiller") + " without condenser water", who(w.noCondenser));
       if (w.copAssumed.length) badge("", "COP 5.0 taken for " + plural(w.copAssumed.length, "chiller"), who(w.copAssumed));
     }
+    // a wiring map: the load now, what is shed, what is over its max
+    var pw = lastPower;
+    if (pw && pw.known) {
+      var pb = function (cls, text, title, go) { p.appendChild(el(go ? "button" : "span", { "class": "badge " + cls + (go ? " mp-badgebtn" : ""), text: text, title: title || null, type: go ? "button" : null, onclick: go || null })); };
+      var srcs = Object.keys(pw.dem).filter(function (k) { return pw.on[k] && !pw.from[k] && pw.dem[k] > 0; });
+      var total = srcs.reduce(function (t, k) { return t + pw.dem[k]; }, 0);
+      if (total > 0) pb("brand", "Load " + fmtKw(total) + " from " + srcs.map(function (k) { return N(k).title; }).join(", "), "What the running loads draw now (each board's Diversity applied)");
+      var shed = Object.keys(pw.shed);
+      if (shed.length) pb("warn", plural(shed.length, "load") + " shed to keep a max power", shed.map(function (k) { return N(k).title + " (by " + N(pw.shed[k]).title + ")"; }).join("\n"), function () { flush(); reveal(shed[0]); });
+      if (pw.over.length) pb("warn", plural(pw.over.length, "branch", "branches") + " over max power", pw.over.map(function (k) { return N(k).title; }).join("\n"), function () { flush(); reveal(pw.over[0]); });
+    }
   }
   var viewQueued = false, outlineWired = false;
   function renderView() {
     if (!outlineWired) { outlineWired = true; outlineMouse(); }
     lastWater = isWater() && W() ? W().compute(M.nodes, st.iso) : null;
+    lastPower = isWiring() ? power() : null;
     renderCrumbs(); renderPills();
     if (st.view === "schematic" && !isNet()) st.view = "map";
     var map = st.view === "map", canv = st.view !== "outline";
@@ -2142,12 +2181,19 @@
   }
 
   // ---------- cable schedule (wiring maps) and pipe schedule (piping maps): every wire or pipe as a row, for submittals ----------
+  // the load a pipe carries: the smaller of its ends' (a unit's own, a run's carried, a source's)
+  function pipeKw(a, b, rel) {
+    var r = lastWater && lastWater.circuits[/^p-cw-/.test(rel) ? "cw" : "chw"]; if (!r) return "";
+    var v = [a, b].map(function (id) { return r.source[id] ? r.source[id].kw : r.isUnit[id] ? r.kw[id] : r.carried[id]; }).filter(function (x) { return x != null; });
+    return v.length ? Math.round(Math.min.apply(null, v)) : "";
+  }
   function cableSchedule() {
     flush();
     var pipes = isWater(), w = lastWater, fu = w ? W().FLOW_WORD[w.unit.flow] : "l/s", tu = w && w.unit.temp === "F" ? "°F" : "°C";
     var head = pipes ? ["System", "From", "Connection (from)", "To", "Connection (to)", "Pipe", "Label", "Pipe size", "Length (m)", "Installed by", "Water flows", "Flow (" + fu + ")", "Temperature (" + tu + ")",
-        "Velocity (m/s)", "Friction (Pa/m)", "Pressure drop incl. 30 % fittings (kPa)", "Check", "Checked"]
-      : ["Variant", "From", "Terminal (from)", "To", "Terminal (to)", "Wire", "Signal", "Cable", "Wired by", "Checked"];
+        "Velocity (m/s)", "Friction (Pa/m)", "Pressure drop incl. 30 % fittings (kPa)", "Load carried (kW)", "Check", "Checked"]
+      : ["Variant", "From", "Terminal (from)", "To", "Terminal (to)", "Wire", "Signal", "Cable", "Wired by", "Load now (kW)", "Connected load (kW)", "Checked"];
+    var pw = isWiring() ? lastPower || power() : null;
     var rows = [head], round = function (x, d) { return Math.round(x * Math.pow(10, d)) / Math.pow(10, d); };
     each(M.root, function (n) {
       (n.links || []).forEach(function (l) {
@@ -2160,8 +2206,13 @@
           row.splice(8, 0, len != null ? round(len, 1) : "");
           row.push(q ? (fw ? n.title + " → " + (to ? to.title : l.label) : (to ? to.title : l.label) + " → " + n.title) : "No flow",
             q ? round(W().toUnit(q, w.unit.flow), 2) : 0, t != null ? round(w.unit.temp === "F" ? t * 1.8 + 32 : t, 1) : "",
-            pf && !pf.missing ? round(pf.v, 2) : "", pf && !pf.missing ? round(pf.pam, 0) : "", pf && !pf.missing ? round(pf.dp, 2) : "",
+            pf && !pf.missing ? round(pf.v, 2) : "", pf && !pf.missing ? round(pf.pam, 0) : "", pf && !pf.missing ? round(pf.dp, 2) : "", q ? pipeKw(n.id, l.node, l.rel) : "",
             !W().dnOf(l.cable) || len == null ? "Size or length missing" : pf && pf.fast ? "Over 400 Pa/m or 3 m/s" : "");
+        } else {
+          // a feeder carries what the end it feeds draws (for the cable's size); a signal wire carries no load
+          var child = pw && l.rel === "w-power" ? (pw.from[l.node] === n.id ? l.node : pw.from[n.id] === l.node ? n.id : null) : null;
+          var conn = pw && l.rel === "w-power" && pw.cdem[n.id] != null && pw.cdem[l.node] != null ? Math.min(pw.cdem[n.id], pw.cdem[l.node]) : null;
+          row.push(l.rel === "w-power" && pw ? round(child ? pw.dem[child] || 0 : 0, 1) : "", conn != null ? round(conn, 1) : "");
         }
         row.push(n.verified && to && to.verified ? "Verified" : "To verify");
         rows.push(row);
@@ -2170,7 +2221,7 @@
     if (rows.length === 1) { Hub.toast(pipes ? "This map has no pipes yet. Add one with Add link in a branch's note." : "This map has no wires yet. Add one with Add link in a branch's note.", true); return; }
     if (!window.HubXlsx) { Hub.toast("The Excel writer did not load. Reload the page.", true); return; }
     var what = pipes ? "pipe schedule" : "cable schedule";
-    var blob = window.HubXlsx.build(rows, pipes ? "Pipe schedule" : "Cable schedule", pipes ? [24, 30, 14, 30, 14, 12, 10, 10, 10, 14, 44, 10, 12, 12, 12, 16, 22, 12] : [26, 30, 16, 30, 16, 18, 34, 26, 18, 12]);
+    var blob = window.HubXlsx.build(rows, pipes ? "Pipe schedule" : "Cable schedule", pipes ? [24, 30, 14, 30, 14, 12, 10, 10, 10, 14, 44, 10, 12, 12, 12, 16, 14, 22, 12] : [26, 30, 16, 30, 16, 18, 34, 26, 18, 14, 16, 12]);
     var url = URL.createObjectURL(blob);
     var a = el("a", { href: url, download: (M.map.name.replace(/[^A-Za-z0-9 _-]+/g, " ").replace(/\s+/g, " ").trim() || "map") + " - " + what + ".xlsx" });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);

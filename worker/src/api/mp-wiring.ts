@@ -48,6 +48,11 @@ function guide(): WNode {
     "A running unit has a green dot; a stopped one draws no current, so the dots stop on its power line, and on the feeders above it when nothing they feed runs.\n\n" +
     "Interlocks: each chiller starts its own chilled water pump (a Digital wire from the chiller to the pump starter): stop a chiller and its pump stops too. " +
     "Fire alarm: the fire alarm panel (under Controls) stops the AHUs its shutdown contacts reach; click it, Fire alarm (simulation), and see them stop.\n\n" +
+    "Load: each load has its \"Power\" (what it absorbs running: 30 kW, 45 kVA, 40 A ...) and each board, transformer or generator may have a \"Max power\". " +
+    "Every branch on a power line shows what it carries now (the running loads it feeds, times its \"Diversity\" when given) and, with a Max power, how full it is. " +
+    "Over its Max power the board gets a warning sign and sheds loads to stay within it: the load with the highest \"Priority\" number first (1 is kept longest; a load " +
+    "without a Priority goes first); a shed load is greyed out and its feeder turns amber dashed, and its interlocked pump stops with it. Try it: isolate the utility supply, " +
+    "close the generator incomer: the 900 kW generator cannot carry 1,152 kW, so chiller CH-3 and its pump are shed. Or add a sixth AHU of 30 kW under MCC-AHU (150 kW).\n\n" +
     "Special notes the map reads: \"Source: utility\" or \"Source: standby\" (power starts here), \"Switch: open\" (passes no power until closed), " +
     "\"Control: BMS\" (this branch commands the units its control wires reach), \"Control: fire alarm\" (stops the units its control wires reach on alarm), " +
     "\"Schedule: occupied\" (stops at night). A control wire between two units (not from the BMS) is an interlock: the unit the BMS does not command runs only while the other runs. " +
@@ -72,35 +77,36 @@ function guide(): WNode {
    branch line on that line. Signals: the BMS commands the chillers, AHUs and FCU circuits; each chiller starts its own
    chilled water pump (interlock); the fire alarm panel stops the AHUs. */
 function building(): { node: WNode; wires: Wire[] } {
-  const PS = (n: number, standby: boolean): WNode => ({ key: "p" + n, title: "CHW pump starter P-" + n + (standby ? " (standby)" : ""),
+  const PS = (n: number, standby: boolean): WNode => ({ key: "p" + n, title: "CHW pump starter P-" + n + (standby ? " (standby)" : ""), special: ["Power: 22 kW"],
     notes: "Starter of chilled water pump P-" + n + ": fed from SMDB-CH, started by the pump command of chiller CH-" + n + " (volt-free contact on the chiller's terminal strip, interlock)." });
+  // the load (owner, 23 Oct 2026: "a branch shows the sum ... a max power ... a warning and the supply greyed out to keep
+  // the max in limit"): typical absorbed powers, the boards' maximum, and the shedding order (1 kept longest)
+  const AHU = (key: string, title: string): WNode => ({ key, title, special: [OCC, "Power: 30 kW", "Priority: 2"] });
+  const FCU = (key: string, title: string): WNode => ({ key, title, special: [OCC, "Power: 1.2 kW", "Priority: 1"], notes: "8 FCUs of about 150 W each." });
   const node: WNode = { key: "b", title: "Power distribution to HVAC equipment",
     notes: "Example: a mall with a central chiller plant, AHUs in plant rooms and FCUs on two levels. Replace the names with the project's.",
     kids: [
       { key: "sup", title: "Supply", notes: "Where power comes from.", kids: [
         { key: "mv", title: "Utility supply (MV)", special: ["Source: utility"], notes: "Medium-voltage supply from the utility, as the project's authority provides." },
-        { key: "tr1", title: "Transformer TR-1 (MV/LV)", notes: "Steps the utility supply down to the building's low voltage." },
-        { key: "g1", title: "Standby generator G-1", special: ["Source: standby"], notes: "Runs when the utility supply fails, for the loads the project keeps on standby." }] },
+        { key: "tr1", title: "Transformer TR-1 (MV/LV)", special: ["Max power: 1600 kVA"], notes: "Steps the utility supply down to the building's low voltage. 1600 kVA at power factor 0.9 = 1440 kW." },
+        { key: "g1", title: "Standby generator G-1", special: ["Source: standby", "Max power: 1000 kVA"],
+          notes: "Runs when the utility supply fails. 1000 kVA at power factor 0.9 = 900 kW: less than the building's load, so on standby the map sheds the loads with the highest Priority number (the chillers first) to stay within it." }] },
       { key: "main", title: "Main distribution", notes: "The main switchboard and its incomers.", kids: [
         { key: "q1", title: "Main incomer Q1 (utility)", notes: "Normally closed." },
         { key: "q2", title: "Generator incomer Q2", special: ["Switch: open"], notes: "Normally open: closes when the utility supply fails (automatic transfer or interlock), never together with Q1." },
-        { key: "msb", title: "Main switchboard (MSB)", notes: "Busbar and outgoing feeders to the sub-main boards and MCCs." }] },
+        { key: "msb", title: "Main switchboard (MSB)", special: ["Max power: 1300 kW"], notes: "Busbar and outgoing feeders to the sub-main boards and MCCs." }] },
       { key: "sub", title: "Sub-distribution", notes: "Sub-main boards and motor control centres, each with what it feeds.", kids: [
-        { key: "smdbch", title: "SMDB-CH, chiller plant room", notes: "Feeds the chillers and the chilled water pumps.", kids: [
-          { key: "ch1", title: "Chiller CH-1" }, { key: "ch2", title: "Chiller CH-2" }, { key: "ch3", title: "Chiller CH-3" },
+        { key: "smdbch", title: "SMDB-CH, chiller plant room", special: ["Max power: 1100 kW"], notes: "Feeds the chillers and the chilled water pumps.", kids: [
+          ...[1, 2, 3].map((n): WNode => ({ key: "ch" + n, title: "Chiller CH-" + n, special: ["Power: 320 kW", "Priority: 3"] })),
           PS(1, false), PS(2, false), PS(3, true)] },
-        { key: "mcc", title: "MCC-AHU, AHU plant rooms", notes: "Feeds the AHUs (or each AHU from its own isolator, as the project).", kids: [
-          { key: "ahu1", title: "AHU-01, Level 1", special: [OCC] }, { key: "ahu2", title: "AHU-02, Level 1", special: [OCC] },
-          { key: "ahu3", title: "AHU-03, Level 2", special: [OCC] }, { key: "ahu4", title: "AHU-04, Level 2", special: [OCC] }] },
-        { key: "smdb1", title: "SMDB-L1, Level 1", notes: "Feeds the distribution boards of Level 1." },
-        { key: "smdb2", title: "SMDB-L2, Level 2", notes: "Feeds the distribution boards of Level 2." }] },
+        { key: "mcc", title: "MCC-AHU, AHU plant rooms", special: ["Max power: 150 kW"], notes: "Feeds the AHUs (or each AHU from its own isolator, as the project). 150 kW: room for one more AHU of 30 kW; a sixth is shed.", kids: [
+          AHU("ahu1", "AHU-01, Level 1"), AHU("ahu2", "AHU-02, Level 1"), AHU("ahu3", "AHU-03, Level 2"), AHU("ahu4", "AHU-04, Level 2")] },
+        { key: "smdb1", title: "SMDB-L1, Level 1", special: ["Max power: 20 kW"], notes: "Feeds the distribution boards of Level 1." },
+        { key: "smdb2", title: "SMDB-L2, Level 2", special: ["Max power: 10 kW"], notes: "Feeds the distribution boards of Level 2." }] },
       { key: "fin", title: "Final distribution", notes: "Distribution boards with the final circuits to the FCUs: one final circuit feeds a group of FCUs, looped from unit to unit.", kids: [
-        { key: "db1a", title: "DB-L1-A, Level 1 zone A", kids: [
-          { key: "f1a1", title: "FCU circuit L1-A1 (FCU-L1-01 to 08)", special: [OCC] }, { key: "f1a2", title: "FCU circuit L1-A2 (FCU-L1-09 to 16)", special: [OCC] }] },
-        { key: "db1b", title: "DB-L1-B, Level 1 zone B", kids: [
-          { key: "f1b1", title: "FCU circuit L1-B1 (FCU-L1-17 to 24)", special: [OCC] }] },
-        { key: "db2a", title: "DB-L2-A, Level 2 zone A", kids: [
-          { key: "f2a1", title: "FCU circuit L2-A1 (FCU-L2-01 to 08)", special: [OCC] }, { key: "f2a2", title: "FCU circuit L2-A2 (FCU-L2-09 to 16)", special: [OCC] }] }] },
+        { key: "db1a", title: "DB-L1-A, Level 1 zone A", special: ["Max power: 5 kW"], kids: [FCU("f1a1", "FCU circuit L1-A1 (FCU-L1-01 to 08)"), FCU("f1a2", "FCU circuit L1-A2 (FCU-L1-09 to 16)")] },
+        { key: "db1b", title: "DB-L1-B, Level 1 zone B", special: ["Max power: 5 kW"], kids: [FCU("f1b1", "FCU circuit L1-B1 (FCU-L1-17 to 24)")] },
+        { key: "db2a", title: "DB-L2-A, Level 2 zone A", special: ["Max power: 5 kW"], kids: [FCU("f2a1", "FCU circuit L2-A1 (FCU-L2-01 to 08)"), FCU("f2a2", "FCU circuit L2-A2 (FCU-L2-09 to 16)")] }] },
       { key: "ctl", title: "Controls", notes: "What commands the equipment.", kids: [
         { key: "bms", title: "BMS", special: ["Control: BMS"], notes: "Starts and stops each chiller, AHU and FCU circuit, reads back its run status, and runs the occupied / unoccupied schedule. By the controls contractor." },
         { key: "fap", title: "Fire alarm panel", special: ["Control: fire alarm"], notes: "On fire alarm, its volt-free shutdown contacts stop the AHUs (smoke must not be spread). By the fire alarm contractor. Try it: click it, Fire alarm (simulation)." }] }

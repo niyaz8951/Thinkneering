@@ -26,6 +26,11 @@
      Fill pressure: 2 bar                     an expansion tank: the pressure where it joins the circuit
      Height: 12 m                             a branch's height above the plant room (absolute pressures)
      Valve: closed / Pump: standby / Status: off   passes no water
+     Capacity: 750 kW                         a chiller's cooling capacity (a tower's heat rejection): more than that and
+                                              it cannot hold its set point, its leaving water rises (owner, 23 Oct 2026:
+                                              "a max ... once the limit is reached show a warning ... to keep max in limit")
+     Max flow: 40 l/s                         a header, riser or pipe run limited to that flow (a flow limiting / balancing
+                                              valve): the units it feeds share it, each in proportion to its design flow
    A pipe's size (DN 150, 6 in) and length (40 m) give its friction (Darcy-Weisbach, Swamee-Jain, steel 0.045 mm,
    water at 10 °C) plus 30 % for fittings.
 
@@ -34,7 +39,11 @@
    - the flow in every pipe: each unit's flow back to the sources by the shortest way, shared in proportion to the
      sources' design flows (equally when a running source has none);
    - temperatures: supply mixed by flow; a unit leaves at its Leaving (or entering + load / (4.19 × flow)); return mixed;
-   - loads: 4.19 kW per l/s per K × flow × ΔT (water at about 10 °C);
+   - loads: 4.19 kW per l/s per K × flow × ΔT (water at about 10 °C); every header, riser and pipe run carries the sum of
+     the loads of the units it feeds (supply) or collects from (return), shared as their water is;
+   - limits: a source over its Capacity runs at it, so its leaving water = return − Capacity / (4.19 × flow) (with the
+     units' Leaving given; units given by Load cannot be met and the shortfall is said); a branch over its Max flow
+     passes only that, and each unit it feeds or collects from gets the same share less (flow limiting valve);
    - pressures (when every running pump has its head and flow): each pump on its curve H = n²·Hd·(1.2 − 0.2·(Q/(n·Qd))²)
      (shut-off 120 % of the design head), pressures forward from each pump's discharge to the units' inlets and back
      from its suction to the units' outlets, so a unit has (inlet − outlet) available; its 2-way control valve takes
@@ -150,13 +159,14 @@
       ["leaving", "condenser leaving"].forEach(function (k) { var t = tempOf(note(n, k)); if (t) units[t.unit]++; });
     });
     var ctx = { nodes: nodes, on: on, shut: shut, pipes: pipes, reject: {}, copAssumed: [] };
-    var out = { circuits: {}, part: {}, on: on, shut: shut, dir: {}, tEdge: {}, edge: {}, unit: null };
+    var out = { circuits: {}, part: {}, on: on, shut: shut, dir: {}, tEdge: {}, edge: {}, limEdge: {}, unit: null };
     CIRCUITS.forEach(function (c) {
       var r = circuit(c, A[c.id], ctx);
       if (!r) return;
       out.circuits[c.id] = r;
       Object.keys(r.part).forEach(function (id) { out.part[id] = 1; });
       Object.keys(r.dir).forEach(function (k) { out.dir[k] = r.dir[k]; if (r.tEdge[k] != null) out.tEdge[k] = r.tEdge[k]; out.edge[k] = c.id; });
+      Object.keys(r.limEdge).forEach(function (k) { out.limEdge[k] = r.limEdge[k]; });
       // what the running chillers reject goes on to the condenser water
       if (c.id === "chw") Object.keys(r.source).forEach(function (s) {
         var src = r.source[s]; if (!(src.kw > 0)) return;
@@ -186,7 +196,7 @@
       if (!v && plain && plain !== own && ctx.on[id].length === 1) v = note(n, plain);
       return v;
     }
-    var LIFT = {}, isSrc = {}, isPump = {}, F = {}, LV = {}, LD = {}, OUT = {}, DF = {}, DP = {}, QD = {}, PH = {}, PQ = {}, SPD = {}, FILL = {}, Z = {};
+    var LIFT = {}, isSrc = {}, isPump = {}, F = {}, LV = {}, LD = {}, OUT = {}, DF = {}, DP = {}, QD = {}, PH = {}, PQ = {}, SPD = {}, FILL = {}, Z = {}, CAP = {}, MAXF = {};
     ids.forEach(function (id) {
       var n = nodes[id], s = note(n, "source");
       if (s && (ctx.on[id].length === 1 || (C.id === "cw") === COND.test(s))) isSrc[id] = 1;
@@ -205,6 +215,8 @@
       var fp = pressOf(note(n, "fill pressure")); if (fp != null) FILL[id] = fp;
       var hz = note(n, "height"), z = num(hz); Z[id] = isNaN(z) ? 0 : /\bft\b|feet|foot/i.test(hz) ? z * 0.3048 : z;
       var lift = pressOf(note(n, "static lift")); if (lift != null) LIFT[id] = lift;
+      var cap = loadOf(nv(id, C.id === "cw" ? "condenser capacity" : "capacity", "capacity")); if (cap > 0 && isSrc[id]) CAP[id] = cap;
+      var mf = flowOf(nv(id, C.id === "cw" ? "condenser max flow" : "max flow", "max flow")); if (mf && mf.v > 0 && !isSrc[id]) MAXF[id] = mf.v;
     });
     ids.forEach(function (id) { QD[id] = isPump[id] ? PQ[id] : isSrc[id] ? DF[id] : F[id] || DF[id]; });
     var srcs = ids.filter(function (id) { return isSrc[id]; });
@@ -220,7 +232,8 @@
     srcs.forEach(function (s) { if (!shut[s]) { rs[s] = reach(sup, s); rr[s] = reach(ret, s); } });
 
     // flows and temperatures for the units' flows Fx
-    function solve(Fx) {
+    function solve(Fx, OV) {
+      OV = OV || {};
       var active = {}, flowing = {};
       srcs.forEach(function (s) {
         if (shut[s]) return;
@@ -251,12 +264,12 @@
             acc[p] = (acc[p] || 0) + share;
           });
         }
-        return { dist: dist, order: order, par: par, edge: edge, through: through };
+        return { dist: dist, order: order, par: par, edge: edge, through: through, cap: cap };
       }
       var sp = spread(sup), rp = spread(ret);
       var TS = {};
       sp.order.forEach(function (b) {
-        if (!sp.dist[b]) { if (OUT[b] != null) TS[b] = OUT[b]; return; }
+        if (!sp.dist[b]) { var o0 = OV[b] != null ? OV[b] : OUT[b]; if (o0 != null) TS[b] = o0; return; }
         var t = 0, q = 0, tk = 0, k = 0;
         sp.par[b].forEach(function (a) { if (TS[a] == null) return; var f = sp.edge[a + ">" + b] || 0; t += f * TS[a]; q += f; tk += TS[a]; k++; });
         if (q > 0) TS[b] = t / q; else if (k) TS[b] = tk / k;
@@ -280,9 +293,9 @@
       }
       var src = {}, tot = { q: 0, kw: 0, kwKnown: true, tq: 0, ts: 0, rq: 0, rt: 0 };
       srcs.forEach(function (s) {
-        var q = active[s] ? sp.through[s] || 0 : 0, o = OUT[s], back = active[s] ? TRT[s] : undefined, kw;
+        var q = active[s] ? sp.through[s] || 0 : 0, o = OV[s] != null ? OV[s] : OUT[s], back = active[s] ? TRT[s] : undefined, kw;
         if (q > 0 && o != null && back != null) kw = CP * q * (back - o);
-        src[s] = { q: q, out: o, back: back, kw: kw, design: DF[s], pct: DF[s] > 0 ? q / DF[s] * 100 : undefined, over: DF[s] > 0 && q > DF[s] * 1.0001 };
+        src[s] = { q: q, out: o, set: OUT[s], back: back, kw: kw, design: DF[s], pct: DF[s] > 0 ? q / DF[s] * 100 : undefined, over: DF[s] > 0 && q > DF[s] * 1.0001, capacity: CAP[s] };
         if (q > 0) {
           tot.q += q;
           if (kw != null) tot.kw += kw; else tot.kwKnown = false;
@@ -296,13 +309,27 @@
         var ab = k.split(">"), back = ab[1] + ">" + ab[0];
         if (rp.edge[k] > 1e-9) { dir[back] = (dir[back] || 0) + rp.edge[k]; if (TRT[ab[1]] != null) tEdge[back] = TRT[ab[1]]; }
       });
+      // the load each header, riser and pipe run carries: the units' loads shared back as their water is
+      function carry(spr, val) {
+        var acc = {}, thr = {};
+        for (var i = spr.order.length - 1; i >= 0; i--) {
+          var b = spr.order[i], o = (val[b] || 0) + (acc[b] || 0);
+          thr[b] = o;
+          if (!spr.dist[b]) continue;
+          spr.par[b].forEach(function (p) { var share = spr.cap[b] > 0 ? o * spr.cap[p] / spr.cap[b] : o / spr.par[b].length; acc[p] = (acc[p] || 0) + share; });
+        }
+        return thr;
+      }
+      var kwOn = {}; loads.forEach(function (L) { if (flowing[L] && KW[L] != null) kwOn[L] = KW[L]; });
+      var carS = carry(sp, kwOn), carR = carry(rp, kwOn), carried = {};
       var flow = {}, side = {};
       ids.forEach(function (id) {
         side[id] = isSrc[id] ? "source" : isUnit[id] ? "unit" : sup[id] ? "supply" : "return";
         var v = isSrc[id] ? src[id].q : side[id] === "unit" ? (sp.through[id] || 0) : side[id] === "supply" ? sp.through[id] : rp.through[id];
         flow[id] = v > 1e-9 ? v : 0;
+        if (side[id] === "supply" && flow[id] > 0) carried[id] = carS[id]; else if (side[id] === "return" && flow[id] > 0) carried[id] = carR[id];
       });
-      return { active: active, flowing: flowing, flow: flow, side: side, tSupply: TS, tReturn: TRT, tIn: TIN, tOut: TOUT, kw: KW, source: src, dir: dir, tEdge: tEdge,
+      return { carried: carried, active: active, flowing: flowing, flow: flow, side: side, tSupply: TS, tReturn: TRT, tIn: TIN, tOut: TOUT, kw: KW, source: src, dir: dir, tEdge: tEdge,
         missing: missing, byDesign: byDesign, sources: S.length,
         total: { q: tot.q, kw: tot.kwKnown ? tot.kw : undefined, out: tot.tq > 0 ? tot.ts / tot.tq : undefined, back: tot.rq > 0 ? tot.rt / tot.rq : undefined, sources: S.length } };
     }
@@ -399,13 +426,65 @@
       return { ok: true, pump: pump, avail: avail, need: need, index: idx, rel: rel, uIn: uIn, uOut: uOut, abs: abs, absOut: absOut, tank: tank, low: low, pipe: pipe };
     }
 
+    // a source over its Capacity runs at it: its leaving water rises to return − Capacity / (4.19 × flow)
+    // (units given by their Leaving keep the return as it was, so one step settles it; units given by Load cannot be met:
+    // the leaving water is set by the first step and the shortfall is said)
+    function solveCap(Fx) {
+      var r0 = solve(Fx), OV = {}, any = false;
+      srcs.forEach(function (s) {
+        var x = r0.source[s];
+        if (CAP[s] > 0 && x.q > 0 && x.back != null && x.kw > CAP[s] * 1.0001) { OV[s] = x.back - CAP[s] / (CP * x.q); any = true; }
+      });
+      if (!any) return r0;
+      var r1 = solve(Fx, OV);
+      Object.keys(OV).forEach(function (s) {
+        var x = r1.source[s]; x.atCap = true;
+        if (x.kw > CAP[s] * 1.01) { x.short = x.kw - CAP[s]; x.kw = CAP[s]; }
+      });
+      return r1;
+    }
+    // Max flow: a branch passes no more; the units it feeds (supply) or collects from (return) share it in proportion to
+    // their flows (worked out from the design flows, a few passes for limits one under another)
+    var lim = {}, limBy = {}, limAt = {}, limEdge = {};
+    loads.forEach(function (L) { lim[L] = 1; });
+    var limited = Object.keys(MAXF);
+    function feeds(r, id) {                     // the units whose water passes through id, and the pipes on the way
+      var units = {}, edges = {}, q = [id], seen = {}; seen[id] = 1;
+      var down = sup[id] && !ret[id] || r.side[id] === "supply";
+      while (q.length) {
+        var a = q.shift();
+        if (isUnit[a] && a !== id) { units[a] = 1; continue; }
+        Object.keys(r.dir).forEach(function (k) {
+          var ab = k.split(">"), nb = down ? (ab[0] === a ? ab[1] : null) : (ab[1] === a ? ab[0] : null);
+          if (!nb || seen[nb] || !(r.dir[k] > 1e-9) || !(down ? sup : ret)[a] || (down ? sup : ret)[a].indexOf(nb) < 0) return;
+          seen[nb] = 1; edges[down ? a + ">" + nb : nb + ">" + a] = 1; q.push(nb);
+        });
+      }
+      return { units: units, edges: edges };
+    }
+    if (limited.length) {
+      for (var pass = 0; pass < 6; pass++) {
+        var F0 = {}; loads.forEach(function (L) { if (F[L] != null) F0[L] = F[L] * lim[L]; });
+        var r0 = solve(F0), moved0 = false;
+        limited.forEach(function (b) {
+          var t = r0.flow[b] || 0;
+          if (!(t > MAXF[b] * 1.0001)) return;
+          var f = MAXF[b] / t, fd = feeds(r0, b);
+          if (!limAt[b]) limAt[b] = { max: MAXF[b], want: t };
+          Object.keys(fd.units).forEach(function (L) { lim[L] *= f; limBy[L] = b; });
+          Object.keys(fd.edges).forEach(function (k) { limEdge[k] = b; });
+          moved0 = true;
+        });
+        if (!moved0) break;
+      }
+    }
     // a unit gets its design flow when it has the pressure for it; less when it has not (worked out until it settles)
     // (more flow leaves less pressure, so the step is made smaller whenever the units' flows swing back and forth)
     var scale = {}; loads.forEach(function (L) { scale[L] = 1; });
     var r, h, it, w = 0.5, last = Infinity;
     for (it = 0; it < 400; it++) {
-      var Fx = {}; loads.forEach(function (L) { if (F[L] != null) Fx[L] = F[L] * scale[L]; });
-      r = solve(Fx); h = hydraulics(r);
+      var Fx = {}; loads.forEach(function (L) { if (F[L] != null) Fx[L] = F[L] * Math.min(scale[L], lim[L]); });
+      r = solveCap(Fx); h = hydraulics(r);
       if (!h.ok) break;
       var moved = 0;
       loads.forEach(function (L) {
@@ -420,9 +499,12 @@
       last = moved;
     }
     var starved = {};
-    loads.forEach(function (L) { if (scale[L] < 0.995 && F[L] > 0 && r.flowing[L]) starved[L] = scale[L]; });
+    loads.forEach(function (L) { if (scale[L] < 0.995 && scale[L] < lim[L] && F[L] > 0 && r.flowing[L]) starved[L] = scale[L]; });
+    var limits = {}; loads.forEach(function (L) { if (lim[L] < 0.995 && lim[L] <= scale[L] && r.flowing[L]) limits[L] = { by: limBy[L], f: lim[L] }; });
+    r.limited = limits; r.limitAt = limAt; r.limEdge = limEdge;
+    r.setpoint = srcs.reduce(function (m, s) { return r.active[s] && OUT[s] != null ? Math.min(m, OUT[s]) : m; }, Infinity);
     r.C = C; r.part = part; r.shut = shut; r.isPump = isPump; r.isUnit = isUnit; r.isSrc = isSrc; r.hyd = h; r.starved = starved; r.iterations = it;
-    r.input = { flow: F, leaving: LV, load: LD, out: OUT, design: DF, dp: DP, lift: LIFT, height: Z, fill: FILL, pumpHead: PH, pumpFlow: PQ, speed: SPD };
+    r.input = { flow: F, leaving: LV, load: LD, out: OUT, design: DF, dp: DP, lift: LIFT, height: Z, fill: FILL, pumpHead: PH, pumpFlow: PQ, speed: SPD, capacity: CAP, maxFlow: MAXF };
     return r;
   }
 
