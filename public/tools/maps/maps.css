@@ -45,6 +45,21 @@
 .mp-stage > svg path.b0 { stroke: var(--brand); } .mp-stage > svg path.b1 { stroke: var(--ok); }
 .mp-stage > svg path.b2 { stroke: var(--brand-sky); } .mp-stage > svg path.b3 { stroke: color-mix(in srgb, var(--brand) 40%, var(--text)); }
 .mp-stage > svg path.u { stroke: var(--warn); }
+/* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
+.mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--bc, var(--brand)); border-radius: 12px; box-shadow: var(--shadow); color: var(--text); cursor: auto; user-select: text;
+  animation: mp-grow .22s var(--ease); }
+.mp-peek-top { display: flex; align-items: center; gap: 6px; min-height: 30px; margin-bottom: 4px; }
+.mp-peek-top > :first-child { flex: 1; }
+.mp-peek-h { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.mp-peek-x { border: 0; background: none; color: var(--text-soft); font: inherit; font-size: 20px; line-height: 1; padding: 2px 6px; border-radius: 8px; cursor: pointer; }
+.mp-peek-x:hover { background: var(--surface-2); color: var(--text); }
+.mp-peek-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
+.mp-peek-none { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+.mp-peek-in { display: block; width: 100%; min-height: 150px; max-height: 360px; resize: vertical; font: 14px/1.55 var(--font); color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.mp-peek-in:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus); }
+.mp-peek-sp { margin-top: 8px; font-size: 13px; }
 
 .mp-n { position: absolute; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; max-width: 300px; padding: 3px 4px 4px 3px;
   border-bottom: 2px solid var(--bc, var(--border)); border-radius: 7px 7px 0 0; color: var(--text); font-size: 14.5px; line-height: 1.35;
@@ -194,8 +209,11 @@
   .mp-ntitle-in { font-size: 21px; }
   .mp-ntext { font-size: 16.5px; }
   .mp-ntext-in { font-size: 16px; }
+  .mp-peek { width: 290px; }
+  .mp-peek-in { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mp-grow, .mp-note, .mp-note-back { animation: none; }
   .mp-n { transition: none; }
+  .mp-peek { animation: none; }
 }

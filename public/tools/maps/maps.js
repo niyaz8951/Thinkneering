@@ -154,7 +154,9 @@
   // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false };
+  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null };
+  // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
+  // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
   var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60;
   var COARSE = window.matchMedia ? window.matchMedia("(pointer: coarse)") : { matches: false };
   function N(id) { return M.nodes[id]; }
@@ -300,6 +302,9 @@
     each(st.focus, function (x) { if (!keep[x.id]) x.open = false; });
     pathOf(n.id).forEach(function (a) { if (a !== n.id) N(a).open = true; });
     n.open = n.id === st.focus || (!closing && n.kids.length > 0);
+    var leaf = st.view === "map" && !n.kids.length && n.id !== st.focus;
+    if (leaf && st.peek === n.id && st.sel === n.id) { closing = true; closePeek(true); }
+    else { if (st.peek !== (leaf ? n.id : null)) peekEdit = false; st.peek = leaf ? n.id : null; }
     st.sel = n.id;
     redrawAt(n.id);
     return closing;
@@ -364,6 +369,7 @@
   }
   function renderMap() {
     var stage = $("mpStage"), canvas = $("mpCanvas"), els = {}, now = {}, first = !Object.keys(seen).length, maxX = 0;
+    var act = document.activeElement, keepFocus = peekEl && act && peekEl.contains(act) ? { el: act, a: act.selectionStart, b: act.selectionEnd } : null;
     stage.textContent = "";
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); stage.appendChild(svg);
     (function walk(id) {
@@ -373,12 +379,18 @@
       if (n.open) n.kids.forEach(walk);
     })(st.focus);
     Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
+    // the notes card of a branch with nothing under it (peek), drawn where its next level would grow
+    var pk = st.peek && els[st.peek] && st.peek !== st.focus && !N(st.peek).kids.length ? N(st.peek) : null, card = null;
+    if (!pk) { st.peek = null; peekEdit = false; peekEl = null; }
+    else { card = peekCard(pk); stage.appendChild(card); pk._pw = card.offsetWidth; pk._ph = card.offsetHeight; }
     // across: a branch starts right after the text it grows from (free flow, no columns)
     (function across(id, x) { var n = N(id); n._x = x; maxX = Math.max(maxX, x + n._w); if (n.open) n.kids.forEach(function (k) { across(k, x + n._w + GX); }); })(st.focus, PAD);
+    if (pk) maxX = Math.max(maxX, pk._x + pk._w + GX + pk._pw);
     // down: every branch takes the height of what grows from it; a branch sits in the middle of its own
     function shift(id, dy) { var n = N(id); n._y += dy; if (n.open) n.kids.forEach(function (k) { shift(k, dy); }); }
     var total = (function lay(id, top) {
       var n = N(id), kh = 0, gap = id === st.focus ? GTOP : GY;
+      if (n === pk) { var ps = Math.max(n._h, n._ph); n._y = top + (ps - n._h) / 2; return ps; }   // the card takes its room
       if (!n.open || !n.kids.length) { n._y = top; return n._h; }
       n.kids.forEach(function (k, i) { N(k)._sub = lay(k, 0); kh += N(k)._sub + (i ? gap : 0); });
       var sub = Math.max(kh, n._h), y = top + (sub - kh) / 2;
@@ -400,6 +412,16 @@
         paths[h] = (paths[h] || "") + "M" + x1 + " " + y1 + "C" + mx + " " + y1 + "," + (x1 + (x2 - x1) * 0.45) + " " + y2 + "," + x2 + " " + y2;
       });
     });
+    if (pk) {
+      pk._px = pk._x + pk._w + GX; pk._py = Math.max(PAD, pk._y + pk._h / 2 - pk._ph / 2);
+      card.style.left = pk._px + "px"; card.style.top = pk._py + "px";
+      var x1 = pk._x + pk._w, y1 = pk._y + pk._h - 1, x2 = pk._px, y2 = pk._py + 18, hp = "b" + hue(pk.id) + (pk.verified ? "" : " u");
+      paths[hp] = (paths[hp] || "") + "M" + x1 + " " + y1 + "C" + (x1 + GX * 0.55) + " " + y1 + "," + (x1 + GX * 0.45) + " " + y2 + "," + x2 + " " + y2;
+      if (keepFocus && card.contains(keepFocus.el)) {
+        keepFocus.el.focus({ preventScroll: true });
+        try { if (keepFocus.a != null) keepFocus.el.setSelectionRange(keepFocus.a, keepFocus.b); } catch (x) { /* ignore */ }
+      }
+    }
     Object.keys(paths).forEach(function (h) {
       var p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", paths[h]); p.setAttribute("class", h); svg.appendChild(p);
     });
@@ -419,15 +441,47 @@
     wantScroll = false;
     $("mpZoomPct").textContent = Math.round(z * 100) + "%";
   }
+  // ---------- the notes card on the map (peek) ----------
+  var peekEl = null, peekEdit = false;
+  function peekCard(n) {
+    if (peekEdit && peekEl && peekEl._for === n.id) return peekEl;        // kept while writing: the text box keeps its place
+    var may = canEdit() && !st.note, E = peekEdit && may;
+    var box = el("div", { "class": "mp-peek b" + hue(n.id), role: "region", "aria-label": "Notes of " + n.title });
+    box._for = n.id;
+    box.appendChild(el("div", { "class": "mp-peek-top" }, [
+      E ? el("span", { "class": "mp-status", id: "mpStatus", role: "status" }) : el("span", { "class": "mp-peek-h", text: "Notes" }),
+      may ? el("button", { type: "button", "class": "btn " + (E ? "" : "ghost ") + "sm", text: E ? "Done" : "Edit", title: E ? "Stop editing" : "Write in the notes",
+        onclick: function () { peekEdit = !E; if (!peekEdit) flush(); peekEl = null; renderView(); if (peekEdit && $("mpPeekText")) $("mpPeekText").focus({ preventScroll: true }); } }) : null,
+      el("button", { type: "button", "class": "mp-peek-x", text: "×", title: "Close", "aria-label": "Close the notes", onclick: function () { closePeek(); } })
+    ]));
+    if (E) {
+      var ta = el("textarea", { "class": "mp-peek-in", id: "mpPeekText", maxlength: "8000", placeholder: "What to know about " + n.title + "…", "aria-label": "Notes of " + n.title, text: n.notes });
+      ta.addEventListener("input", function () { typed(n.id, "notes", ta.value); });
+      ta.addEventListener("blur", flush);
+      ta.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); peekEdit = false; flush(); peekEl = null; renderView(); refocus(n.id); } });
+      box.appendChild(ta);
+    } else box.appendChild(n.notes ? el("div", { "class": "mp-peek-text", text: n.notes }) : el("p", { "class": "mp-peek-none", text: "No notes on this branch." + (may ? " Press Edit to write some." : "") }));
+    if (n.special.length) box.appendChild(el("div", { "class": "mp-chips mp-peek-sp" }, n.special.map(function (x) { return el("span", { "class": "mp-chip" }, [el("b", { text: "!" }), x]); })));
+    peekEl = box;
+    if (E) { if (retry && retry.id === n.id) status("Not saved yet.", true, true); }
+    return box;
+  }
+  function closePeek(quiet) {
+    var id = st.peek;
+    flush(); st.peek = null; peekEdit = false; peekEl = null;
+    if (!quiet) { renderView(); if (id && N(id)) refocus(id); }
+  }
   function keepInView(s, z) {                     // keep the chosen branch, and the branches it just grew, in view
     var canvas = $("mpCanvas");
     if (!s || s._x === undefined) return;
     {
-      var right = (s._x + s._w + (s.open && s.kids.length ? 260 : 0) + 30) * z, left = (s._x - 30) * z;
+      var pv = st.peek === s.id && s._px !== undefined;
+      var right = ((pv ? s._px + s._pw : s._x + s._w + (s.open && s.kids.length ? 260 : 0)) + 30) * z, left = (s._x - 30) * z;
       if (right > canvas.scrollLeft + canvas.clientWidth) canvas.scrollLeft = Math.min(left, right - canvas.clientWidth);
       if (left < canvas.scrollLeft) canvas.scrollLeft = Math.max(0, left);
       var top = (s._y - 30) * z, bottom = (s._y + s._h + 30) * z;
       if (s.open && s.kids.length) { top = Math.min(top, (N(s.kids[0])._y - 20) * z); bottom = Math.max(bottom, (N(s.kids[s.kids.length - 1])._y + 50) * z); }
+      if (pv) { top = Math.min(top, (s._py - 20) * z); bottom = Math.max(bottom, (s._py + s._ph + 20) * z); }
       if (bottom - top > canvas.clientHeight) bottom = top + canvas.clientHeight;
       if (top < canvas.scrollTop) canvas.scrollTop = Math.max(0, top);
       else if (bottom > canvas.scrollTop + canvas.clientHeight) canvas.scrollTop = bottom - canvas.clientHeight;
@@ -478,6 +532,7 @@
     var c = $("mpCanvas"), drag = null;
     c.addEventListener("pointerdown", function (e) {
       if (e.button !== 0 || e.pointerType === "touch") return;                 // a finger scrolls the page natively
+      if (e.target.closest && e.target.closest(".mp-peek")) return;             // selecting text in the notes card
       drag = { x: e.clientX, y: e.clientY, sl: c.scrollLeft, st: c.scrollTop, moved: false, id: e.pointerId };
     });
     c.addEventListener("pointermove", function (e) {
@@ -513,8 +568,9 @@
   var lastClick = { id: null, t: 0, closed: false };
   function branchClick(e, onMap) {
     if (e.detail > 1) return;
+    if (e.target.closest && e.target.closest(".mp-peek")) return;
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-    if (!nodeE) { if (onMap && st.sel) { st.sel = null; renderView(); } return; }
+    if (!nodeE) { if (onMap && (st.sel || st.peek)) { st.sel = null; if (st.peek) closePeek(true); renderView(); } return; }
     var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
     if (!n) return;
     lastClick = { id: null, t: 0, closed: false };
@@ -528,11 +584,11 @@
   }
   function branchDblClick(e) {
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-    if (e.target.closest && e.target.closest("[data-act]")) return;
+    if (e.target.closest && (e.target.closest("[data-act]") || e.target.closest(".mp-peek"))) return;
     var id = lastClick.id && Date.now() - lastClick.t < 900 && N(lastClick.id) ? lastClick.id : nodeE ? nodeE.getAttribute("data-node") : null;
     if (!id) return;
     e.preventDefault();
-    if (lastClick.id === id && lastClick.closed) N(id).open = true;    // the first click closed it: reading does not close it
+    if (lastClick.id === id && lastClick.closed) { N(id).open = true; if (!N(id).kids.length && st.view === "map") st.peek = id; }   // the first click closed it: reading does not close it
     lastClick = { id: null, t: 0, closed: false };
     if (window.getSelection) { try { window.getSelection().removeAllRanges(); } catch (x) { /* ignore */ } }
     openNote(id);
@@ -681,6 +737,7 @@
   var noteLast = null, noteWant = "";
   function openNote(id, want) {
     if (!N(id)) return;
+    if (peekEdit) { peekEdit = false; peekEl = null; }
     if (st.note !== id) flush();
     if (!st.note) noteLast = document.activeElement;
     st.note = id; st.sel = id; noteWant = want || "";
