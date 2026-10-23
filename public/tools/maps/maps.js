@@ -49,8 +49,12 @@
     return close;
   }
   // what a map is for: knowledge (process or product understanding) or an AI rule book (Compliance review > AI rules)
-  var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: how the AI thinks and answers", vocabulary: "Vocabulary: what specifications ask (one per product)" };
-  var KIND_HINT = "Knowledge maps are for people. An AI rule book holds the AI's instructions, decision steps and rules (one per factory); a Vocabulary holds the requirement types specifications ask, their words, units and scales (one per product). Both are linked in Compliance review > AI rules and start from a template there. Facts about a product are AI notes in Product Options.";
+  var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: how the AI thinks and answers", vocabulary: "Vocabulary: what specifications ask (one per product)",
+    wiring: "Wiring: electrical connections of a unit" };
+  var KIND_NAME = { rulebook: "AI rule book", vocabulary: "Vocabulary", wiring: "Wiring" };
+  var TEMPLATES = [["", "Blank"], ["ahu", "AHU (EC fans, DC motors with drives)"], ["fcu", "FCU (EC motor, DC motor)"], ["chiller", "Chiller (field connections)"]];
+  var TEMPLATE_NAME = { ahu: "Wiring : AHU", fcu: "Wiring : FCU", chiller: "Wiring : Chiller" };
+  var KIND_HINT = "Knowledge maps are for people. An AI rule book holds the AI's instructions, decision steps and rules (one per factory); a Vocabulary holds the requirement types specifications ask, their words, units and scales (one per product). Both are linked in Compliance review > AI rules and start from a template there. Facts about a product are AI notes in Product Options. A Wiring map shows the electrical connections of a unit: equipment as branches, wires as lines with their terminals and cables.";
   function kindSelect(id, value) {
     var s = el("select", { "class": "input", id: id }, Object.keys(KIND).map(function (k) { return el("option", { value: k, text: KIND[k] }); }));
     s.value = value || "knowledge";
@@ -85,7 +89,7 @@
         grid.appendChild(el("a", { "class": "tile mp-tile", href: "?map=" + m.id }, [
           el("span", { "class": "tile-icon", "aria-hidden": "true", html: Hub.ICON.tree }),
           el("span", { "class": "badge", text: SHARE[m.share] || m.share }),
-          m.kind === "rulebook" || m.kind === "vocabulary" ? el("span", { "class": "badge mp-kind", text: m.kind === "rulebook" ? "AI rule book" : "Vocabulary" }) : null,
+          KIND_NAME[m.kind] ? el("span", { "class": "badge mp-kind", text: KIND_NAME[m.kind] }) : null,
           el("h3", { text: m.name }),
           el("p", { text: parts.join(" · ") }),
           el("span", { "class": "meta", text: (m.mine ? "Yours" : "By " + m.owner) + " · changed " + Hub.date(m.updated_at) + (m.to_verify ? " · " + m.to_verify + " to verify" : "") })
@@ -121,13 +125,20 @@
       var err = el("p", { "class": "mp-err", role: "alert" });
       var name = el("input", { "class": "input", type: "text", id: "mpNewName", maxlength: "80", placeholder: "e.g. Chiller", autocomplete: "off" });
       var share = shareSelect("mpNewShare", "private"), kind = kindSelect("mpNewKind", "knowledge"), busy = false;
+      // a wiring map may start from a typical template (all of it "to verify" against the factory drawing)
+      var tpl = el("select", { "class": "input", id: "mpNewTpl" }, TEMPLATES.map(function (t) { return el("option", { value: t[0], text: t[1] }); }));
+      var tplField = el("label", { "class": "field" }, [el("span", { text: "Start from" }), tpl,
+        el("p", { "class": "hint", text: "A typical diagram to correct against the factory wiring diagram; every branch comes in \"to verify\"." })]);
+      tplField.hidden = true;
+      kind.addEventListener("change", function () { tplField.hidden = kind.value !== "wiring"; if (kind.value !== "wiring") tpl.value = ""; });
+      tpl.addEventListener("change", function () { if (TEMPLATE_NAME[tpl.value] && (!name.value.trim() || /^Wiring : /.test(name.value))) name.value = TEMPLATE_NAME[tpl.value]; });
       var ok = el("button", { type: "button", "class": "btn", text: "Add map", onclick: go });
       function go() {
         var v = name.value.replace(/\s+/g, " ").trim();
         if (!v) { err.textContent = "Give the map a name, usually the product."; name.focus(); return; }
         if (busy) return;
         busy = true; ok.disabled = true; err.textContent = "";
-        Api.mpCreate(T, { name: v, share: share.value, kind: kind.value }).then(function (r) {
+        Api.mpCreate(T, { name: v, share: share.value, kind: kind.value, template: kind.value === "wiring" ? tpl.value : "" }).then(function (r) {
           store("sessionStorage", userKey("edit"), r.id);            // a new map opens in Edit
           window.location.href = "?map=" + r.id;
         }, function (e) { busy = false; ok.disabled = false; err.textContent = e.message; });
@@ -136,6 +147,7 @@
       return [
         el("label", { "class": "field" }, [el("span", { text: "Map name" }), name]),
         el("label", { "class": "field" }, [el("span", { text: "What it is for" }), kind, el("p", { "class": "hint", text: KIND_HINT })]),
+        tplField,
         el("label", { "class": "field" }, [el("span", { text: "Shared with" }), share, el("p", { "class": "hint", text: SHARE_HINT + " You can change this later." })]),
         err,
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), ok])
@@ -157,7 +169,7 @@
   var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen" };
   // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
   // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
-  var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60;
+  var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60, IND = 18, GCOL = 70;
   var COARSE = window.matchMedia ? window.matchMedia("(pointer: coarse)") : { matches: false };
   function N(id) { return M.nodes[id]; }
   // ---------- what a link between two branches means (23 Oct 2026) ----------
@@ -170,8 +182,25 @@
     { id: "excludes", label: "Excludes", back: "Excludes", ends: "none", hint: "Cannot go together: EC plug fans exclude belt drives." },
     { id: "replaced", label: "Replaced by", back: "Replaces", ends: "end", hint: "One took the place of the other: EN 779 was replaced by ISO 16890." },
     { id: "part", label: "Part of", back: "Has part", ends: "end", hint: "Belongs to the other: a filter gauge is part of the filter section." },
-    { id: "see", label: "See also", back: "See also", ends: "none", hint: "Related, read them together." }
+    { id: "see", label: "See also", back: "See also", ends: "none", hint: "Related, read them together." },
+    // wires of a wiring map (23 Oct 2026): the arrow of a signal points where the signal goes
+    { id: "w-power", wire: true, label: "Power", back: "Power", ends: "none", hint: "Mains or motor supply: phases, neutral as the terminals say." },
+    { id: "w-control", wire: true, label: "Control supply", back: "Control supply", ends: "none", hint: "Supply of the controls and actuators, e.g. 24 V AC." },
+    { id: "w-analog", wire: true, label: "Analog signal", back: "Analog signal", ends: "end", hint: "0–10 V, 4–20 mA, a sensor input: a value, in the arrow's direction." },
+    { id: "w-digital", wire: true, label: "Digital / contact", back: "Digital / contact", ends: "end", hint: "On / off command, alarm or status, volt-free contact: in the arrow's direction." },
+    { id: "w-bus", wire: true, label: "Communication bus", back: "Communication bus", ends: "none", hint: "Modbus RTU, BACnet MS/TP, RS-485: data both ways." },
+    { id: "w-earth", wire: true, label: "Earth", back: "Earth", ends: "none", hint: "Protective earth (PE)." }
   ];
+  function isWiring() { return !!M && M.map.kind === "wiring"; }
+  // the words of a wire: its signal (or kind), terminals and cable; "site" when others wire it
+  function wireText(l, rel) {
+    var t = [l.signal || rel.label];
+    if (l.from_t && l.to_t) t.push(l.from_t + " → " + l.to_t); else if (l.to_t) t.push("to " + l.to_t); else if (l.from_t) t.push("from " + l.from_t);
+    if (l.cable) t.push(l.cable);
+    if (l.by === "others") t.push("site");
+    return t.join(" · ");
+  }
+  function colsOf(n) { return n.kids.length > 0 && n.special.some(function (x) { return /^\s*layout\s*:\s*columns?\s*$/i.test(x); }); }
   function relOf(l) { var id = l && l.rel; for (var i = 0; i < RELS.length; i++) if (RELS[i].id === id) return RELS[i]; return RELS[RELS.length - 1]; }
   // every link to a branch of this map: from -> to, with its kind; links to other maps are kept apart (out)
   function linkIndex() {
@@ -231,13 +260,13 @@
     if (st.note && !N(st.note)) st.note = null;
     head();
   }
-  var KIND_NAME = { rulebook: "AI rule book", vocabulary: "Vocabulary" };
   function head() {
     var m = M.map;
     $("mpTitle").textContent = m.name; document.title = m.name + " - Maps - Thinkneering Tools";
     var sub = $("mpSub"); sub.hidden = false;
     sub.textContent = (KIND_NAME[m.kind] ? KIND_NAME[m.kind] + " · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
     $("mpMode").hidden = !canEdit(); $("mpImport").hidden = !(canEdit() && st.edit); $("mpSettings").hidden = !isOwn();
+    $("mpCables").hidden = !isWiring();
   }
   function reload(after) {
     return Api.mpGet(T, M.map.id).then(function (r) { build(r); if (after) after(); render(); }, function (err) { notAvailable(err.message); });
@@ -251,7 +280,10 @@
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
     st.special = store("localStorage", userKey("special")) === "1";
-    var xl = store("localStorage", userKey("xlinks")); if (xl === "all" || xl === "off" || xl === "chosen") st.xlinks = xl;
+    // a wiring map shows all its wires by default (the wires are the point); kept apart from the other maps' choice
+    st.xlinks = isWiring() ? "all" : "chosen";
+    var xl = store("localStorage", userKey(isWiring() ? "xlinks-w" : "xlinks")); if (xl === "all" || xl === "off" || xl === "chosen") st.xlinks = xl;
+    $("mpCables").addEventListener("click", cableSchedule);
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
     $("mpViewMap").addEventListener("click", function () { setView("map"); });
@@ -269,8 +301,9 @@
     $("mpSpecial").addEventListener("click", function () { st.special = !st.special; store("localStorage", userKey("special"), st.special ? "1" : "0"); renderView(); });
     $("mpXlinks").addEventListener("click", function () {
       st.xlinks = st.xlinks === "chosen" ? "all" : st.xlinks === "all" ? "off" : "chosen";
-      store("localStorage", userKey("xlinks"), st.xlinks); renderView();
-      Hub.toast(st.xlinks === "all" ? "Showing every link between branches." : st.xlinks === "off" ? "Links between branches hidden." : "Showing the links of the chosen branch.");
+      store("localStorage", userKey(isWiring() ? "xlinks-w" : "xlinks"), st.xlinks); renderView();
+      var what = isWiring() ? "wire" : "link";
+      Hub.toast(st.xlinks === "all" ? "Showing every " + what + "." : st.xlinks === "off" ? (isWiring() ? "Wires" : "Links between branches") + " hidden." : "Showing the " + what + "s of the chosen branch.");
     });
     var timer, q = $("mpQ");
     q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { search(q.value); }, 150); });
@@ -321,7 +354,7 @@
     if (st.sel !== n.id) flush();
     var was = st.sel;
     st.sel = n.id;
-    if (st.view === "map" && st.xlinks === "chosen" && was !== n.id && (hasLines(was) || hasLines(n.id))) { renderView(); refocus(n.id); return; }
+    if (st.view === "map" && st.xlinks !== "off" && was !== n.id && (hasLines(was) || hasLines(n.id))) { renderView(); refocus(n.id); return; }
     [].forEach.call(document.querySelectorAll("[data-node].mp-sel"), function (x) { x.classList.remove("mp-sel"); x.setAttribute("aria-selected", "false"); });
     var x = document.querySelector('[data-node="' + n.id + '"]');
     if (!x) { wantScroll = true; renderView(); x = document.querySelector('[data-node="' + n.id + '"]'); }
@@ -411,9 +444,11 @@
     stage.textContent = "";
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); stage.appendChild(svg);
     (function walk(id) {
-      var n = N(id); now[id] = 1;
+      var n = N(id); now[id] = 1; n._inCol = false; n._colHead = false;
       var e = nodeEl(n, "mp-n" + (!first && !seen[id] ? " mp-grow" : ""));
       stage.appendChild(e); els[id] = e;
+      // a branch laid out in columns (wiring maps): its columns always show what is in them
+      if (n.open && colsOf(n)) n.kids.forEach(function (k) { if (N(k).kids.length) N(k).open = true; });
       if (n.open) n.kids.forEach(walk);
     })(st.focus);
     Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
@@ -422,13 +457,35 @@
     if (!pk) { st.peek = null; peekEdit = false; peekEl = null; }
     else { card = peekCard(pk); stage.appendChild(card); pk._pw = card.offsetWidth; pk._ph = card.offsetHeight; }
     // across: a branch starts right after the text it grows from (free flow, no columns)
-    (function across(id, x) { var n = N(id); n._x = x; maxX = Math.max(maxX, x + n._w); if (n.open) n.kids.forEach(function (k) { across(k, x + n._w + GX); }); })(st.focus, PAD);
+    // columns: the branches of a "Layout: columns" branch side by side, each with what is under it as an indented list
+    function colAcross(id, x0, depth) {
+      var n = N(id), right; n._inCol = true; n._x = x0 + depth * IND; right = n._x + n._w;
+      if (n.open) n.kids.forEach(function (k) { right = Math.max(right, colAcross(k, x0, depth + 1)); });
+      return right;
+    }
+    (function across(id, x) {
+      var n = N(id); n._x = x; maxX = Math.max(maxX, x + n._w);
+      if (n.open && colsOf(n)) {
+        var cx = x + n._w + GX + 24;
+        n.kids.forEach(function (k) { var r = colAcross(k, cx, 0); N(k)._colHead = true; maxX = Math.max(maxX, r); cx = r + GCOL; });
+        return;
+      }
+      if (n.open) n.kids.forEach(function (k) { across(k, x + n._w + GX); });
+    })(st.focus, PAD);
     if (pk) maxX = Math.max(maxX, pk._x + pk._w + GX + pk._pw);
     // down: every branch takes the height of what grows from it; a branch sits in the middle of its own
     function shift(id, dy) { var n = N(id); n._y += dy; if (n.open) n.kids.forEach(function (k) { shift(k, dy); }); }
     var total = (function lay(id, top) {
       var n = N(id), kh = 0, gap = id === st.focus ? GTOP : GY;
-      if (n === pk) { var ps = Math.max(n._h, n._ph); n._y = top + (ps - n._h) / 2; return ps; }   // the card takes its room
+      if (n === pk && !n._inCol) { var ps = Math.max(n._h, n._ph); n._y = top + (ps - n._h) / 2; return ps; }   // the card takes its room
+      if (n.open && colsOf(n)) {                  // columns: each one a list from the top; the branch in the middle of them
+        var bh = 0;
+        n.kids.forEach(function (k) { var y = (function colLay(cid, yy) { var c = N(cid); c._y = yy; yy += c._h + (c._colHead ? 10 : GY); if (c.open) c.kids.forEach(function (g) { yy = colLay(g, yy); }); return yy; })(k, 0); bh = Math.max(bh, y); });
+        var cs = Math.max(n._h, bh), y0 = top + (cs - bh) / 2;
+        n.kids.forEach(function (k) { shift(k, y0); });
+        n._y = top + (cs - n._h) / 2;
+        return cs;
+      }
       if (!n.open || !n.kids.length) { n._y = top; return n._h; }
       n.kids.forEach(function (k, i) { N(k)._sub = lay(k, 0); kh += N(k)._sub + (i ? gap : 0); });
       var sub = Math.max(kh, n._h), y = top + (sub - kh) / 2;
@@ -444,6 +501,20 @@
     Object.keys(els).forEach(function (id) {
       var n = N(id), root = id === st.focus;
       if (!n.open) return;
+      if (colsOf(n) && n.kids.length && N(n.kids[0])._colHead) {      // a rail over the column heads, a drop to each
+        var heads = n.kids.map(N), ry = Math.min.apply(null, heads.map(function (h) { return h._y; })) - 12, hb = "b" + hue(n.kids[0]);
+        var d = "M" + (n._x + n._w) + " " + (n._y + n._h / 2) + "H" + (heads[0]._x - 14) + "V" + ry + "H" + (heads[heads.length - 1]._x + 6);
+        heads.forEach(function (h) { d += "M" + (h._x + 6) + " " + ry + "V" + h._y; });
+        paths[hb] = (paths[hb] || "") + d;
+        return;
+      }
+      if (n._inCol) {                              // inside a column: an elbow down the left of the list
+        n.kids.forEach(function (k) {
+          var c = N(k), h = "b" + hue(k) + (c.verified ? "" : " u");
+          paths[h] = (paths[h] || "") + "M" + (n._x + 7) + " " + (n._y + n._h) + "V" + (c._y + c._h - 1) + "H" + c._x;
+        });
+        return;
+      }
       n.kids.forEach(function (k) {
         var c = N(k), x1 = n._x + n._w, y1 = root ? n._y + n._h / 2 : n._y + n._h - 1, x2 = c._x, y2 = c._y + c._h - 1, mx = x1 + (x2 - x1) * 0.55;
         var h = "b" + hue(k) + (c.verified ? "" : " u");
@@ -500,11 +571,11 @@
     });
     svg.appendChild(defs);
     var placed = [];
-    function label(x, y, text, rel, go) {
+    function label(x, y, text, rel, go, side) {
       // a line's words step down until they no longer sit on another line's words
-      for (var tries = 0; tries < 12 && placed.some(function (q) { return Math.abs(q.y - y) < 24 && Math.abs(q.x - x) < 220; }); tries++) y += 24;
+      for (var tries = 0; tries < 12 && placed.some(function (q) { return Math.abs(q.y - y) < 22 && Math.abs(q.x - x) < 200; }); tries++) y += 22;
       placed.push({ x: x, y: y });
-      var c = el("button", { type: "button", "class": "mp-xl x-" + rel.id, title: rel.hint, text: text, onclick: go });
+      var c = el("button", { type: "button", "class": "mp-xl " + (side || "") + " x-" + rel.id, title: text + "\n" + rel.hint, text: text, onclick: go });
       c.style.left = x + "px"; c.style.top = y + "px";
       stage.appendChild(c);
     }
@@ -525,8 +596,13 @@
       svg.appendChild(p);
       if (sel && (e.from === sel || e.to === sel)) {
         var mine = e.from === sel, other = mine ? e.to : e.from, proxy = mine ? b !== e.to : a !== e.from;
-        var mx = (x1 + 3 * c1 + 3 * c2 + x2) / 8, my = (ay + by) / 2;
-        label(mx, my, (mine ? e.rel.label : e.rel.back) + (proxy ? " · " + N(other).title + " (folded)" : ""), e.rel, function () { flush(); reveal(other); });
+        // the words sit near the other end, where the lines of a busy branch fan out (B(t) of the curve)
+        var tt = mine ? 0.93 : 0.07, u = 1 - tt;
+        var mx = u * u * u * x1 + 3 * u * u * tt * c1 + 3 * u * tt * tt * c2 + tt * tt * tt * x2;
+        var my = u * u * u * ay + 3 * u * u * tt * ay + 3 * u * tt * tt * by + tt * tt * tt * by;
+        // at the other end, on its row; the words stand on the side the line comes from, so they never cover that branch
+        var ex = mine ? x2 : x1;
+        label(mx, my, (e.rel.wire ? wireText(e.l, e.rel) : mine ? e.rel.label : e.rel.back) + (proxy ? " · " + N(other).title + " (folded)" : ""), e.rel, function () { flush(); reveal(other); }, ex >= mx ? "ra" : "la");
       }
     });
     // links to other maps: a short line to a chip beside the chosen branch
@@ -702,8 +778,12 @@
   }
   function branchDblClick(e) {
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-    if (e.target.closest && (e.target.closest("[data-act]") || e.target.closest(".mp-peek, .mp-xl"))) return;
-    var id = lastClick.id && Date.now() - lastClick.t < 900 && N(lastClick.id) ? lastClick.id : nodeE ? nodeE.getAttribute("data-node") : null;
+    var recent = lastClick.id && Date.now() - lastClick.t < 900 && N(lastClick.id) ? lastClick.id : null;
+    if (e.target.closest && e.target.closest("[data-act]")) return;
+    // the first click may have opened the notes card and scrolled it into view, so the second one lands on the card:
+    // the double-click still belongs to the branch the first click chose (a double-click inside the card alone selects a word)
+    if (!recent && e.target.closest && e.target.closest(".mp-peek, .mp-xl")) return;
+    var id = recent || (nodeE ? nodeE.getAttribute("data-node") : null);
     if (!id) return;
     e.preventDefault();
     if (lastClick.id === id && lastClick.closed) { N(id).open = true; if (!N(id).kids.length && st.view === "map") st.peek = id; }   // the first click closed it: reading does not close it
@@ -789,7 +869,8 @@
     var xi = linkIndex(), anyX = xi.list.length + xi.out.length > 0;
     $("mpXlinks").hidden = !anyX;
     $("mpXlinks").setAttribute("aria-pressed", anyX && st.xlinks !== "off" ? "true" : "false");
-    $("mpXlinksTxt").textContent = st.xlinks === "all" ? "Links: all" : st.xlinks === "off" ? "Links: off" : "Links: chosen";
+    var wd = isWiring() ? "Wires" : "Links";
+    $("mpXlinksTxt").textContent = wd + (st.xlinks === "all" ? ": all" : st.xlinks === "off" ? ": off" : ": chosen");
     legend(map && anyX && st.xlinks !== "off" ? xi : null);
     $("mpHint").textContent = COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
@@ -969,11 +1050,12 @@
       var a = linkNode(l); if (!a) return;
       var kindSel = null;
       if (E && l.kind === "node") {
-        kindSel = el("select", { "class": "input mp-relsel", "aria-label": "What the link to " + l.label + " means" }, RELS.map(function (r) { return el("option", { value: r.id, text: r.label }); }));
+        kindSel = el("select", { "class": "input mp-relsel", "aria-label": "What the link to " + l.label + " means" }, relOptions());
         kindSel.value = relOf(l).id;
         kindSel.addEventListener("change", function () { var v = kindSel.value; setList(n, "links", n.links.map(function (x, j) { if (j !== i) return x; var y = {}; for (var k in x) y[k] = x[k]; y.rel = v; return y; })); });
       }
-      shown.push(E ? el("div", { "class": "mp-linkrow" }, [a, kindSel, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
+      var change = E && l.kind === "node" ? el("button", { type: "button", "class": "btn ghost sm", text: "Change", "aria-label": "Change the link to " + l.label, onclick: function () { linkSheet(n, i); } }) : null;
+      shown.push(E ? el("div", { "class": "mp-linkrow" }, [a, kindSel, change, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
         onclick: function () { setList(n, "links", n.links.filter(function (x, j) { return j !== i; })); } })]) : a);
     });
     if (shown.length || E) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "Links" })].concat(shown,
@@ -982,7 +1064,7 @@
     var inbound = linkIndex().list.filter(function (e) { return e.to === n.id; });
     if (inbound.length) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "Linked from" })].concat(inbound.map(function (e) {
       return el("button", { type: "button", "class": "mp-link", onclick: function () { openNote(e.from); } }, [el("i", { "class": "mp-relsw x-" + e.rel.id, "aria-hidden": "true" }),
-        el("span", { "class": "t", text: N(e.from).title }), el("small", { text: e.rel.back })]);
+        el("span", { "class": "t", text: N(e.from).title }), el("small", { text: e.rel.wire ? wireText(e.l, e.rel) : e.rel.back })]);
     }))));
     // what grows from it
     if (n.kids.length || E) {
@@ -1108,7 +1190,7 @@
   function linkNode(l) {
     var t;
     if (l.kind === "node") return el("button", { type: "button", "class": "mp-link", onclick: function () { followBranch(l); } }, [el("i", { "class": "mp-relsw x-" + relOf(l).id, "aria-hidden": "true" }), el("span", { "class": "t", text: l.label }),
-      el("small", { text: relOf(l).label + (N(l.node) ? "" : " · other map") })]);
+      el("small", { text: (relOf(l).wire ? wireText(l, relOf(l)) : relOf(l).label) + (N(l.node) ? "" : " · other map") })]);
     if (l.kind === "standard") {
       if (!tool("standards")) return null;                                   // never point at a tool the account does not have
       return el("a", { "class": "mp-link", href: Hub.url("tools/standards/standard.html#" + encodeURIComponent(l.id)) }, [ico("link"), el("span", { "class": "t", text: l.label }), el("small", { text: "Standard" })]);
@@ -1146,15 +1228,24 @@
     })(rootId, 0);
     return out;
   }
-  function linkSheet(n) {
-    if (n.links.length >= 12) { Hub.toast("A branch holds up to 12 links. Remove one first.", true); return; }
-    sheet("Add a link to " + n.title, function (close) {
+  // the kinds to choose from: a wiring map offers the wires first, then the meanings
+  function relOptions() {
+    var opt = function (r) { return el("option", { value: r.id, text: r.label }); };
+    var wires = RELS.filter(function (r) { return r.wire; }), means = RELS.filter(function (r) { return !r.wire; });
+    if (!isWiring()) return means.map(opt);
+    return [el("optgroup", { label: "Wires" }, wires.map(opt)), el("optgroup", { label: "Meaning" }, means.map(opt))];
+  }
+  function linkSheet(n, editAt) {
+    var was = editAt != null ? n.links[editAt] : null;
+    if (!was && n.links.length >= 12) { Hub.toast("A branch holds up to 12 links. Remove one first.", true); return; }
+    sheet((was ? "Change the link from " : "Add a link to ") + n.title, function (close) {
       var err = el("p", { "class": "mp-err", role: "alert" }), area = el("div", { "class": "stack" });
       var kinds = [["node", "Another branch"]];
       if (tool("standards")) kinds.push(["standard", "A standard (Standards tool)"]);
       if (tools().some(function (t) { return t.id !== TOOL; })) kinds.push(["tool", "A tool of this site"]);
       kinds.push(["web", "A web address"]);
       var kind = el("select", { "class": "input", id: "mpLinkKind" }, kinds.map(function (k) { return el("option", { value: k[0], text: k[1] }); }));
+      if (was) { kind.value = "node"; kind.disabled = true; }
       var label = el("input", { "class": "input", type: "text", id: "mpLinkLabel", maxlength: "120", placeholder: "Leave empty to use the name of what it leads to", autocomplete: "off" });
       var get = function () { return null; };          // returns the link, or a message when something is missing
       function field(text, control, hint) { return el("label", { "class": "field" }, [el("span", { text: text }), control, hint ? el("p", { "class": "hint", text: hint }) : null]); }
@@ -1176,16 +1267,42 @@
               brSel.textContent = ""; branchOptions(nodes, root, null).forEach(function (o) { brSel.appendChild(o); });
             }, function (e) { brSel.textContent = ""; err.textContent = e.message; });
           });
-          var relSel = el("select", { "class": "input", id: "mpLinkRel" }, RELS.map(function (r) { return el("option", { value: r.id, text: r.label }); }));
-          relSel.value = "see";
+          var relSel = el("select", { "class": "input", id: "mpLinkRel" }, relOptions());
+          relSel.value = was ? relOf(was).id : isWiring() ? "w-power" : "see";
+          // what a wire carries (shown for wires): terminals at each end, signal, cable, who wires it
+          var wf = function (id, ph) { return el("input", { "class": "input", type: "text", id: id, maxlength: "80", placeholder: ph, autocomplete: "off" }); };
+          var fromT = wf("mpWFrom", "e.g. X1:1, AO1"), toT = wf("mpWTo", "e.g. L1, L2, L3"), sig = wf("mpWSig", "e.g. 0–10 V DC speed, 24 V AC"), cab = wf("mpWCab", "e.g. 4C × 2.5 mm², screened twisted pair");
+          var byS = el("select", { "class": "input", id: "mpWBy" }, [el("option", { value: "", text: "Not said" }), el("option", { value: "daikin", text: "Daikin (factory wiring)" }), el("option", { value: "others", text: "Others (site wiring)" })]);
+          if (was) { fromT.value = was.from_t || ""; toT.value = was.to_t || ""; sig.value = was.signal || ""; cab.value = was.cable || ""; byS.value = was.by || ""; label.value = was.label && N(was.node) && was.label === N(was.node).title ? "" : (was.label || ""); }
+          var wireBox = el("div", { "class": "mp-wirebox" }, [
+            el("div", { "class": "mp-wire2" }, [field("Terminal at " + n.title, fromT), field("Terminal at the other end", toT)]),
+            el("div", { "class": "mp-wire2" }, [field("Signal", sig), field("Cable", cab)]),
+            field("Wired by", byS)]);
           var relHint = el("p", { "class": "hint" });
           var showHint = function () {                // the link read as a sentence: "Drive provided requires Insulation class."
             var r = relOf({ rel: relSel.value }), o = brSel.options[brSel.selectedIndex], to = o && o.value ? o.text.trim() : "the branch";
-            relHint.textContent = n.title + " " + r.label.toLowerCase() + " " + to + ". " + r.hint;
+            relHint.textContent = r.wire ? r.label + " wire from " + n.title + " to " + to + ". " + r.hint : n.title + " " + r.label.toLowerCase() + " " + to + ". " + r.hint;
+            wireBox.hidden = !r.wire;
           };
           relSel.addEventListener("change", showHint); brSel.addEventListener("change", showHint); showHint();
-          area.appendChild(el("label", { "class": "field" }, [el("span", { text: "What the link means" }), relSel, relHint]));
-          get = function () { return brSel.value ? { kind: "node", node: brSel.value, rel: relSel.value } : "Choose the branch to link to."; };
+          area.appendChild(el("label", { "class": "field" }, [el("span", { text: isWiring() ? "Wire or meaning" : "What the link means" }), relSel, relHint]));
+          area.appendChild(wireBox); showHint();
+          // changing a link: its branch chosen again (another map's branches load first)
+          if (was) {
+            if (was.map && was.map !== M.map.id) {
+              var pickIt = function () { if ([].some.call(mapSel.options, function (o) { return o.value === was.map; })) { mapSel.value = was.map; mapSel.dispatchEvent(new Event("change")); var t0 = setInterval(function () { if ([].some.call(brSel.options, function (o) { return o.value === was.node; })) { brSel.value = was.node; showHint(); clearInterval(t0); } }, 100); setTimeout(function () { clearInterval(t0); }, 5000); } else setTimeout(pickIt, 150); };
+              pickIt();
+            } else { brSel.value = was.node; showHint(); }
+          }
+          get = function () {
+            if (!brSel.value) return "Choose the branch to link to.";
+            var l = { kind: "node", node: brSel.value, rel: relSel.value };
+            if (relOf({ rel: relSel.value }).wire) {
+              var put = function (k, inp) { var v = inp.value.replace(/\s+/g, " ").trim(); if (v) l[k] = v; };
+              put("from_t", fromT); put("to_t", toT); put("signal", sig); put("cable", cab); if (byS.value) l.by = byS.value;
+            }
+            return l;
+          };
         } else if (kind.value === "standard") {
           var stSel = el("select", { "class": "input", id: "mpLinkStd" }, [el("option", { value: "", text: "Loading…" })]);
           area.appendChild(field("Standard", stSel));
@@ -1217,14 +1334,39 @@
         var text = label.value.replace(/\s+/g, " ").trim();
         if (text) l.label = text; else if (!l.label) l.label = "";
         close();
-        var before = n.links;
-        n.links = n.links.concat([{ kind: l.kind, label: l.label || "…", node: l.node, id: l.id, url: l.url, rel: l.rel }]);
+        var before = n.links, shown1 = {}, k;
+        for (k in l) shown1[k] = l[k];
+        shown1.label = l.label || (N(l.node) ? N(l.node).title : "…");
+        var next = was ? before.map(function (x, j) { return j === editAt ? l : x; }) : before.concat([l]);
+        n.links = was ? before.map(function (x, j) { return j === editAt ? shown1 : x; }) : before.concat([shown1]);
         render(); flush();
-        send(n.id, { links: before.concat([l]) }, function () { n.links = before; }).then(function () { if (st.sel === n.id) render(); });
+        send(n.id, { links: next }, function () { n.links = before; }).then(function () { if (st.sel === n.id) render(); });
       }
       return [field("Leads to", kind), area, field("Text shown", label), err,
-        el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), el("button", { type: "button", "class": "btn", text: "Add link", onclick: go })])];
+        el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Cancel", onclick: close }), el("button", { type: "button", "class": "btn", text: was ? "Save link" : "Add link", onclick: go })])];
     });
+  }
+
+  // ---------- cable schedule (wiring maps): every wire as a row, for submittals ----------
+  function cableSchedule() {
+    flush();
+    var head = ["Variant", "From", "Terminal (from)", "To", "Terminal (to)", "Wire", "Signal", "Cable", "Wired by", "Checked"];
+    var rows = [head];
+    each(M.root, function (n) {
+      (n.links || []).forEach(function (l) {
+        var r = relOf(l); if (l.kind !== "node" || !r.wire) return;
+        var p = pathOf(n.id), to = N(l.node);
+        rows.push([p.length > 1 ? N(p[1]).title : "", n.title, l.from_t || "", to ? to.title : l.label, l.to_t || "", r.label, l.signal || "", l.cable || "",
+          l.by === "daikin" ? "Daikin (factory)" : l.by === "others" ? "Others (site)" : "", n.verified && to && to.verified ? "Verified" : "To verify"]);
+      });
+    });
+    if (rows.length === 1) { Hub.toast("This map has no wires yet. Add one with Add link in a branch's note.", true); return; }
+    if (!window.HubXlsx) { Hub.toast("The Excel writer did not load. Reload the page.", true); return; }
+    var blob = window.HubXlsx.build(rows, "Cable schedule", [26, 30, 16, 30, 16, 18, 34, 26, 18, 12]);
+    var url = URL.createObjectURL(blob);
+    var a = el("a", { href: url, download: (M.map.name.replace(/[^A-Za-z0-9 _-]+/g, " ").replace(/\s+/g, " ").trim() || "map") + " - cable schedule.xlsx" });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    Hub.toast("Cable schedule downloaded: " + (rows.length - 1) + " wires.");
   }
 
   // ---------- import and export: a plain outline ----------

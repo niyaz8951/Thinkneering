@@ -59,6 +59,7 @@ svg path.mpx.x-see { stroke-dasharray: 0.1 6; stroke-width: 2; opacity: .75; }
 .mp-xl { position: absolute; transform: translate(-50%, -50%); z-index: 2; max-width: 260px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--xc);
   background: var(--surface); color: var(--text); font: inherit; font-size: 12px; font-weight: 650; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .mp-xl:hover { background: color-mix(in srgb, var(--xc) 14%, var(--surface)); }
+.mp-xl.ra { transform: translate(calc(-100% - 4px), -50%); } .mp-xl.la { transform: translate(4px, -50%); }
 .mp-xl.mp-xout { transform: translate(0, -50%); max-width: 320px; }
 .mp-xl.mp-xout small { color: var(--text-soft); font-weight: 500; }
 .mp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: flex-end; margin: 0 4px 6px; font-size: 12px; color: var(--text-soft); }
@@ -68,6 +69,20 @@ svg path.mpx.x-see { stroke-dasharray: 0.1 6; stroke-width: 2; opacity: .75; }
 .mp-relsw.x-part, .mp-relsw.x-replaced { border-top-style: solid; } .mp-relsw.x-equivalent, .mp-relsw.x-see { border-top-style: dotted; }
 .mp-linkrow .mp-relsel { width: 150px; max-width: 40%; min-width: 0; flex: none; height: 34px; padding: 0 8px; font-size: 13px; }
 .mp-linkrow .mp-link { min-width: 0; }
+/* wires of a wiring map (23 Oct 2026) */
+.x-w-power { --xc: var(--danger); } .x-w-control { --xc: var(--text-soft); } .x-w-analog { --xc: var(--brand); }
+.x-w-digital { --xc: var(--warn); } .x-w-bus { --xc: var(--brand-sky); } .x-w-earth { --xc: var(--ok); }
+svg path.mpx.x-w-power { stroke-width: 3.2; }
+svg path.mpx.x-w-control { stroke-width: 1.5; }
+svg path.mpx.x-w-analog { stroke-dasharray: 7 4; }
+svg path.mpx.x-w-digital { stroke-dasharray: 9 3 2 3; }
+svg path.mpx.x-w-bus { stroke-dasharray: 0.1 5; stroke-width: 3; }
+svg path.mpx.x-w-earth { stroke-dasharray: 12 3; stroke-width: 2.2; }
+.mp-relsw.x-w-power, .mp-relsw.x-w-control, .mp-relsw.x-w-earth { border-top-style: solid; } .mp-relsw.x-w-bus { border-top-style: dotted; }
+.mp-wirebox { display: grid; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.mp-wirebox[hidden] { display: none; }
+.mp-wire2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mp-peek { z-index: 3; }
 /* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
 .mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);
   border-left: 3px solid var(--bc, var(--brand)); border-radius: 12px; box-shadow: var(--shadow); color: var(--text); cursor: auto; user-select: text;
@@ -236,6 +251,7 @@ svg path.mpx.x-see { stroke-dasharray: 0.1 6; stroke-width: 2; opacity: .75; }
   .mp-peek { width: 290px; }
   .mp-legend { justify-content: flex-start; }
   .mp-linkrow .mp-relsel { font-size: 16px; width: 130px; }
+  .mp-wire2 { grid-template-columns: 1fr; }
   .mp-peek-in { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

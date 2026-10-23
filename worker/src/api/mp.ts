@@ -15,6 +15,7 @@
    Images: the pages still send and expect JPEG data: URLs. The bytes live in R2
    (maps/<map>/<image>.jpg and -thumb.jpg); D1 keeps the keys and the caption. Decoded on write,
    re-encoded on read; deleting a branch, a map or an image deletes its R2 objects in the same request. */
+import { WIRING_TEMPLATES, wiringStatements } from "./mp-wiring";
 import { seedTree, addSeed } from "../ai/map";
 import { vocabSeed } from "../ai/vocab";
 import type { Env, Params } from "../env";
@@ -126,7 +127,11 @@ function mpSpecial(v: unknown): string[] {
 /* What a link between two branches means (23 Oct 2026, owner: "interlinking branches, each line style a meaning").
    One fixed list for every map, so a line means the same everywhere; the map draws each kind in its own style.
    A link saved without one (before 23 Oct 2026) is "see" (See also). */
-export const MP_RELS = ["requires", "equivalent", "excludes", "replaced", "part", "see"];
+export const MP_RELS = ["requires", "equivalent", "excludes", "replaced", "part", "see",
+  // wires of a wiring map (23 Oct 2026): power, control supply, analog signal, digital / volt-free contact, bus, earth
+  "w-power", "w-control", "w-analog", "w-digital", "w-bus", "w-earth"];
+/* What a wire carries besides its kind: the terminal at each end, the cable, the signal, who wires it. */
+const WIRE_FIELDS = ["from_t", "to_t", "cable", "signal"];
 
 /* Links as kept. A link leads to another branch (of a map the writer can open), to a page of the
    Standards tool, to a tool of the site, or to a web address. A link to a branch that is gone is dropped. */
@@ -146,7 +151,12 @@ async function mpLinks(env: Env, s: Session, v: unknown): Promise<Record<string,
       if (!m || mpRights(s, m) === "none") fail("You cannot link to a branch of a map you cannot open.");
       const rel = str(x.rel, 20).trim();
       if (rel && !MP_RELS.includes(rel)) fail("Choose what the link between the two branches means.");
-      out.push({ kind: "node", node: n.id, map: n.map_id, label: lbl || n.title, ...(rel ? { rel } : {}) });
+      const extra: Record<string, string> = {};
+      for (const f of WIRE_FIELDS) { const v = tidy(x[f]); if (v.length > 80) fail("A terminal, cable or signal is at most 80 characters."); if (v) extra[f] = v; }
+      const by = str(x.by, 10).trim();
+      if (by && by !== "daikin" && by !== "others") fail("Choose who wires it: Daikin (factory) or others (site).");
+      if (by) extra.by = by;
+      out.push({ kind: "node", node: n.id, map: n.map_id, label: lbl || n.title, ...(rel ? { rel } : {}), ...extra });
     } else if (x.kind === "standard") {
       const id = str(x.id, 80);
       if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(id)) fail("Choose the standard to link to.");
@@ -197,13 +207,15 @@ async function oneNodeJson(env: Env, nodeId: string): Promise<Record<string, unk
 
 /* What a map is for: knowledge, rulebook or vocabulary (a vocabulary map is kind knowledge + purpose vocabulary:
    migration 0010). */
-export function kindOf(m: { kind?: string | null; purpose?: string | null }): "knowledge" | "rulebook" | "vocabulary" {
-  return m.purpose === "vocabulary" ? "vocabulary" : m.kind === "rulebook" ? "rulebook" : "knowledge";
+export function kindOf(m: { kind?: string | null; purpose?: string | null }): "knowledge" | "rulebook" | "vocabulary" | "wiring" {
+  return m.purpose === "vocabulary" ? "vocabulary" : m.purpose === "wiring" ? "wiring" : m.kind === "rulebook" ? "rulebook" : "knowledge";
 }
+/* the purpose column for a kind: vocabulary and wiring maps are kind knowledge with a purpose (no migration of the CHECK on kind) */
+function purposeOf(kind: string): string { return kind === "vocabulary" || kind === "wiring" ? kind : ""; }
 function mapJson(s: Session, m: MapRow, name: (id: string | null | undefined) => string): Record<string, unknown> {
   return { id: m.id, name: m.name, share: m.share, kind: kindOf(m), rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at };
 }
-const KINDS = ["knowledge", "rulebook", "vocabulary"];
+const KINDS = ["knowledge", "rulebook", "vocabulary", "wiring"];
 
 /* The name of a map as kept: tidy, 1 to 80 characters, unique (case-blind) among the owner's maps. */
 async function mapName(env: Env, v: unknown, ownerId: string | null, exceptId: string | null, emptyMsg: string, dupMsg: string): Promise<string> {
@@ -311,11 +323,12 @@ export const routes: Routes = {
     const id = uuid(), at = now(), rootId = uuid();
     const stmts: D1PreparedStatement[] = [
       env.DB.prepare("INSERT INTO mp_maps (id, name, share, kind, purpose, created_by, created_at, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(id, name, share, kind === "rulebook" ? "rulebook" : "knowledge", kind === "vocabulary" ? "vocabulary" : "", s.id, at, s.id, at),
+        .bind(id, name, share, kind === "rulebook" ? "rulebook" : "knowledge", purposeOf(kind), s.id, at, s.id, at),
       env.DB.prepare(`INSERT INTO mp_nodes (id, map_id, parent_id, title, notes, sort, verified, verified_by, verified_at, created_by, created_at, updated_by, updated_at)
                       VALUES (?, ?, NULL, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?)`).bind(rootId, id, name,
         kind === "rulebook" ? "An AI rule book. Link it in Compliance review > AI rules. Instructions = what the AI reads before every answer; Decision steps = the order it goes through; the Parts hold the rules; Learned = what it learned, to verify."
-          : kind === "vocabulary" ? "A vocabulary: what specifications of one product ask, in their own words (one branch per component, one per requirement type under it). Link it in Compliance review > AI rules; Create from template there gives a full one." : "",
+          : kind === "vocabulary" ? "A vocabulary: what specifications of one product ask, in their own words (one branch per component, one per requirement type under it). Link it in Compliance review > AI rules; Create from template there gives a full one."
+          : kind === "wiring" ? "Wiring: the electrical connections of a unit. Branches are equipment; the lines between them are wires, each with its terminals, cable, signal and who wires it." : "",
         s.id, at, s.id, at, s.id, at)
     ];
     // an AI rule book starts from the template (instructions, decision steps, starter rules)
@@ -323,6 +336,12 @@ export const routes: Routes = {
     if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
     // a vocabulary made here starts with its guide and the standards (Create from template in AI rules gives a full one)
     if (kind === "vocabulary") vocabSeed("").forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
+    // a wiring map may start from a typical template (AHU, FCU with EC and DC motors; chiller), all "to verify"
+    const template = str(p.p_template, 20);
+    if (template) {
+      if (kind !== "wiring" || !WIRING_TEMPLATES.includes(template)) fail("Choose AHU, FCU or Chiller to start from.");
+      stmts.push(...wiringStatements(env, id, rootId, template, s.id, at, canVerify(s)));
+    }
     for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
     return { ok: true, id };
   },
@@ -362,7 +381,7 @@ export const routes: Routes = {
         stmts.push(env.DB.prepare("DELETE FROM ai_map_links WHERE map_id = ? AND role <> ?").bind(m.id, kind));
         if (kind !== "vocabulary") stmts.push(env.DB.prepare("DELETE FROM ai_vocab_links WHERE map_id = ?").bind(m.id));
       }
-      stmts.push(env.DB.prepare("UPDATE mp_maps SET kind = ?, purpose = ? WHERE id = ?").bind(kind === "rulebook" ? "rulebook" : "knowledge", kind === "vocabulary" ? "vocabulary" : "", m.id));
+      stmts.push(env.DB.prepare("UPDATE mp_maps SET kind = ?, purpose = ? WHERE id = ?").bind(kind === "rulebook" ? "rulebook" : "knowledge", purposeOf(kind), m.id));
     }
     stmts.push(touch(env, m.id, s.id));
     await env.DB.batch(stmts);

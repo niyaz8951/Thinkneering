@@ -99,7 +99,7 @@
     prAdminSummary: function (t) { return rpc("pr_admin_summary", { p_token: t }); },
     // Maps (product knowledge as a tree: branches, notes, special notes, links, images)
     mpList: function (t) { return rpc("mp_list", { p_token: t }); },
-    mpCreate: function (t, d) { return rpc("mp_create", { p_token: t, p_name: d.name, p_share: d.share || "private", p_kind: d.kind || "knowledge" }); },
+    mpCreate: function (t, d) { return rpc("mp_create", { p_token: t, p_name: d.name, p_share: d.share || "private", p_kind: d.kind || "knowledge", p_template: d.template || "" }); },
     mpGet: function (t, id) { return rpc("mp_get", { p_token: t, p_map_id: id }); },
     mpMapSave: function (t, d) { return rpc("mp_map_save", { p_token: t, p_map_id: d.id, p_name: d.name == null ? null : d.name, p_share: d.share == null ? null : d.share, p_kind: d.kind == null ? null : d.kind }); },
     mpDelete: function (t, id) { return rpc("mp_delete", { p_token: t, p_map_id: id }); },
