@@ -52,8 +52,8 @@
   var KIND = { knowledge: "Knowledge: process or product understanding", rulebook: "AI rule book: how the AI thinks and answers", vocabulary: "Vocabulary: what specifications ask (one per product)",
     wiring: "Wiring: electrical connections of a unit" };
   var KIND_NAME = { rulebook: "AI rule book", vocabulary: "Vocabulary", wiring: "Wiring" };
-  var TEMPLATES = [["", "Blank"], ["ahu", "AHU (EC fans, DC motors with drives)"], ["fcu", "FCU (EC motor, DC motor)"], ["chiller", "Chiller (field connections)"]];
-  var TEMPLATE_NAME = { ahu: "Wiring : AHU", fcu: "Wiring : FCU", chiller: "Wiring : Chiller" };
+  var TEMPLATES = [["", "Blank"], ["electricity", "Electricity: a building's supply to its chillers, AHUs and FCUs"]];
+  var TEMPLATE_NAME = { electricity: "Electricity" };
   var KIND_HINT = "Knowledge maps are for people. An AI rule book holds the AI's instructions, decision steps and rules (one per factory); a Vocabulary holds the requirement types specifications ask, their words, units and scales (one per product). Both are linked in Compliance review > AI rules and start from a template there. Facts about a product are AI notes in Product Options. A Wiring map shows the electrical connections of a unit: equipment as branches, wires as lines with their terminals and cables.";
   function kindSelect(id, value) {
     var s = el("select", { "class": "input", id: id }, Object.keys(KIND).map(function (k) { return el("option", { value: k, text: KIND[k] }); }));
@@ -128,10 +128,10 @@
       // a wiring map may start from a typical template (all of it "to verify" against the factory drawing)
       var tpl = el("select", { "class": "input", id: "mpNewTpl" }, TEMPLATES.map(function (t) { return el("option", { value: t[0], text: t[1] }); }));
       var tplField = el("label", { "class": "field" }, [el("span", { text: "Start from" }), tpl,
-        el("p", { "class": "hint", text: "A typical diagram to correct against the factory wiring diagram; every branch comes in \"to verify\"." })]);
+        el("p", { "class": "hint", text: "A typical example (a mall) to rename as the project's single-line diagram; every branch comes in \"to verify\". Current flows along the power lines." })]);
       tplField.hidden = true;
       kind.addEventListener("change", function () { tplField.hidden = kind.value !== "wiring"; if (kind.value !== "wiring") tpl.value = ""; });
-      tpl.addEventListener("change", function () { if (TEMPLATE_NAME[tpl.value] && (!name.value.trim() || /^Wiring : /.test(name.value))) name.value = TEMPLATE_NAME[tpl.value]; });
+      tpl.addEventListener("change", function () { if (TEMPLATE_NAME[tpl.value] && !name.value.trim()) name.value = TEMPLATE_NAME[tpl.value]; });
       var ok = el("button", { type: "button", "class": "btn", text: "Add map", onclick: go });
       function go() {
         var v = name.value.replace(/\s+/g, " ").trim();
@@ -166,7 +166,7 @@
   // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen" };
+  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen", flow: true, iso: {} };
   // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
   // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
   var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60, IND = 18, GCOL = 70;
@@ -200,6 +200,30 @@
     if (l.by === "others") t.push("site");
     return t.join(" · ");
   }
+  // ---------- the flow of current (wiring maps, 23 Oct 2026) ----------
+  // Power flows along Power wires, from the end a wire is drawn from to the other, starting at branches with the
+  // special note "Source: ..." and through every branch that is not open: "Switch: open" starts open; Isolate /
+  // Reconnect on a card changes it for this browser only (st.iso, never saved). The flow kinds are a list, so a water
+  // map later only adds its pipe kinds here.
+  var FLOW_KINDS = ["w-power"];
+  function noteVal(n, name) { var re = new RegExp("^\\s*" + name + "\\s*:\\s*(.+)$", "i"); for (var i = 0; i < n.special.length; i++) { var m = re.exec(n.special[i]); if (m) return m[1].trim(); } return ""; }
+  function isOpen(id) { var n = N(id); if (st.iso[id] != null) return st.iso[id]; return /^open/i.test(noteVal(n, "switch")); }
+  function power() {
+    var edges = {}, inFlow = {}, any = false, sources = [];
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) {
+        if (l.kind !== "node" || !N(l.node) || FLOW_KINDS.indexOf(l.rel) < 0) return;
+        any = true; (edges[id] = edges[id] || []).push(l.node); inFlow[id] = inFlow[l.node] = 1;
+      });
+      if (noteVal(N(id), "source")) sources.push(id);
+    });
+    if (!any) return null;
+    var on = {}, from = {}, q = [];
+    sources.forEach(function (id) { if (!isOpen(id)) { on[id] = 1; q.push(id); } });
+    while (q.length) { var a = q.shift(); (edges[a] || []).forEach(function (b) { if (on[b] || isOpen(b)) return; on[b] = 1; from[b] = a; q.push(b); }); }
+    return { on: on, from: from, part: inFlow, edges: edges, known: sources.length > 0 };
+  }
+  function downstream(pw, id) { var seen = {}, q = [id], c = 0; while (q.length) { (pw.edges[q.shift()] || []).forEach(function (b) { if (!seen[b]) { seen[b] = 1; c++; q.push(b); } }); } return c; }
   function colsOf(n) { return n.kids.length > 0 && n.special.some(function (x) { return /^\s*layout\s*:\s*columns?\s*$/i.test(x); }); }
   function relOf(l) { var id = l && l.rel; for (var i = 0; i < RELS.length; i++) if (RELS[i].id === id) return RELS[i]; return RELS[RELS.length - 1]; }
   // every link to a branch of this map: from -> to, with its kind; links to other maps are kept apart (out)
@@ -255,6 +279,8 @@
     r.nodes.forEach(function (n) { n.kids = []; n.open = old && old[n.id] ? old[n.id].open : !!open[n.id]; M.nodes[n.id] = n; });
     r.nodes.forEach(function (n) { if (n.parent && M.nodes[n.parent]) M.nodes[n.parent].kids.push(n.id); else if (!n.parent) M.root = n.id; });
     if (!old) N(M.root).open = true;
+    // a wiring map opens on its diagram the first time: the "Layout: columns" branches under the centre open
+    if (!old && !Object.keys(open).length && r.map.kind === "wiring") N(M.root).kids.forEach(function (k) { if (colsOf(N(k))) N(k).open = true; });
     if (!st.focus || !N(st.focus)) st.focus = M.root;
     if (st.sel && !N(st.sel)) st.sel = null;
     if (st.note && !N(st.note)) st.note = null;
@@ -284,6 +310,9 @@
     st.xlinks = isWiring() ? "all" : "chosen";
     var xl = store("localStorage", userKey(isWiring() ? "xlinks-w" : "xlinks")); if (xl === "all" || xl === "off" || xl === "chosen") st.xlinks = xl;
     $("mpCables").addEventListener("click", cableSchedule);
+    st.flow = store("localStorage", userKey("flow")) !== "0";
+    $("mpReset").addEventListener("click", function () { st.iso = {}; peekEl = null; renderView(); Hub.toast("Simulation reset: every branch as the map says."); });
+    $("mpFlow").addEventListener("click", function () { st.flow = !st.flow; store("localStorage", userKey("flow"), st.flow ? "1" : "0"); renderView(); });
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
     $("mpViewMap").addEventListener("click", function () { setView("map"); });
@@ -448,9 +477,12 @@
       var e = nodeEl(n, "mp-n" + (!first && !seen[id] ? " mp-grow" : ""));
       stage.appendChild(e); els[id] = e;
       // a branch laid out in columns (wiring maps): its columns always show what is in them
-      if (n.open && colsOf(n)) n.kids.forEach(function (k) { if (N(k).kids.length) N(k).open = true; });
+      // a branch laid out in columns is a diagram, not a tree to fold: everything in its columns stays open
+      if (n.open && colsOf(n)) n.kids.forEach(function openAll(k) { if (N(k).kids.length) { N(k).open = true; N(k).kids.forEach(openAll); } });
       if (n.open) n.kids.forEach(walk);
     })(st.focus);
+    var pw = isWiring() ? power() : null; lastPower = pw;
+    if (pw && pw.known) Object.keys(els).forEach(function (id) { if (pw.part[id] && !pw.on[id]) els[id].classList.add("mp-dead"); });
     Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
     // the notes card of a branch with nothing under it (peek), drawn where its next level would grow
     var pk = st.peek && els[st.peek] && st.peek !== st.focus && !N(st.peek).kids.length ? N(st.peek) : null, card = null;
@@ -460,6 +492,7 @@
     // columns: the branches of a "Layout: columns" branch side by side, each with what is under it as an indented list
     function colAcross(id, x0, depth) {
       var n = N(id), right; n._inCol = true; n._x = x0 + depth * IND; right = n._x + n._w;
+      if (pk && pk.id === id) right = Math.max(right, n._x + pk._pw);        // its notes card opens below it: the column makes room
       if (n.open) n.kids.forEach(function (k) { right = Math.max(right, colAcross(k, x0, depth + 1)); });
       return right;
     }
@@ -472,7 +505,7 @@
       }
       if (n.open) n.kids.forEach(function (k) { across(k, x + n._w + GX); });
     })(st.focus, PAD);
-    if (pk) maxX = Math.max(maxX, pk._x + pk._w + GX + pk._pw);
+    if (pk && !pk._inCol) maxX = Math.max(maxX, pk._x + pk._w + GX + pk._pw);
     // down: every branch takes the height of what grows from it; a branch sits in the middle of its own
     function shift(id, dy) { var n = N(id); n._y += dy; if (n.open) n.kids.forEach(function (k) { shift(k, dy); }); }
     var total = (function lay(id, top) {
@@ -480,7 +513,7 @@
       if (n === pk && !n._inCol) { var ps = Math.max(n._h, n._ph); n._y = top + (ps - n._h) / 2; return ps; }   // the card takes its room
       if (n.open && colsOf(n)) {                  // columns: each one a list from the top; the branch in the middle of them
         var bh = 0;
-        n.kids.forEach(function (k) { var y = (function colLay(cid, yy) { var c = N(cid); c._y = yy; yy += c._h + (c._colHead ? 10 : GY); if (c.open) c.kids.forEach(function (g) { yy = colLay(g, yy); }); return yy; })(k, 0); bh = Math.max(bh, y); });
+        n.kids.forEach(function (k) { var y = (function colLay(cid, yy) { var c = N(cid); c._y = yy; yy += c._h + (c._colHead ? 10 : GY); if (c === pk) yy += pk._ph + 12; if (c.open) c.kids.forEach(function (g) { yy = colLay(g, yy); }); return yy; })(k, 0); bh = Math.max(bh, y); });
         var cs = Math.max(n._h, bh), y0 = top + (cs - bh) / 2;
         n.kids.forEach(function (k) { shift(k, y0); });
         n._y = top + (cs - n._h) / 2;
@@ -522,10 +555,16 @@
       });
     });
     if (pk) {
-      pk._px = pk._x + pk._w + GX; pk._py = Math.max(PAD, pk._y + pk._h / 2 - pk._ph / 2);
+      var hp = "b" + hue(pk.id) + (pk.verified ? "" : " u");
+      if (pk._inCol) {                            // in a column: below the branch, in the room the column made
+        pk._px = pk._x; pk._py = pk._y + pk._h + 6;
+        paths[hp] = (paths[hp] || "") + "M" + (pk._x + 7) + " " + (pk._y + pk._h) + "V" + pk._py;
+      } else {
+        pk._px = pk._x + pk._w + GX; pk._py = Math.max(PAD, pk._y + pk._h / 2 - pk._ph / 2);
+        var x1 = pk._x + pk._w, y1 = pk._y + pk._h - 1, x2 = pk._px, y2 = pk._py + 18;
+        paths[hp] = (paths[hp] || "") + "M" + x1 + " " + y1 + "C" + (x1 + GX * 0.55) + " " + y1 + "," + (x1 + GX * 0.45) + " " + y2 + "," + x2 + " " + y2;
+      }
       card.style.left = pk._px + "px"; card.style.top = pk._py + "px";
-      var x1 = pk._x + pk._w, y1 = pk._y + pk._h - 1, x2 = pk._px, y2 = pk._py + 18, hp = "b" + hue(pk.id) + (pk.verified ? "" : " u");
-      paths[hp] = (paths[hp] || "") + "M" + x1 + " " + y1 + "C" + (x1 + GX * 0.55) + " " + y1 + "," + (x1 + GX * 0.45) + " " + y2 + "," + x2 + " " + y2;
       if (keepFocus && card.contains(keepFocus.el)) {
         keepFocus.el.focus({ preventScroll: true });
         try { if (keepFocus.a != null) keepFocus.el.setSelectionRange(keepFocus.a, keepFocus.b); } catch (x) { /* ignore */ }
@@ -555,7 +594,7 @@
   // Links: chosen (default) = the lines of the chosen branch, with their words; all = every line of the branches in
   // view (words only on the chosen branch's); off. A line ends at the branch, or at the nearest branch in view
   // that holds it when it is folded away ("folded" in the words). A link to another map ends in a chip at the side.
-  var SVGNS = "http://www.w3.org/2000/svg";
+  var SVGNS = "http://www.w3.org/2000/svg", lastPower = null;
   function svgEl(tag, attrs) { var e = document.createElementNS(SVGNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
   function shownAs(id, els) { while (id && N(id)) { if (els[id]) return id; id = N(id).parent; } return null; }
   function drawLinks(stage, svg, els) {
@@ -594,6 +633,13 @@
       if (e.rel.ends !== "none") p.setAttribute("marker-end", "url(#mpx-" + e.rel.id + ")");
       if (e.rel.ends === "both") p.setAttribute("marker-start", "url(#mpx-" + e.rel.id + ")");
       svg.appendChild(p);
+      // current: moving dots on a live power line, from where it is drawn from to the other end; a dead one goes grey
+      var pw = lastPower;
+      if (pw && FLOW_KINDS.indexOf(e.rel.id) >= 0) {
+        var live = pw.known ? !!pw.on[e.from] && !!pw.on[e.to] : true;
+        if (!live) p.classList.add("off");
+        else if (st.flow) svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-flow" }));
+      }
       if (sel && (e.from === sel || e.to === sel)) {
         var mine = e.from === sel, other = mine ? e.to : e.from, proxy = mine ? b !== e.to : a !== e.from;
         // the words sit near the other end, where the lines of a busy branch fan out (B(t) of the curve)
@@ -633,6 +679,11 @@
       s.appendChild(svgEl("path", { d: "M2 5 L32 5", "class": "mpx x-" + r.id }));
       box.appendChild(el("span", { "class": "mp-lg", title: r.hint }, [s, document.createTextNode(r.label)]));
     });
+    if (isWiring() && used["w-power"]) {
+      var s2 = svgEl("svg", { viewBox: "0 0 34 10", width: "34", height: "10", "aria-hidden": "true" });
+      s2.appendChild(svgEl("path", { d: "M2 5 L32 5", "class": "mpx off x-w-power" }));
+      box.appendChild(el("span", { "class": "mp-lg", title: "Moving dots: current flowing. Grey: no flow (an end has no supply, or is open or isolated)." }, [s2, document.createTextNode("No flow")]));
+    }
   }
 
   // ---------- the notes card on the map (peek) ----------
@@ -656,6 +707,19 @@
       box.appendChild(ta);
     } else box.appendChild(n.notes ? el("div", { "class": "mp-peek-text", text: n.notes }) : el("p", { "class": "mp-peek-none", text: "No notes on this branch." + (may ? " Press Edit to write some." : "") }));
     if (n.special.length) box.appendChild(el("div", { "class": "mp-chips mp-peek-sp" }, n.special.map(function (x) { return el("span", { "class": "mp-chip" }, [el("b", { text: "!" }), x]); })));
+    var pw = isWiring() ? power() : null;
+    if (pw && pw.known && pw.part[n.id]) {
+      var path = [], at = n.id; while (pw.from[at]) { at = pw.from[at]; path.push(N(at).title); }
+      var open = isOpen(n.id), live = !!pw.on[n.id], feeds = downstream(pw, n.id), sw = /./.test(noteVal(n, "switch")) || st.iso[n.id] != null;
+      // where its power comes from: the branch that feeds it and the source behind (the whole path is the line on the map)
+      var says = live ? (noteVal(n, "source") ? "Source of power." : "Fed by " + path[0] + (path.length > 1 ? ", from " + path[path.length - 1] : "") + ".")
+        : open ? (sw && !st.iso[n.id] ? "Open: passes no power until it is closed." : "Isolated: no power here or downstream.") : "No supply: something upstream is open or isolated.";
+      box.appendChild(el("div", { "class": "mp-power" + (live ? " on" : "") }, [
+        el("p", { text: says + (feeds ? " Feeds " + feeds + (feeds === 1 ? " branch." : " branches.") : "") }),
+        el("button", { type: "button", "class": "btn ghost sm", text: open ? (noteVal(n, "switch") && st.iso[n.id] == null ? "Close (simulation)" : "Reconnect (simulation)") : "Isolate (simulation)",
+          title: "Tries it in this browser only: nothing is saved, a reload starts again.",
+          onclick: function () { st.iso[n.id] = !open; peekEl = null; renderView(); } })]));
+    }
     peekEl = box;
     if (E) { if (retry && retry.id === n.id) status("Not saved yet.", true, true); }
     return box;
@@ -872,6 +936,10 @@
     var wd = isWiring() ? "Wires" : "Links";
     $("mpXlinksTxt").textContent = wd + (st.xlinks === "all" ? ": all" : st.xlinks === "off" ? ": off" : ": chosen");
     legend(map && anyX && st.xlinks !== "off" ? xi : null);
+    var hasFlow = isWiring() && xi.list.some(function (e) { return FLOW_KINDS.indexOf(e.rel.id) >= 0; });
+    $("mpFlow").hidden = !hasFlow || !map; $("mpFlow").setAttribute("aria-pressed", st.flow ? "true" : "false");
+    var anyIso = Object.keys(st.iso).length > 0;
+    $("mpReset").hidden = !anyIso || !map;
     $("mpHint").textContent = COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
     if (map) renderMap(); else renderOutline();

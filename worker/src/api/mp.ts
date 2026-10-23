@@ -336,10 +336,10 @@ export const routes: Routes = {
     if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
     // a vocabulary made here starts with its guide and the standards (Create from template in AI rules gives a full one)
     if (kind === "vocabulary") vocabSeed("").forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
-    // a wiring map may start from a typical template (AHU, FCU with EC and DC motors; chiller), all "to verify"
+    // a wiring map may start from the Electricity template (a building's supply to its chillers, AHUs and FCUs), all "to verify"
     const template = str(p.p_template, 20);
     if (template) {
-      if (kind !== "wiring" || !WIRING_TEMPLATES.includes(template)) fail("Choose AHU, FCU or Chiller to start from.");
+      if (kind !== "wiring" || !WIRING_TEMPLATES.includes(template)) fail("Start a wiring map blank or from the Electricity template.");
       stmts.push(...wiringStatements(env, id, rootId, template, s.id, at, canVerify(s)));
     }
     for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));

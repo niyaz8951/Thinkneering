@@ -373,39 +373,35 @@ describe("mp_* routes", () => {
     expect((await ok("mp_search", { p_token: sbu, p_q: "zzzz" })).hits).toEqual([]);
   });
 
-  it("wiring maps: start from the AHU / FCU / Chiller template, every diagram branch to verify, wires with their details", async () => {
+  it("wiring maps: the Electricity template (a building's supply to chillers, AHUs and FCUs), to verify, power wires that flow", async () => {
     const sbu = await login("sbu");
-    const made = await ok("mp_create", { p_token: sbu, p_name: "Wiring : AHU", p_kind: "wiring", p_template: "ahu" });
+    const made = await ok("mp_create", { p_token: sbu, p_name: "Electricity", p_kind: "wiring", p_template: "electricity" });
     const g = await ok("mp_get", { p_token: sbu, p_map_id: made.id });
     expect(g.map.kind).toBe("wiring");
     const by = (t: string) => g.nodes.filter((n: any) => n.title === t);
     const tops = g.nodes.filter((n: any) => n.parent === g.nodes.find((x: any) => !x.parent).id).map((n: any) => n.title);
-    expect(tops).toEqual(["How this map works", "AHU with EC fans", "AHU with DC motors and drives"]);
-    expect(by("AHU with EC fans")[0]).toMatchObject({ special: ["Layout: columns"], verified: false });
-    // the DC variant has drives; the EC one has none
-    expect(by("Supply fan drive (U1)")).toHaveLength(1);
-    const wires = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, ...l })));
-    expect(wires.every((w: any) => w.kind === "node" && /^w-/.test(w.rel) && w.map === made.id)).toBe(true);
-    expect(wires.find((w: any) => w.from === "BMS" && w.rel === "w-bus")).toMatchObject({ signal: "BACnet MS/TP or Modbus RTU (RS-485)", cable: "Screened twisted pair", by: "others" });
-    // every wire ends at a branch of the map
-    const ids = new Set(g.nodes.map((n: any) => n.id));
-    expect(wires.every((w: any) => ids.has(w.node))).toBe(true);
-    for (const tpl of ["fcu", "chiller"]) {
-      const m = await ok("mp_create", { p_token: sbu, p_name: "Wiring " + tpl, p_kind: "wiring", p_template: tpl });
-      const gg = await ok("mp_get", { p_token: sbu, p_map_id: m.id });
-      expect(gg.nodes.length).toBeGreaterThan(15);
-      expect(gg.nodes.some((n: any) => n.links.some((l: any) => l.rel === "w-power"))).toBe(true);
-    }
-    // a template only for a wiring map, only the three products
-    expect(await refused("mp_create", { p_token: sbu, p_name: "X", p_kind: "knowledge", p_template: "ahu" })).toBe("Choose AHU, FCU or Chiller to start from.");
-    expect(await refused("mp_create", { p_token: sbu, p_name: "Y", p_kind: "wiring", p_template: "vrv" })).toBe("Choose AHU, FCU or Chiller to start from.");
+    expect(tops).toEqual(["How this map works", "Power distribution to HVAC equipment"]);
+    expect(by("Power distribution to HVAC equipment")[0]).toMatchObject({ special: ["Layout: columns"], verified: false });
+    const cols = g.nodes.filter((n: any) => n.parent === by("Power distribution to HVAC equipment")[0].id).map((n: any) => n.title);
+    expect(cols).toEqual(["Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment"]);
+    expect(by("Utility supply (MV)")[0].special).toEqual(["Source: utility"]);
+    expect(by("Generator incomer Q2")[0].special).toEqual(["Switch: open"]);
+    const wires = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));
+    expect(wires.every((w: any) => w.rel === "w-power" && w.map === made.id && w.by === "others")).toBe(true);
+    // power reaches every chiller, AHU and FCU circuit from the utility through closed branches
+    const on = new Set(["Utility supply (MV)"]); let grew = true;
+    while (grew) { grew = false; for (const w of wires) if (on.has(w.from) && !on.has(w.to) && w.to !== "Generator incomer Q2") { on.add(w.to); grew = true; } }
+    for (const t of ["Chiller CH-3", "AHU-04, Level 2", "FCU circuit L2-A2 (FCU-L2-09 to 16)"]) expect(on.has(t)).toBe(true);
+    // a template only for a wiring map, and only Electricity
+    expect(await refused("mp_create", { p_token: sbu, p_name: "X", p_kind: "knowledge", p_template: "electricity" })).toBe("Start a wiring map blank or from the Electricity template.");
+    expect(await refused("mp_create", { p_token: sbu, p_name: "Y", p_kind: "wiring", p_template: "ahu" })).toBe("Start a wiring map blank or from the Electricity template.");
     // a blank wiring map; the type can change like any other
     const blank = await ok("mp_create", { p_token: sbu, p_name: "Wiring blank", p_kind: "wiring" });
     expect((await ok("mp_get", { p_token: sbu, p_map_id: blank.id })).nodes).toHaveLength(1);
     await ok("mp_map_save", { p_token: sbu, p_map_id: blank.id, p_kind: "knowledge" });
     expect((await ok("mp_get", { p_token: sbu, p_map_id: blank.id })).map.kind).toBe("knowledge");
     // wire details are checked
-    const root = g.nodes.find((n: any) => !n.parent).id, target = by("Main isolator (Q0)")[0].id;
+    const root = g.nodes.find((n: any) => !n.parent).id, target = by("Main switchboard (MSB)")[0].id;
     const bad = async (l: unknown) => refused("mp_node_save", { p_token: sbu, p_node_id: root, p_patch: { links: [l] } });
     expect(await bad({ kind: "node", node: target, rel: "w-power", by: "nobody" })).toBe("Choose who wires it: Daikin (factory) or others (site).");
     expect(await bad({ kind: "node", node: target, rel: "w-power", cable: "x".repeat(81) })).toBe("A terminal, cable or signal is at most 80 characters.");

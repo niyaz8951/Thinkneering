@@ -83,6 +83,16 @@ svg path.mpx.x-w-earth { stroke-dasharray: 12 3; stroke-width: 2.2; }
 .mp-wirebox[hidden] { display: none; }
 .mp-wire2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mp-peek { z-index: 3; }
+/* the flow of current (23 Oct 2026): moving gaps along a live power line; grey and faded where there is no supply */
+svg path.mpx-flow { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 2 12; animation: mp-flow .9s linear infinite; }
+@keyframes mp-flow { to { stroke-dashoffset: -14; } }
+svg path.mpx.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5; }
+.mp-n.mp-dead { opacity: .45; }
+.mp-power { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 8px 10px; border-radius: 10px;
+  background: var(--surface-2); font-size: 13px; color: var(--text-soft); }
+.mp-power.on { color: var(--text); }
+.mp-power p { margin: 0; }
+.mp-power .btn { flex: none; }
 /* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
 .mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);
   border-left: 3px solid var(--bc, var(--brand)); border-radius: 12px; box-shadow: var(--shadow); color: var(--text); cursor: auto; user-select: text;
@@ -258,4 +268,5 @@ svg path.mpx.x-w-earth { stroke-dasharray: 12 3; stroke-width: 2.2; }
   .mp-grow, .mp-note, .mp-note-back { animation: none; }
   .mp-n { transition: none; }
   .mp-peek { animation: none; }
+  svg path.mpx-flow { animation: none; }
 }
