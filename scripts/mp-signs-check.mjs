@@ -29,7 +29,7 @@ const want = {
   "Utility supply (MV)": "utility", "Transformer TR-1 (MV/LV)": "transformer", "Standby generator G-1": "generator",
   "Main incomer Q1 (utility)": "breaker", "Generator incomer Q2": "breaker", "Main switchboard (MSB)": "panel",
   "SMDB-CH, chiller plant room": "panel", "MCC-AHU, AHU plant rooms": "panel", "DB-L1-A, Level 1 zone A": "panel",
-  "Chillers": "chiller", "Chiller CH-1": "chiller", "AHUs": "ahu", "AHU-01, Level 1": "ahu", "FCUs": "fcu",
+  "Chillers": "chiller", "Chiller CH-1": "chiller", "AHU-01, Level 1": "ahu", "CHW pump starter P-1": "breaker", "Fire alarm panel": "alarm",
   "FCU circuit L1-A1 (FCU-L1-01 to 08)": "fcu", "BMS": "controller",
   "Unit control panel": "panel", "Main isolator (Q0)": "breaker", "Earth bar (PE)": "earth", "Fan circuit breakers (Q1, Q2)": "breaker",
   "Supply fan drive (U1)": "drive", "Control transformer (T1)": "transformer", "Unit controller (A1)": "controller",
@@ -45,7 +45,7 @@ const want = {
   "CHWS riser to AHU plant rooms": "pipe", "CHWS branch, Level 1": "pipe", "FCU group L1-A1 (FCU-L1-01 to 08)": "fcu",
   "CHWR riser from AHU plant rooms": "pipe", "CHWR header, plant room": "header",
   // column heads and groups that are not a component: no sign
-  "Supply": "", "Main distribution": "", "HVAC equipment": "", "Controls": "", "On the unit": "", "Site (by others)": "", "Units": ""
+  "Supply": "", "Main distribution": "", "Controls": "", "On the unit": "", "Site (by others)": ""
 };
 for (const [t, id] of Object.entries(want)) {
   assert.ok(t in got, `not in the templates any more: ${t}`);

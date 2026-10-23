@@ -17,6 +17,7 @@
    re-encoded on read; deleting a branch, a map or an image deletes its R2 objects in the same request. */
 import { WIRING_TEMPLATES, wiringStatements, seedStatements, PRODUCT_TEMPLATES, productStatements } from "./mp-wiring";
 import { PIPING_TEMPLATES, pipingSeed } from "./mp-piping";
+import { rearrange } from "../lib/mp-tree";
 import { seedTree, addSeed } from "../ai/map";
 import { vocabSeed } from "../ai/vocab";
 import type { Env, Params } from "../env";
@@ -549,6 +550,30 @@ export const routes: Routes = {
         .bind(JSON.stringify(special), JSON.stringify(built.links), v ? 1 : 0, s.id, at, n.id),
       touch(env, n.map_id, s.id)]);
     return { ok: true, added: built.count };
+  },
+
+  /* Rearrange a wiring or piping map as a feed tree (lib/mp-tree.ts): each load moves under the board, riser or branch
+     that feeds it, groups left empty go (their notes to the branch above), the centre loses "Layout: columns". Wires,
+     pipes and places are not touched, so the flow, the cable / pipe schedule and the 2D view stay the same. Map editors. */
+  async mp_rearrange(env, p) {
+    const s = await mpUser(env, p.p_token);
+    const m = await mpMap(env, s, p.p_map_id, "edit");
+    const kind = kindOf(m);
+    if (kind !== "wiring" && kind !== "piping") fail("Only a wiring or piping map is arranged by what feeds what.");
+    const rows = await all<NodeRow>(env.DB.prepare("SELECT * FROM mp_nodes WHERE map_id = ?").bind(m.id));
+    const pics = await all<{ node_id: string }>(env.DB.prepare("SELECT DISTINCT node_id FROM mp_images WHERE map_id = ?").bind(m.id));
+    const r = rearrange(kind, rows.map((n) => ({ id: n.id, parent: n.parent_id, title: n.title, notes: n.notes, special: parseList<string>(n.special),
+      links: parseList<Record<string, string>>(n.links), sort: n.sort })), new Set(pics.map((x) => x.node_id)));
+    if (!r.moves.length && !r.deletes.length && !r.rootSpecial) return { ok: true, moved: 0, removed: 0 };
+    const at = now(), stmts: D1PreparedStatement[] = [];
+    for (const x of r.moves) stmts.push(env.DB.prepare("UPDATE mp_nodes SET parent_id = ?, sort = ?, updated_by = ?, updated_at = ? WHERE id = ?").bind(x.parent, x.sort, s.id, at, x.id));
+    for (const [id, text] of r.notes) stmts.push(env.DB.prepare("UPDATE mp_nodes SET notes = ?, updated_by = ?, updated_at = ? WHERE id = ?").bind(text.slice(0, 8000), s.id, at, id));
+    const root = rows.find((n) => !n.parent_id)!;
+    if (r.rootSpecial) stmts.push(env.DB.prepare("UPDATE mp_nodes SET special = ?, updated_by = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(r.rootSpecial), s.id, at, root.id));
+    for (const id of r.deletes) stmts.push(env.DB.prepare("DELETE FROM mp_nodes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM mp_nodes c WHERE c.parent_id = ?)").bind(id, id));
+    stmts.push(touch(env, m.id, s.id));
+    await env.DB.batch(stmts);
+    return { ok: true, moved: r.moves.length, removed: r.deletes.length };
   },
 
   async mp_import(env, p) {

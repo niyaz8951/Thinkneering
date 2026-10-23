@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* The 2D view of a wiring map (mp-schematic.js layout(), runs in the browser): the Electricity template comes out as a
    single-line diagram: every branch fed from above, the sources at the top, the standby generator beside the utility's
-   transformer and its incomer beside the main incomer, each board a busbar over what it feeds, the BMS on the bottom row.
+   transformer and its incomer beside the main incomer, each board a busbar over what it feeds, the BMS and the fire alarm
+   panel on the bottom row. The tree of the map (stages, loads under their boards) plays no part: the 2D view is the wires.
    Part of `npm test`. */
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
@@ -46,7 +47,7 @@ assert.equal(Math.round(P.g1.y + P.g1.h / 2), Math.round(P.tr1.y + P.tr1.h / 2),
 assert.equal(Math.round(P.q2.y + P.q2.h / 2), Math.round(P.q1.y + P.q1.h / 2), "generator incomer on the main incomer's row");
 assert.ok(P.g1.cx > P.tr1.cx && P.q2.cx === P.g1.cx);
 // boards are busbars over what they feed
-for (const [board, fed] of [["msb", ["smdbch", "mcc", "smdb1", "smdb2"]], ["smdbch", ["ch1", "ch2", "ch3"]], ["mcc", ["ahu1", "ahu2", "ahu3", "ahu4"]], ["db1a", ["f1a1", "f1a2"]]]) {
+for (const [board, fed] of [["msb", ["smdbch", "mcc", "smdb1", "smdb2"]], ["smdbch", ["ch1", "ch2", "ch3", "p1", "p2", "p3"]], ["mcc", ["ahu1", "ahu2", "ahu3", "ahu4"]], ["db1a", ["f1a1", "f1a2"]]]) {
   assert.equal(P[board].h, 12, `${board} is a bar`);
   for (const f of fed) assert.ok(P[f].cx > P[board].x && P[f].cx < P[board].x + P[board].w, `${f} is under the bar of ${board}`);
 }
@@ -56,8 +57,13 @@ for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
   const a = P[ids[i]], b = P[ids[j]];
   assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y, `${ids[i]} and ${ids[j]} overlap`);
 }
-assert.ok(ids.every((id) => id === "bms" || P[id].y + P[id].h < P.bms.y));
+const bottom = ["bms", "fap"];
+assert.ok(ids.every((id) => bottom.includes(id) || P[id].y + P[id].h < Math.min(P.bms.y, P.fap.y)), "the BMS and the fire alarm panel on the bottom row");
+assert.equal(P.bms.y, P.fap.y);
 assert.ok(P.bms.w >= 12 * 18);
+// the fire alarm panel stands nearer the AHUs it stops than the BMS's middle does (ordered by what it is wired to)
+const ahuX = ["ahu1", "ahu2", "ahu3", "ahu4"].reduce((t, k) => t + P[k].cx, 0) / 4;
+assert.ok(Math.abs(P.fap.cx - ahuX) < Math.abs(P.fap.cx - P.ch1.cx) || P.fap.cx > P.bms.cx);
 // a branch given a place keeps it
 const kept = items.map((it) => ({ ...it, place: it.id === "ahu1" ? { x: 5, y: 7 } : null }));
 win.MPSchematic.layout(kept, edges, (id) => far[id] ?? 1e6);

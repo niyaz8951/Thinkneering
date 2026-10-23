@@ -177,7 +177,7 @@
   // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { sxLabels: "chosen", focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen", flow: true, iso: {}, cmd: {}, night: false };
+  var st = { fire: false, sxLabels: "chosen", focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen", flow: true, iso: {}, cmd: {}, night: false };
   // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
   // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
   var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60, IND = 18, GCOL = 70;
@@ -241,6 +241,7 @@
   function noteVal(n, name) { var re = new RegExp("^\\s*" + name + "\\s*:\\s*(.+)$", "i"); for (var i = 0; i < n.special.length; i++) { var m = re.exec(n.special[i]); if (m) return m[1].trim(); } return ""; }
   function isOpen(id) { var n = N(id); if (st.iso[id] != null) return st.iso[id]; return /^open/i.test(noteVal(n, "switch")); }
   function isBms(id) { return /bms/i.test(noteVal(N(id), "control")); }
+  function isFire(id) { return /fire/i.test(noteVal(N(id), "control")); }
   function power() {
     var adj = {}, inFlow = {}, any = false, sources = [];
     Object.keys(M.nodes).forEach(function (id) {
@@ -257,16 +258,34 @@
     // the BMS (23 Oct 2026): a branch with "Control: BMS" commands the branches a control wire joins it to (either end).
     // A load runs when it has power and no branch on its way to the source that the BMS commands is stopped (by the BMS,
     // or at night when it is on the occupied schedule): the fans of an AHU's diagram follow the AHU's command.
-    var ctl = {}, bms = [], state = {}, draw = {};
-    Object.keys(M.nodes).forEach(function (id) { if (isBms(id)) bms.push(id); });
+    // interlocks and the fire alarm (23 Oct 2026, owner: "signals must be interconnected"): a control wire between two
+    // branches that are not the BMS makes the one the BMS does not command follow the one it does (a chiller starts its
+    // own pump); a branch with "Control: fire alarm" stops what its control wires reach while the alarm is on (st.fire).
+    var ctl = {}, bms = [], state = {}, draw = {}, follow = {}, fire = {}, fires = [], pairs = [];
+    Object.keys(M.nodes).forEach(function (id) { if (isBms(id)) bms.push(id); if (isFire(id)) fires.push(id); });
     Object.keys(M.nodes).forEach(function (id) {
       (N(id).links || []).forEach(function (l) {
         if (l.kind !== "node" || !N(l.node) || CTL_KINDS.indexOf(l.rel) < 0) return;
-        if (isBms(id) && !isBms(l.node)) ctl[l.node] = id; else if (isBms(l.node) && !isBms(id)) ctl[id] = l.node;
+        if (isFire(id) && !isFire(l.node)) fire[l.node] = id; else if (isFire(l.node) && !isFire(id)) fire[id] = l.node;
+        else if (isBms(id) && !isBms(l.node)) ctl[l.node] = id; else if (isBms(l.node) && !isBms(id)) ctl[id] = l.node;
+        else if (!isBms(id) && !isBms(l.node)) pairs.push([id, l.node]);
       });
     });
+    pairs.forEach(function (p) { if (ctl[p[0]] && !ctl[p[1]]) follow[p[1]] = p[0]; else if (ctl[p[1]] && !ctl[p[0]]) follow[p[0]] = p[1]; });
     function own(id) { if (st.cmd[id] === false) return "stopped"; if (st.night && /occupied/i.test(noteVal(N(id), "schedule"))) return "night"; return ""; }
-    function blocked(id) { for (var x = id; x; x = from[x]) if (ctl[x]) { var o = own(x); if (o) return o; } return ""; }
+    var asking = {};
+    function why(id) {                         // why a commanding unit is not running ("" = it runs)
+      if (sources.length && inFlow[id] && !on[id]) return "nopower";
+      return blocked(id);
+    }
+    function blocked(id) {
+      for (var x = id; x; x = from[x]) {
+        if (ctl[x]) { var o = own(x); if (o) return o; }
+        if (st.fire && fire[x]) return "fire";
+        if (follow[x] && !asking[x]) { asking[x] = 1; var w = why(follow[x]); delete asking[x]; if (w) return "interlock"; }
+      }
+      return "";
+    }
     var loads = Object.keys(inFlow).filter(function (id) { return sources.indexOf(id) < 0 && (on[id] ? !(kids[id] || []).length : (adj[id] || []).length <= 1); });
     loads.forEach(function (id) {
       if (sources.length && !on[id]) { state[id] = "nopower"; return; }
@@ -275,8 +294,13 @@
       for (var x = id; x && !draw[x]; x = from[x]) draw[x] = 1;          // a running load draws current all the way up
     });
     // a unit the BMS commands that has its own diagram under it is not a load itself: its state is its command's
-    Object.keys(ctl).forEach(function (id) { if (state[id]) return; state[id] = sources.length && inFlow[id] && !on[id] ? "nopower" : blocked(id) || "running"; });
-    return { on: on, from: from, kids: kids, part: inFlow, adj: adj, known: sources.length > 0, ctl: ctl, bms: bms, state: state, draw: draw, loads: loads };
+    var cmd = {};
+    [ctl, follow, fire].forEach(function (m) { Object.keys(m).forEach(function (id) { cmd[id] = 1; }); });
+    Object.keys(cmd).forEach(function (id) { if (state[id]) return; state[id] = sources.length && inFlow[id] && !on[id] ? "nopower" : blocked(id) || "running"; });
+    // does a command b (BMS, interlock or fire alarm)? its wire pulses towards b while b runs (the fire alarm's while it sounds)
+    function commands(a, b) { return fire[b] === a ? (st.fire ? "fire" : "") : (ctl[b] === a || follow[b] === a) && state[b] === "running" ? "run" : ""; }
+    return { on: on, from: from, kids: kids, part: inFlow, adj: adj, known: sources.length > 0, ctl: ctl, bms: bms, state: state, draw: draw, loads: loads,
+      follow: follow, fire: fire, fires: fires, cmd: cmd, commands: commands };
   }
   // ---------- water (piping maps, 23 Oct 2026) ----------
   // mp-water.js works it out from the special notes and the Close valve / Stop pump simulation (st.iso: true = shut,
@@ -515,8 +539,10 @@
       }
       n.kids.forEach(function (k) { walk(k, false); });
     })(st.focus, true);
+    // in the order of the names, not of the tree: arranging the map's branches never changes the 2D view
+    var byName = Object.keys(M.nodes).sort(function (a, b) { return N(a).title.localeCompare(N(b).title, undefined, { numeric: true }) || (a < b ? -1 : 1); });
     var pairs = {}, pipes = [], outside = {};
-    Object.keys(M.nodes).forEach(function (id) {
+    byName.forEach(function (id) {
       (N(id).links || []).forEach(function (l) {
         var rel = relOf(l); if (l.kind !== "node" || !N(l.node) || !/^w-/.test(rel.id)) return;
         var a = rep(id), b = rep(l.node);
@@ -526,8 +552,7 @@
         var live = power && pw && pw.known ? !!pw.on[id] && !!pw.on[l.node] : !power;
         var child = power && pw ? (!pw.known ? l.node : pw.from[l.node] === id ? l.node : pw.from[id] === l.node ? id : null) : null;
         var flowing = !!child && (!pw.known || !!pw.draw[child]);
-        var unit = !power && pw ? (pw.ctl[l.node] === id ? l.node : pw.ctl[id] === l.node ? id : null) : null;
-        var pulse = unit && pw.state[unit] === "running" ? (unit === l.node ? 1 : -1) : 0;
+        var pulse = !power && pw ? (pw.commands(id, l.node) ? 1 : pw.commands(l.node, id) ? -1 : 0) : 0;
         var q = flowing ? (child === l.node ? 1 : -1) : 0;
         if (pairs[key]) { var o = pairs[key]; if (!o.q && q) o.q = (o.a === a) === (q > 0) ? 1 : -1; o.live = o.live || live; if (!o.pulse && pulse) o.pulse = (o.a === a) === (pulse > 0) ? 1 : -1; return; }
         var chosen = st.sel === id || st.sel === l.node || st.sel === a || st.sel === b, full = wireText(l, rel, id), other = b;
@@ -536,7 +561,7 @@
           go: function () { flush(); st.sel = other; st.peek = other; renderView(); } });
       });
     });
-    Object.keys(inScope).concat(Object.keys(outside)).forEach(function (id) {
+    byName.filter(function (id) { return inScope[id] || outside[id]; }).forEach(function (id) {
       if (drawn[id]) return; drawn[id] = 1;
       var n = N(id), pl = placeOf(n);
       if (sxDrag && sxDrag.id === id && sxDrag.moved) pl = { x: sxDrag.x, y: sxDrag.y, w: sxDrag.w, h: sxDrag.h };
@@ -546,10 +571,10 @@
     });
     // how far from a source along the power wires (switches as drawn, not as tried): the order of the rows
     var adj = {}, far = {}, q = [];
-    Object.keys(M.nodes).forEach(function (id) {
+    byName.forEach(function (id) {
       (N(id).links || []).forEach(function (l) { if (l.kind === "node" && N(l.node) && FLOW_KINDS.indexOf(l.rel) >= 0) { var a = rep(id), b = rep(l.node); (adj[a] = adj[a] || []).push(b); (adj[b] = adj[b] || []).push(a); } });
     });
-    Object.keys(M.nodes).forEach(function (id) { var v = noteVal(N(id), "source"); if (v) { var r = rep(id); if (far[r] == null) { far[r] = /standby|generator/i.test(v) ? 0.5 : 0; q.push(r); } } });
+    byName.forEach(function (id) { var v = noteVal(N(id), "source"); if (v) { var r = rep(id); if (far[r] == null) { far[r] = /standby|generator/i.test(v) ? 0.5 : 0; q.push(r); } } });
     q.sort(function (a, b) { return far[a] - far[b]; });
     while (q.length) { var x = q.shift(); (adj[x] || []).forEach(function (y) { if (far[y] == null) { far[y] = Math.floor(far[x]) + 1; q.push(y); } }); }
     window.MPSchematic.layout(items, pipes.map(function (p) { return { a: p.a, b: p.b, power: !p.minor }; }), function (id) { return far[id] == null ? 1e6 : far[id]; });
@@ -557,8 +582,9 @@
   }
   function wireState(pw, id) {
     if (!pw) return null;
-    var s = pw.ctl[id] ? pw.state[id] : pw.known && pw.part[id] && !pw.on[id] ? "nopower" : "";
-    var txt = { running: "running", stopped: "stopped by the BMS", night: "off at night", nopower: "no supply" }[s];
+    var s = pw.cmd[id] ? pw.state[id] : pw.known && pw.part[id] && !pw.on[id] ? "nopower" : "";
+    var txt = { running: "running", stopped: "stopped by the BMS", night: "off at night", nopower: "no supply", fire: "stopped by the fire alarm", interlock: "stopped: interlock" }[s];
+    if (pw.fires.indexOf(id) >= 0 && st.fire) { s = "alarm"; txt = "FIRE ALARM"; }
     return txt ? el("span", { "class": "mp-wq sx-st " + (s === "running" ? "run" : "stop"), text: txt }) : null;
   }
   function renderSchematic() {
@@ -664,7 +690,8 @@
   }
   function downstream(pw, id) { var c = 0, q = [id]; while (q.length) (pw.kids[q.shift()] || []).forEach(function (b) { c++; q.push(b); }); return c; }
   // a branch with its own diagram (Layout: columns) inside another diagram's column: it opens alone, as its own diagram
-  function opensDiagram(n) { return st.view === "map" && n.id !== st.focus && colsOf(n) && !!n._inCol; }
+  // (on a wiring or piping map a unit with its own diagram always opens alone: the free-flow tree keeps it one line)
+  function opensDiagram(n) { return st.view === "map" && n.id !== st.focus && colsOf(n) && (!!n._inCol || isNet()); }
   function colsOf(n) { return n.kids.length > 0 && n.special.some(function (x) { return /^\s*layout\s*:\s*columns?\s*$/i.test(x); }); }
   function relOf(l) { var id = l && l.rel; for (var i = 0; i < RELS.length; i++) if (RELS[i].id === id) return RELS[i]; return RELS[RELS.length - 1]; }
   // every link to a branch of this map: from -> to, with its kind; links to other maps are kept apart (out)
@@ -733,6 +760,7 @@
     var sub = $("mpSub"); sub.hidden = false;
     sub.textContent = (KIND_NAME[m.kind] ? KIND_NAME[m.kind] + " · " : "") + (m.mine ? "Your map" : "By " + m.owner) + " · " + (SHARE[m.share] || m.share) + (m.rights === "read" ? " · you can read it" : "") + " · changed " + Hub.date(m.updated_at);
     $("mpMode").hidden = !canEdit(); $("mpImport").hidden = !(canEdit() && st.edit); $("mpSettings").hidden = !isOwn();
+    $("mpArrange").hidden = !(canEdit() && st.edit && isNet());
     $("mpCables").hidden = !isNet();
     $("mpCables").textContent = isWater() ? "Pipe schedule" : "Cable schedule";
     $("mpCables").title = isWater() ? "Every pipe of this map, with its flow and temperature, as an Excel list" : "Every wire of this map as an Excel list";
@@ -755,7 +783,7 @@
     $("mpCables").addEventListener("click", cableSchedule);
     st.flow = store("localStorage", userKey("flow")) !== "0";
     var sxl = store("localStorage", userKey("sxlabels")); if (sxl === "all" || sxl === "off" || sxl === "chosen") st.sxLabels = sxl;
-    $("mpReset").addEventListener("click", function () { st.iso = {}; st.cmd = {}; st.night = false; peekEl = null; renderView(); Hub.toast(isWater() ? "Simulation reset: every valve, pump and chiller as the map says." : "Simulation reset: every branch as the map says, BMS on day."); });
+    $("mpReset").addEventListener("click", function () { st.iso = {}; st.cmd = {}; st.night = false; st.fire = false; peekEl = null; renderView(); Hub.toast(isWater() ? "Simulation reset: every valve, pump and chiller as the map says." : "Simulation reset: every branch as the map says, BMS on day."); });
     $("mpFlow").addEventListener("click", function () { st.flow = !st.flow; store("localStorage", userKey("flow"), st.flow ? "1" : "0"); renderView(); });
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
@@ -765,6 +793,7 @@
     $("mpRead").addEventListener("click", function () { setEdit(false); });
     $("mpEdit").addEventListener("click", function () { setEdit(true); });
     $("mpImport").addEventListener("click", importSheet);
+    $("mpArrange").addEventListener("click", arrange);
     $("mpExport").addEventListener("click", exportSheet);
     $("mpSettings").addEventListener("click", settingsSheet);
     $("mpZoomIn").addEventListener("click", function () { zoomBy(1.2); });
@@ -907,7 +936,7 @@
     if (n.special.length && !st.special) out.push(el("span", { "class": "mp-sp", title: n.special.join("\n") }, [el("i", { text: "!" }), String(n.special.length)]));
     if (n.links.length) out.push(el("span", { "class": "mp-lk", title: plural(n.links.length, "link") }, [ico("link")]));
     if (!n.verified && n.id !== st.focus) out.push(el("span", { "class": "mp-tv", title: "To verify: not yet checked by an admin" }, [document.createTextNode("to verify")]));
-    if (n.id !== st.focus && n.kids.length && colsOf(n) && pathOf(n.id).some(function (a) { return a !== n.id && N(a) && colsOf(N(a)); }))
+    if (n.id !== st.focus && n.kids.length && colsOf(n) && (isNet() || pathOf(n.id).some(function (a) { return a !== n.id && N(a) && colsOf(N(a)); })))
       out.push(el("span", { "class": "mp-diag", title: "Has its own wiring diagram: click to open it" }, [document.createTextNode("diagram ›")]));
     // show this branch alone (shown on the chosen branch and under the mouse; the crumbs lead back)
     if (n.id !== st.focus && n.kids.length && st.view !== "schematic")
@@ -942,6 +971,7 @@
     stage.classList.toggle("mp-pipes", isWater());
     (function walk(id) {
       var n = N(id); now[id] = 1; n._inCol = false; n._colHead = false; n._flat = false; n._aside = false;
+      if (isNet() && id !== st.focus && colsOf(n)) n.open = false;             // a unit's own diagram opens alone
       var e = nodeEl(n, "mp-n" + (!first && !seen[id] ? " mp-grow" : ""));
       stage.appendChild(e); els[id] = e;
       // a branch laid out in columns (wiring maps): its columns always show what is in them
@@ -954,7 +984,8 @@
     if (lastWater) Object.keys(els).forEach(function (id) { if (lastWater.part[id] && !anyFlow(id) && !isTank(id)) els[id].classList.add("mp-dead"); });
     if (pw && pw.known) Object.keys(els).forEach(function (id) {
       if (pw.part[id] && !pw.on[id]) els[id].classList.add("mp-dead");
-      if (pw.ctl[id] && pw.state[id]) els[id].classList.add(pw.state[id] === "running" ? "mp-run" : "mp-stop");
+      if (pw.cmd[id] && pw.state[id]) els[id].classList.add(pw.state[id] === "running" ? "mp-run" : "mp-stop");
+      if (st.fire && pw.fires.indexOf(id) >= 0) els[id].classList.add("mp-alarm");
     });
     Object.keys(els).forEach(function (id) { var n = N(id); n._w = els[id].offsetWidth; n._h = els[id].offsetHeight; });
     // the notes card of a branch with nothing under it (peek), drawn where its next level would grow
@@ -1144,11 +1175,19 @@
       var key = e.rel.ends === "end" ? a + ">" + b + e.rel.id : [a, b].sort().join("|") + e.rel.id;
       if (done[key]) return; done[key] = 1;
       var A = N(a), B = N(b), ay = A._y + A._h / 2, by = B._y + B._h / 2, x1, x2, c1, c2;
-      if (B._x >= A._x + A._w + 10) { x1 = A._x + A._w; x2 = B._x; var d = Math.max(40, (x2 - x1) / 2); c1 = x1 + d; c2 = x2 - d; }
+      // a feeder or supply pipe between a branch and the one under it runs on the branch line itself (the tree is the feed)
+      var P = a === e.from && b === e.to || a === e.to && b === e.from ? (B.parent === a ? A : A.parent === b ? B : null) : null;
+      var onTree = P && !P._inCol && !P._flat && (FLOW_KINDS.indexOf(e.rel.id) >= 0 || /^p-(cw-)?supply$/.test(e.rel.id));
+      if (onTree) {
+        var C = P === A ? B : A, px = P._x + P._w, py = P.id === st.focus ? P._y + P._h / 2 : P._y + P._h - 1, qx = C._x, qy = C._y + C._h - 1;
+        if (P === A) { x1 = px; ay = py; x2 = qx; by = qy; c1 = x1 + (x2 - x1) * 0.55; c2 = x1 + (x2 - x1) * 0.45; }
+        else { x1 = qx; ay = qy; x2 = px; by = py; c1 = x1 + (x2 - x1) * 0.45; c2 = x1 + (x2 - x1) * 0.55; }
+      }
+      else if (B._x >= A._x + A._w + 10) { x1 = A._x + A._w; x2 = B._x; var d = Math.max(40, (x2 - x1) / 2); c1 = x1 + d; c2 = x2 - d; }
       else if (A._x >= B._x + B._w + 10) { x1 = A._x; x2 = B._x + B._w; var d2 = Math.max(40, (x1 - x2) / 2); c1 = x1 - d2; c2 = x2 + d2; }
       else { x1 = A._x + A._w; x2 = B._x + B._w; c1 = c2 = Math.max(x1, x2) + 50 + Math.min(140, Math.abs(by - ay) * 0.25); }
       right = Math.max(right, c1 + 20, c2 + 20);
-      var p = svgEl("path", { d: "M" + x1 + " " + ay + "C" + c1 + " " + ay + "," + c2 + " " + by + "," + x2 + " " + by, "class": "mpx x-" + e.rel.id });
+      var p = svgEl("path", { d: "M" + x1 + " " + ay + "C" + c1 + " " + ay + "," + c2 + " " + by + "," + x2 + " " + by, "class": "mpx x-" + e.rel.id + (onTree ? " tree" : "") });
       if (e.rel.ends !== "none") p.setAttribute("marker-end", "url(#mpx-" + e.rel.id + ")");
       if (e.rel.ends === "both") p.setAttribute("marker-start", "url(#mpx-" + e.rel.id + ")");
       svg.appendChild(p);
@@ -1176,9 +1215,10 @@
         }
       }
       // a BMS command: a slow pulse towards the unit while it runs
-      var unit = pw ? (pw.ctl[e.to] === e.from ? e.to : pw.ctl[e.from] === e.to ? e.from : null) : null;
-      if (unit && st.flow && pw.state[unit] === "running") svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-pulse" + (unit === e.from ? " rev" : "") }));
-      if (sel && (e.from === sel || e.to === sel)) {
+      var unit = pw ? (pw.commands(e.from, e.to) ? e.to : pw.commands(e.to, e.from) ? e.from : null) : null;
+      if (unit && st.flow) svg.appendChild(svgEl("path", { d: p.getAttribute("d"), "class": "mpx-pulse" + (unit === e.from ? " rev" : "") + (pw.fire[unit] && st.fire ? " alarm" : "") }));
+      // (a feeder on a branch line carries no words on the map: they would cover the branch; its card, the cable schedule and the 2D view have them)
+      if (sel && (e.from === sel || e.to === sel) && !onTree) {
         var mine = e.from === sel, other = mine ? e.to : e.from, proxy = mine ? b !== e.to : a !== e.from;
         // the words sit near the other end, where the lines of a busy branch fan out (B(t) of the curve)
         var tt = mine ? 0.93 : 0.07, u = 1 - tt;
@@ -1282,16 +1322,27 @@
           onclick: function () { st.iso[n.id] = !open; peekEl = null; renderView(); } })]));
     }
     // a unit the BMS commands: its state and Start / Stop
-    if (pw && pw.ctl && pw.ctl[n.id]) {
-      var stt = pw.state[n.id] || "running", stopped = st.cmd[n.id] === false;
-      var ctlSays = { running: "Running: the BMS command is on, the run status goes back to the BMS.", stopped: "Stopped by the BMS.",
-        night: "Stopped: unoccupied (night) schedule of the BMS.", nopower: "No power: the BMS command cannot start it." }[stt];
+    if (pw && pw.cmd && pw.cmd[n.id]) {
+      var stt = pw.state[n.id] || "running", stopped = st.cmd[n.id] === false, master = pw.follow[n.id] ? N(pw.follow[n.id]).title : "";
+      var ctlSays = { running: master ? "Running: started by " + master + " (interlock)." : "Running: the BMS command is on, the run status goes back to the BMS.",
+        stopped: "Stopped by the BMS.", night: "Stopped: unoccupied (night) schedule of the BMS.",
+        nopower: "No power: " + (pw.ctl[n.id] ? "the BMS command cannot start it." : "it cannot run."),
+        fire: "Stopped by the fire alarm (" + (pw.fire[n.id] ? N(pw.fire[n.id]).title : "shutdown contact") + ").",
+        interlock: "Stopped: interlock" + (master ? " with " + master + ", which is not running." : ".") }[stt];
       box.appendChild(el("div", { "class": "mp-power mp-ctl" + (stt === "running" ? " on" : "") }, [el("p", { text: ctlSays }),
-        el("button", { type: "button", "class": "btn ghost sm", text: stopped ? "BMS: start (simulation)" : "BMS: stop (simulation)", title: "Tries it in this browser only: nothing is saved.",
-          onclick: function () { if (stopped) delete st.cmd[n.id]; else st.cmd[n.id] = false; peekEl = null; renderView(); } })]));
+        pw.ctl[n.id] ? el("button", { type: "button", "class": "btn ghost sm", text: stopped ? "BMS: start (simulation)" : "BMS: stop (simulation)", title: "Tries it in this browser only: nothing is saved.",
+          onclick: function () { if (stopped) delete st.cmd[n.id]; else st.cmd[n.id] = false; peekEl = null; renderView(); } }) : null]));
+    }
+    // a fire alarm panel: sound the alarm (simulation) and see what it stops
+    if (pw && pw.fires && pw.fires.indexOf(n.id) >= 0) {
+      var stops = Object.keys(pw.fire).filter(function (k) { return pw.fire[k] === n.id; });
+      box.appendChild(el("div", { "class": "mp-power mp-ctl" + (st.fire ? " alarm" : " on") }, [
+        el("p", { text: (st.fire ? "Fire alarm: " + plural(stops.length, "unit") + " stopped by its shutdown contacts." : "Normal: its shutdown contacts reach " + plural(stops.length, "unit") + ".") }),
+        el("button", { type: "button", "class": "btn " + (st.fire ? "" : "danger ") + "sm", text: st.fire ? "Reset the fire alarm" : "Fire alarm (simulation)", title: "Tries it in this browser only: nothing is saved.",
+          onclick: function () { st.fire = !st.fire; peekEl = null; renderView(); } })]));
     }
     // a piece of equipment with nothing under it: add its product's wiring diagram (map editors)
-    if (pw && canEdit() && !st.note && !n.kids.length && (pw.part[n.id] || (pw.ctl && pw.ctl[n.id])) && !noteVal(n, "source") && !isBms(n.id)) {
+    if (pw && canEdit() && !st.note && !n.kids.length && (pw.part[n.id] || (pw.ctl && pw.ctl[n.id])) && !noteVal(n, "source") && !isBms(n.id) && ["", "chiller", "ahu", "fcu"].indexOf(signOf(n)) >= 0) {
       var tSel = el("select", { "class": "input mp-relsel", "aria-label": "Which unit" }, PRODUCTS.map(function (x) { return el("option", { value: x[0], text: x[1] }); }));
       tSel.value = /fcu/i.test(n.title) ? "fcu-ec" : /chiller/i.test(n.title) ? "chiller" : "ahu-ec";
       var addB = el("button", { type: "button", "class": "btn sm", text: "Add", onclick: function () {
@@ -1575,7 +1626,7 @@
     var hasFlow = (isWiring() && xi.list.some(function (e) { return FLOW_KINDS.indexOf(e.rel.id) >= 0; })) || !!lastWater;
     $("mpFlow").hidden = !hasFlow || !canv; $("mpFlow").setAttribute("aria-pressed", st.flow ? "true" : "false");
     $("mpFlow").title = isWater() ? "Moving dots along the pipes that have flow" : "Moving dots along the power lines that have supply";
-    var anyIso = Object.keys(st.iso).length > 0 || Object.keys(st.cmd).length > 0 || st.night;
+    var anyIso = Object.keys(st.iso).length > 0 || Object.keys(st.cmd).length > 0 || st.night || st.fire;
     $("mpReset").hidden = !anyIso || !canv;
     $("mpHint").textContent = st.view === "schematic" ? (COARSE.matches ? "Tap a symbol for its figures · two fingers to scroll" : "Click a symbol for its figures · double-click to read it · drag to move · Ctrl + wheel to zoom" + (st.edit ? " · Edit: drag a symbol to place it" : ""))
       : COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
@@ -2207,6 +2258,20 @@
         el("div", { "class": "hub-sheet-actions" }, [el("button", { type: "button", "class": "btn ghost", text: "Close", onclick: close }),
           el("button", { type: "button", "class": "btn ghost", text: "Download .txt", onclick: download }), el("button", { type: "button", "class": "btn", text: "Copy", onclick: copy })])
       ];
+    });
+  }
+
+  // ---------- arrange a wiring or piping map by what feeds what (mp_rearrange) ----------
+  function arrange() {
+    Hub.confirm("Each piece of equipment moves under the board, riser or branch pipe that feeds it; groups left empty (such as HVAC equipment, Chillers, Units) " +
+      "are removed and their notes go to the branch above. Wires, pipes, the cable schedule and the 2D view stay as they are.",
+      { title: "Arrange " + M.map.name + " by feed?", ok: "Arrange" }).then(function (yes) {
+      if (!yes) return;
+      settled().then(function () { return Api.mpRearrange(T, M.map.id); }).then(function (r) {
+        return reload().then(function () {
+          Hub.toast(r.moved || r.removed ? plural(r.moved, "branch", "branches") + " moved under what feeds them" + (r.removed ? ", " + plural(r.removed, "empty group") + " removed." : ".") : "Already arranged by feed: nothing to move.");
+        });
+      }, function (e) { Hub.toast(e.message, true); });
     });
   }
 

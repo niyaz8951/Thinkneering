@@ -32,7 +32,8 @@ function guide(): WNode {
     "A building's chilled water plant as one map, as a typical schematic: cooling towers, condenser water pumps and the chillers' condensers " +
     "(condenser water, open circuit), the chillers' evaporators, chilled water pumps, air separator and expansion tank (chilled water, closed circuit), " +
     "the supply headers, risers and branches, the AHUs and FCU groups, and the return back to the pumps. Choose 2D view (above the map) to see it drawn " +
-    "as a schematic; the map's columns run Condenser water | Chiller plant | Supply (CHWS) | Units | Return (CHWR).\n\n" +
+    "as a schematic. On the map the branches are Condenser water | Chiller plant | Supply (CHWS) | Return (CHWR), and each AHU and FCU group sits under " +
+    "the riser or branch pipe that feeds it (that supply pipe runs along the branch line).\n\n" +
     "What you type (special notes, or the boxes of a unit's, chiller's or pump's card): chillers \"Source: chiller\", \"Leaving: 6.7 °C\", \"Design flow: 30 l/s\", " +
     "\"Pressure drop\" (evaporator), \"Condenser flow\", \"Condenser pressure drop\", \"COP\"; cooling towers \"Source: cooling tower\", \"Leaving: 32 °C\", " +
     "\"Design flow\", \"Static lift\" (basin to nozzles) and \"Pressure drop\" (nozzles); units \"Flow\", \"Leaving\" (or \"Load\") and \"Pressure drop\" " +
@@ -69,8 +70,11 @@ const UNIT = (key: string, title: string, flow: string, leaving: string, dp: str
 const RUN = (key: string, title: string, height: number, place: string, notes?: string): WNode => ({ key, title, special: ["Height: " + height + " m", place], notes });
 
 function building(): { node: WNode; wires: Wire[] } {
-  const node: WNode = { key: "b", title: "Chilled water system", special: ["Layout: columns"],
-    notes: "Example: a mall with a water-cooled plant in the basement (three chillers, two duty and one standby), cooling towers on the roof, AHUs in plant rooms and FCU groups on two levels; variable primary chilled water. Replace the names and figures with the project's.",
+  // a feed tree (owner, 23 Oct 2026): the circuits and the plant are the top branches; each unit sits under the riser or
+  // branch pipe that feeds it. Every pipe is still a link with its size and length (flow, pressures, pipe schedule, 2D view).
+  const node: WNode = { key: "b", title: "Chilled water system",
+    notes: "Example: a mall with a water-cooled plant in the basement (three chillers, two duty and one standby), cooling towers on the roof, AHUs in plant rooms and FCU groups on two levels; variable primary chilled water. Replace the names and figures with the project's.\n\n" +
+      "The units take water at the supply temperature and send it back warmer; a 2-way control valve on each. One branch pipe feeds a group of FCUs; the group's flow is the sum of its FCUs, its pressure drop the farthest FCU's coil, valve and group pipework.",
     kids: [
       { key: "cond", title: "Condenser water", notes: "Open circuit: towers on the roof, pumps and condensers in the plant room.", kids: [
         { key: "ctg", title: "Cooling towers", kids: [CT(1, 75), CT(2, 435), CT(3, 795)] },
@@ -85,18 +89,15 @@ function building(): { node: WNode; wires: Wire[] } {
           notes: "Closed diaphragm tank on the pumps' suction header. Fill pressure = static height of the highest unit (about 12 m = 1.2 bar) + 0.5 bar so air stays out at the high points." },
         { key: "as", title: "Air separator AS-1", special: ["Pressure drop: 10 kPa", "Design flow: 60 l/s", "Height: 0 m", P(1000, 990)],
           notes: "On the return before the pumps: takes out the air the water releases." }] },
-      { key: "sup", title: "Supply (CHWS)", notes: "Chilled water supply: from the chillers to the units.", kids: [
+      { key: "sup", title: "Supply (CHWS)", notes: "Chilled water supply: from the chillers to the units, each unit under the pipe that feeds it.", kids: [
         { key: "hs", title: "CHWS header, plant room", special: ["Height: 0 m", P(1040, 700, 16, 160)], notes: "Collects the chillers' supply and sends it to the risers." },
-        RUN("rs", "CHWS riser to AHU plant rooms", 5, P(1150, 760)),
-        RUN("sl1", "CHWS branch, Level 1", 5, P(1580, 560)),
-        RUN("sl2", "CHWS branch, Level 2", 10, P(1580, 140))] },
-      { key: "units", title: "Units", notes: "The loads: each takes water at the supply temperature and sends it back warmer; a 2-way control valve on each.", kids: [
-        { key: "ahug", title: "AHUs", kids: [
+        { ...RUN("rs", "CHWS riser to AHU plant rooms", 5, P(1150, 760)), kids: [
           UNIT("ahu1", "AHU-01, Level 1", "12 l/s", "13.0 °C", "60 kPa", 5, P(1250, 400)), UNIT("ahu2", "AHU-02, Level 1", "12 l/s", "13.0 °C", "60 kPa", 5, P(1250, 570)),
           UNIT("ahu3", "AHU-03, Level 2", "9.5 l/s", "12.5 °C", "60 kPa", 10, P(1250, 60)), UNIT("ahu4", "AHU-04, Level 2", "9.5 l/s", "12.5 °C", "60 kPa", 10, P(1250, 230))] },
-        { key: "fcug", title: "FCUs", notes: "One branch pipe feeds a group of FCUs; the group's flow is the sum of its FCUs, its pressure drop the farthest FCU's coil, valve and group pipework.", kids: [
+        { ...RUN("sl1", "CHWS branch, Level 1", 5, P(1580, 560)), kids: [
           UNIT("f1a1", "FCU group L1-A1 (FCU-L1-01 to 08)", "2 l/s", "12.0 °C", "40 kPa", 5, P(1680, 380)), UNIT("f1a2", "FCU group L1-A2 (FCU-L1-09 to 16)", "2 l/s", "12.0 °C", "40 kPa", 5, P(1680, 520)),
-          UNIT("f1b1", "FCU group L1-B1 (FCU-L1-17 to 24)", "1.6 l/s", "12.0 °C", "40 kPa", 5, P(1680, 660)),
+          UNIT("f1b1", "FCU group L1-B1 (FCU-L1-17 to 24)", "1.6 l/s", "12.0 °C", "40 kPa", 5, P(1680, 660))] },
+        { ...RUN("sl2", "CHWS branch, Level 2", 10, P(1580, 140)), kids: [
           UNIT("f2a1", "FCU group L2-A1 (FCU-L2-01 to 08)", "2 l/s", "12.0 °C", "40 kPa", 10, P(1680, 60)), UNIT("f2a2", "FCU group L2-A2 (FCU-L2-09 to 16)", "1.8 l/s", "12.0 °C", "40 kPa", 10, P(1680, 200))] }] },
       { key: "ret", title: "Return (CHWR)", notes: "Chilled water return: from the units back to the air separator, the pumps and the chillers.", kids: [
         RUN("rl1", "CHWR branch, Level 1", 5, P(1880, 560)),
@@ -135,5 +136,5 @@ function building(): { node: WNode; wires: Wire[] } {
 
 export function pipingSeed(_template: string): WiringSeed {
   const b = building();
-  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: b.node.special || [], notes: b.node.notes || "" } };
+  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: [], notes: b.node.notes || "" } };
 }

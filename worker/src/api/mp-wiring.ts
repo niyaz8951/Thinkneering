@@ -36,22 +36,26 @@ const OCC = "Schedule: occupied";
 function guide(): WNode {
   return { key: "guide", title: "How this map works", notes:
     "The power supply of a building's HVAC equipment, as one map: from the utility supply and the standby generator, through the main switchboard, " +
-    "sub-main boards and distribution boards, right up to the chillers, AHUs and FCUs. The columns run from left to right, " +
-    "Supply | Main distribution | Sub-distribution | Final distribution | HVAC equipment | Controls.\n\n" +
+    "sub-main boards and distribution boards, right up to the chillers, AHUs and FCUs. The branches are the stages, " +
+    "Supply | Main distribution | Sub-distribution | Final distribution | Controls, and each piece of equipment sits under the board that feeds it " +
+    "(a feeder runs along that branch line, in red, with the current's dots).\n\n" +
     "Current flow: moving dots run along every power line that has supply, from the source to the load. A grey line and a faded branch have no supply. " +
     "Click a panel or a piece of equipment: its card says where its power comes from, and Isolate / Reconnect tries what happens downstream " +
     "(a simulation in your browser only: nothing is saved, a reload starts again). The generator incomer starts open: isolate the utility supply, " +
     "close the generator incomer and see the building run on standby.\n\n" +
-    "BMS: the BMS (Controls column) starts and stops each chiller, AHU and FCU circuit through its control wires and reads back the run status. " +
+    "BMS: the BMS (under Controls) starts and stops each chiller, AHU and FCU circuit through its control wires and reads back the run status. " +
     "Click the BMS: Day / Night switches the schedule (units marked \"Schedule: occupied\" stop at night), Start all / Stop all; click a unit: BMS Start / Stop. " +
     "A running unit has a green dot; a stopped one draws no current, so the dots stop on its power line, and on the feeders above it when nothing they feed runs.\n\n" +
+    "Interlocks: each chiller starts its own chilled water pump (a Digital wire from the chiller to the pump starter): stop a chiller and its pump stops too. " +
+    "Fire alarm: the fire alarm panel (under Controls) stops the AHUs its shutdown contacts reach; click it, Fire alarm (simulation), and see them stop.\n\n" +
     "Special notes the map reads: \"Source: utility\" or \"Source: standby\" (power starts here), \"Switch: open\" (passes no power until closed), " +
-    "\"Control: BMS\" (this branch commands the units its control wires reach), \"Schedule: occupied\" (stops at night). " +
+    "\"Control: BMS\" (this branch commands the units its control wires reach), \"Control: fire alarm\" (stops the units its control wires reach on alarm), " +
+    "\"Schedule: occupied\" (stops at night). A control wire between two units (not from the BMS) is an interlock: the unit the BMS does not command runs only while the other runs. " +
     "Wires: Power carries the flow; Earth, Control supply, signals and buses can be added and are drawn but carry no flow.\n\n" +
-    "Adding equipment: Edit, click the group (AHUs, FCUs, Chillers), press Tab and name the new branch. Then double-click it, Add link > Another branch: " +
+    "Adding equipment: Edit, click the board that feeds it (SMDB-CH, MCC-AHU, a DB), press Tab and name the new branch. Then double-click it, Add link > Another branch: " +
     "Power to the board that feeds it, and a Communication bus or Digital wire to the BMS (a wire can be added from either end). " +
     "Adding a unit's own wiring diagram: click the unit, then in its card choose AHU with EC fans or DC motors, FCU with EC or DC motor, or Chiller, and Add: " +
-    "the unit's panel, parts and wires come in under it, joined to its feeder and to the BMS. In this view the unit stays one line marked \"diagram ›\"; " +
+    "the unit's panel, parts and wires come in under it, joined to its feeder and to the BMS. On the map the unit stays one line marked \"diagram ›\"; " +
     "click it to open its diagram, and the chips under it lead back to its board and the BMS.\n\n" +
     "This is a typical example, not the project's drawing: every branch is \"to verify\". Rename the boards and equipment as the project's single-line diagram, " +
     "add or delete branches, and fill each wire's cable and terminals (Edit, then the wire's Change). Cable schedule (above the map) gives every wire as an Excel list.\n\n" +
@@ -61,8 +65,16 @@ function guide(): WNode {
     kids: [] };
 }
 
+/* The building as a feed tree (owner, 23 Oct 2026: "equipment under the board that feeds it, no HVAC equipment heading";
+   "signals must be interconnected"): the stages are the top branches (Supply | Main distribution | Sub-distribution |
+   Final distribution | Controls); boards stay in their stage, each load sits under the board that feeds it. Every feeder
+   is still a Power wire with its own cable (cable schedule, flow, 2D view); the map draws a feeder that runs along a
+   branch line on that line. Signals: the BMS commands the chillers, AHUs and FCU circuits; each chiller starts its own
+   chilled water pump (interlock); the fire alarm panel stops the AHUs. */
 function building(): { node: WNode; wires: Wire[] } {
-  const node: WNode = { key: "b", title: "Power distribution to HVAC equipment", special: [COLS],
+  const PS = (n: number, standby: boolean): WNode => ({ key: "p" + n, title: "CHW pump starter P-" + n + (standby ? " (standby)" : ""),
+    notes: "Starter of chilled water pump P-" + n + ": fed from SMDB-CH, started by the pump command of chiller CH-" + n + " (volt-free contact on the chiller's terminal strip, interlock)." });
+  const node: WNode = { key: "b", title: "Power distribution to HVAC equipment",
     notes: "Example: a mall with a central chiller plant, AHUs in plant rooms and FCUs on two levels. Replace the names with the project's.",
     kids: [
       { key: "sup", title: "Supply", notes: "Where power comes from.", kids: [
@@ -73,27 +85,25 @@ function building(): { node: WNode; wires: Wire[] } {
         { key: "q1", title: "Main incomer Q1 (utility)", notes: "Normally closed." },
         { key: "q2", title: "Generator incomer Q2", special: ["Switch: open"], notes: "Normally open: closes when the utility supply fails (automatic transfer or interlock), never together with Q1." },
         { key: "msb", title: "Main switchboard (MSB)", notes: "Busbar and outgoing feeders to the sub-main boards and MCCs." }] },
-      { key: "sub", title: "Sub-distribution", notes: "Sub-main boards and motor control centres.", kids: [
-        { key: "smdbch", title: "SMDB-CH, chiller plant room", notes: "Feeds the chillers." },
-        { key: "mcc", title: "MCC-AHU, AHU plant rooms", notes: "Feeds the AHUs (or each AHU from its own isolator, as the project)." },
-        { key: "smdb1", title: "SMDB-L1, Level 1", notes: "Feeds the distribution boards of Level 1." },
-        { key: "smdb2", title: "SMDB-L2, Level 2", notes: "Feeds the distribution boards of Level 2." }] },
-      { key: "fin", title: "Final distribution", notes: "Distribution boards with the final circuits to the FCUs.", kids: [
-        { key: "db1a", title: "DB-L1-A, Level 1 zone A" },
-        { key: "db1b", title: "DB-L1-B, Level 1 zone B" },
-        { key: "db2a", title: "DB-L2-A, Level 2 zone A" }] },
-      { key: "eq", title: "HVAC equipment", notes: "The loads: Daikin's scope of supply starts at each unit's isolator or terminals.", kids: [
-        { key: "chg", title: "Chillers", kids: [
-          { key: "ch1", title: "Chiller CH-1" }, { key: "ch2", title: "Chiller CH-2" }, { key: "ch3", title: "Chiller CH-3" }] },
-        { key: "ahug", title: "AHUs", kids: [
+      { key: "sub", title: "Sub-distribution", notes: "Sub-main boards and motor control centres, each with what it feeds.", kids: [
+        { key: "smdbch", title: "SMDB-CH, chiller plant room", notes: "Feeds the chillers and the chilled water pumps.", kids: [
+          { key: "ch1", title: "Chiller CH-1" }, { key: "ch2", title: "Chiller CH-2" }, { key: "ch3", title: "Chiller CH-3" },
+          PS(1, false), PS(2, false), PS(3, true)] },
+        { key: "mcc", title: "MCC-AHU, AHU plant rooms", notes: "Feeds the AHUs (or each AHU from its own isolator, as the project).", kids: [
           { key: "ahu1", title: "AHU-01, Level 1", special: [OCC] }, { key: "ahu2", title: "AHU-02, Level 1", special: [OCC] },
           { key: "ahu3", title: "AHU-03, Level 2", special: [OCC] }, { key: "ahu4", title: "AHU-04, Level 2", special: [OCC] }] },
-        { key: "fcug", title: "FCUs", notes: "One final circuit feeds a group of FCUs, looped from unit to unit.", kids: [
-          { key: "f1a1", title: "FCU circuit L1-A1 (FCU-L1-01 to 08)", special: [OCC] }, { key: "f1a2", title: "FCU circuit L1-A2 (FCU-L1-09 to 16)", special: [OCC] },
-          { key: "f1b1", title: "FCU circuit L1-B1 (FCU-L1-17 to 24)", special: [OCC] },
+        { key: "smdb1", title: "SMDB-L1, Level 1", notes: "Feeds the distribution boards of Level 1." },
+        { key: "smdb2", title: "SMDB-L2, Level 2", notes: "Feeds the distribution boards of Level 2." }] },
+      { key: "fin", title: "Final distribution", notes: "Distribution boards with the final circuits to the FCUs: one final circuit feeds a group of FCUs, looped from unit to unit.", kids: [
+        { key: "db1a", title: "DB-L1-A, Level 1 zone A", kids: [
+          { key: "f1a1", title: "FCU circuit L1-A1 (FCU-L1-01 to 08)", special: [OCC] }, { key: "f1a2", title: "FCU circuit L1-A2 (FCU-L1-09 to 16)", special: [OCC] }] },
+        { key: "db1b", title: "DB-L1-B, Level 1 zone B", kids: [
+          { key: "f1b1", title: "FCU circuit L1-B1 (FCU-L1-17 to 24)", special: [OCC] }] },
+        { key: "db2a", title: "DB-L2-A, Level 2 zone A", kids: [
           { key: "f2a1", title: "FCU circuit L2-A1 (FCU-L2-01 to 08)", special: [OCC] }, { key: "f2a2", title: "FCU circuit L2-A2 (FCU-L2-09 to 16)", special: [OCC] }] }] },
       { key: "ctl", title: "Controls", notes: "What commands the equipment.", kids: [
-        { key: "bms", title: "BMS", special: ["Control: BMS"], notes: "Starts and stops each chiller, AHU and FCU circuit, reads back its run status, and runs the occupied / unoccupied schedule. By the controls contractor." }] }
+        { key: "bms", title: "BMS", special: ["Control: BMS"], notes: "Starts and stops each chiller, AHU and FCU circuit, reads back its run status, and runs the occupied / unoccupied schedule. By the controls contractor." },
+        { key: "fap", title: "Fire alarm panel", special: ["Control: fire alarm"], notes: "On fire alarm, its volt-free shutdown contacts stop the AHUs (smoke must not be spread). By the fire alarm contractor. Try it: click it, Fire alarm (simulation)." }] }
     ] };
   const w = (from: string, to: string, signal: string, extra: Partial<Wire> = {}): Wire => ({ from, to, rel: "w-power", signal, cable: SITE, by: "others", ...extra });
   const wires: Wire[] = [
@@ -102,6 +112,7 @@ function building(): { node: WNode; wires: Wire[] } {
     w("q1", "msb", "LV 3Ph + N"), w("q2", "msb", "LV 3Ph + N"),
     w("msb", "smdbch", "Feeder 3Ph + N + PE"), w("msb", "mcc", "Feeder 3Ph + N + PE"), w("msb", "smdb1", "Feeder 3Ph + N + PE"), w("msb", "smdb2", "Feeder 3Ph + N + PE"),
     w("smdbch", "ch1", "3Ph + PE"), w("smdbch", "ch2", "3Ph + PE"), w("smdbch", "ch3", "3Ph + PE"),
+    w("smdbch", "p1", "3Ph + PE"), w("smdbch", "p2", "3Ph + PE"), w("smdbch", "p3", "3Ph + PE"),
     w("mcc", "ahu1", "3Ph + PE"), w("mcc", "ahu2", "3Ph + PE"), w("mcc", "ahu3", "3Ph + PE"), w("mcc", "ahu4", "3Ph + PE"),
     w("smdb1", "db1a", "Sub-main 3Ph + N + PE"), w("smdb1", "db1b", "Sub-main 3Ph + N + PE"), w("smdb2", "db2a", "Sub-main 3Ph + N + PE"),
     w("db1a", "f1a1", "Final circuit 1Ph + N + PE"), w("db1a", "f1a2", "Final circuit 1Ph + N + PE"), w("db1b", "f1b1", "Final circuit 1Ph + N + PE"),
@@ -109,14 +120,17 @@ function building(): { node: WNode; wires: Wire[] } {
     // the BMS: one control wire to each unit (12, the most a branch holds)
     ...["ch1", "ch2", "ch3"].map((k) => ({ from: "bms", to: k, rel: "w-bus", signal: "Enable / disable, run status (BACnet or Modbus)", cable: "As the protocol asks", by: "others" as const })),
     ...["ahu1", "ahu2", "ahu3", "ahu4"].map((k) => ({ from: "bms", to: k, rel: "w-digital", signal: "Start / stop, run status", by: "others" as const })),
-    ...["f1a1", "f1a2", "f1b1", "f2a1", "f2a2"].map((k) => ({ from: "bms", to: k, rel: "w-bus", signal: "On / off through the room controllers", by: "others" as const }))
+    ...["f1a1", "f1a2", "f1b1", "f2a1", "f2a2"].map((k) => ({ from: "bms", to: k, rel: "w-bus", signal: "On / off through the room controllers", by: "others" as const })),
+    // interlocks: each chiller starts its own pump; the fire alarm stops the AHUs
+    ...[1, 2, 3].map((n) => ({ from: "ch" + n, to: "p" + n, rel: "w-digital", signal: "Pump start command (volt-free contact)", by: "others" as const })),
+    ...["ahu1", "ahu2", "ahu3", "ahu4"].map((k) => ({ from: "fap", to: k, rel: "w-digital", signal: "Fire alarm shutdown (volt-free contact)", by: "others" as const }))
   ];
   return { node, wires };
 }
 
 export function wiringSeed(_template: string): WiringSeed {
   const b = building();
-  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: b.node.special || [], notes: b.node.notes || "" } };
+  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: [], notes: b.node.notes || "" } };
 }
 
 /* ---------- a product's own wiring diagram, under its equipment branch (owner, 23 Oct 2026: "can he add his

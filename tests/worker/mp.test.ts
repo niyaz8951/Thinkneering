@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { ok, refused, login, resetLogins, USERS } from "./helpers";
+import { seedStatements, type WNode, type Wire } from "../../worker/src/api/mp-wiring";
 
 /* A tiny "JPEG" data URL: nothing decodes the bytes, so any bytes do. */
 function jpeg(bytes: number[]): string {
@@ -22,7 +23,7 @@ describe("mp_* routes", () => {
     expect(await refused("mp_list", { p_token: "nope" })).toBe("SESSION_EXPIRED");
     const sales = await login("sales");              // Sales tile only; Maps is on SBU
     for (const name of ["mp_list", "mp_create", "mp_get", "mp_map_save", "mp_delete", "mp_node_add", "mp_node_save", "mp_node_verify", "mp_node_move",
-                        "mp_node_delete", "mp_import", "mp_wiring_add", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
+                        "mp_node_delete", "mp_import", "mp_wiring_add", "mp_rearrange", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
       expect(await refused(name, { p_token: sales, p_name: "X", p_q: "xx" })).toBe("Maps is not available for your account.");
     }
     const sbu = await login("sbu");
@@ -70,6 +71,7 @@ describe("mp_* routes", () => {
     expect(await refused("mp_node_add", { p_token: other, p_parent_id: read.root, p_title: "X" })).toBe("You can read this map but not change it.");
     expect(await refused("mp_node_save", { p_token: other, p_node_id: read.root, p_patch: { notes: "x" } })).toBe("You can read this map but not change it.");
     expect(await refused("mp_import", { p_token: other, p_parent_id: read.root, p_items: [{ title: "a" }] })).toBe("You can read this map but not change it.");
+    expect(await refused("mp_rearrange", { p_token: other, p_map_id: read.id })).toBe("You can read this map but not change it.");
     expect(await refused("mp_image_add", { p_token: other, p_node_id: read.root, p_data: PIC, p_thumb: THUMB })).toBe("You can read this map but not change it.");
     expect(await refused("mp_get", { p_token: other, p_map_id: priv.id })).toMatch(/not available/);
 
@@ -379,11 +381,17 @@ describe("mp_* routes", () => {
     const g = await ok("mp_get", { p_token: sbu, p_map_id: made.id });
     expect(g.map.kind).toBe("wiring");
     const by = (t: string) => g.nodes.filter((n: any) => n.title === t);
-    // the columns start straight from the map's centre (no branch in between): the centre is laid out in columns
+    // a feed tree: the stages straight from the centre (no branch in between, no columns), each load under the board that feeds it
     const top = g.nodes.find((x: any) => !x.parent);
     const tops = g.nodes.filter((n: any) => n.parent === top.id).map((n: any) => n.title);
-    expect(tops).toEqual(["How this map works", "Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment", "Controls"]);
-    expect(top.special).toEqual(["Layout: columns"]);
+    expect(tops).toEqual(["How this map works", "Supply", "Main distribution", "Sub-distribution", "Final distribution", "Controls"]);
+    expect(top.special).toEqual([]);
+    const under = (t: string) => g.nodes.filter((n: any) => n.parent === by(t)[0].id).map((n: any) => n.title);
+    expect(under("SMDB-CH, chiller plant room")).toEqual(["Chiller CH-1", "Chiller CH-2", "Chiller CH-3", "CHW pump starter P-1", "CHW pump starter P-2", "CHW pump starter P-3 (standby)"]);
+    expect(under("MCC-AHU, AHU plant rooms")).toEqual(["AHU-01, Level 1", "AHU-02, Level 1", "AHU-03, Level 2", "AHU-04, Level 2"]);
+    expect(under("DB-L1-A, Level 1 zone A")).toEqual(["FCU circuit L1-A1 (FCU-L1-01 to 08)", "FCU circuit L1-A2 (FCU-L1-09 to 16)"]);
+    expect(under("Controls")).toEqual(["BMS", "Fire alarm panel"]);
+    expect(g.nodes.some((n: any) => ["HVAC equipment", "Chillers", "AHUs", "FCUs"].includes(n.title))).toBe(false);
     expect(top.notes).toMatch(/^Wiring: the electrical connections[\s\S]*\n\nExample: a mall/);
     expect(by("Supply")[0].verified).toBe(false);
     // the BMS commands every chiller, AHU and FCU circuit; AHUs and FCU circuits follow the occupied schedule
@@ -396,12 +404,23 @@ describe("mp_* routes", () => {
     expect(by("Utility supply (MV)")[0].special).toEqual(["Source: utility"]);
     expect(by("Generator incomer Q2")[0].special).toEqual(["Switch: open"]);
     const wires = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));
-    expect(wires.every((w: any) => (w.rel === "w-power" || w.from === "BMS") && w.map === made.id && w.by === "others")).toBe(true);
-    expect(wires.filter((w: any) => w.rel === "w-power")).toHaveLength(24);
+    expect(wires.every((w: any) => (w.rel === "w-power" || w.from === "BMS" || w.from === "Fire alarm panel" || /^Chiller CH-\d$/.test(w.from)) && w.map === made.id && w.by === "others")).toBe(true);
+    expect(wires.filter((w: any) => w.rel === "w-power")).toHaveLength(27);
+    // interlocks: each chiller starts its own pump; the fire alarm stops the AHUs
+    expect(wires.filter((w: any) => /^Chiller/.test(w.from)).map((w: any) => w.to)).toEqual(["CHW pump starter P-1", "CHW pump starter P-2", "CHW pump starter P-3 (standby)"]);
+    expect(by("Fire alarm panel")[0].special).toEqual(["Control: fire alarm"]);
+    expect(wires.filter((w: any) => w.from === "Fire alarm panel").map((w: any) => w.to)).toEqual(["AHU-01, Level 1", "AHU-02, Level 1", "AHU-03, Level 2", "AHU-04, Level 2"]);
+    // every feeder still a wire of its own: a load's power wire comes from the branch it sits under
+    for (const t of ["Chiller CH-2", "AHU-03, Level 2", "FCU circuit L2-A2 (FCU-L2-09 to 16)", "CHW pump starter P-1"]) {
+      const n = by(t)[0], feed = wires.find((w: any) => w.rel === "w-power" && w.to === t);
+      expect(feed.from).toBe(g.nodes.find((x: any) => x.id === n.parent).title);
+    }
     // power reaches every chiller, AHU and FCU circuit from the utility through closed branches
     const on = new Set(["Utility supply (MV)"]); let grew = true;
     while (grew) { grew = false; for (const w of wires) if (w.rel === "w-power" && on.has(w.from) && !on.has(w.to) && w.to !== "Generator incomer Q2") { on.add(w.to); grew = true; } }
     for (const t of ["Chiller CH-3", "AHU-04, Level 2", "FCU circuit L2-A2 (FCU-L2-09 to 16)"]) expect(on.has(t)).toBe(true);
+    // already a feed tree: Arrange by feed changes nothing
+    expect(await ok("mp_rearrange", { p_token: sbu, p_map_id: made.id })).toMatchObject({ ok: true, moved: 0, removed: 0 });
     // a template only for a wiring map, and only Electricity
     expect(await refused("mp_create", { p_token: sbu, p_name: "X", p_kind: "knowledge", p_template: "electricity" })).toBe("Start a wiring map blank or from the Electricity template.");
     expect(await refused("mp_create", { p_token: sbu, p_name: "Y", p_kind: "wiring", p_template: "ahu" })).toBe("Start a wiring map blank or from the Electricity template.");
@@ -469,6 +488,66 @@ describe("mp_* routes", () => {
     expect(g.nodes.find((n: any) => n.id === k.a).parent).toBe(k.x);
   });
 
+  it("mp_rearrange: a map made before (stages as columns, equipment in groups) becomes a feed tree; wires, pipes and places unchanged", async () => {
+    const sbu = await login("sbu"), at = new Date().toISOString();
+    const make = async (name: string, kind: string, nodes: WNode[], wires: Wire[]) => {
+      const m = await ok("mp_create", { p_token: sbu, p_name: name, p_kind: kind });
+      const root = (await ok("mp_get", { p_token: sbu, p_map_id: m.id })).nodes[0].id;
+      const guide: WNode = { key: "guide", title: "How this map works", notes: "Guide." };
+      await env.DB.batch(seedStatements(env, m.id, root, { guide, nodes, wires, root: { special: ["Layout: columns"], notes: "" } }, "test", USERS.sbu.id, at, true));
+      return { id: m.id, root };
+    };
+    const pw = (from: string, to: string): Wire => ({ from, to, rel: "w-power" });
+    const w = await make("Old electricity", "wiring", [
+      { key: "sup", title: "Supply", kids: [{ key: "mv", title: "Utility supply (MV)", special: ["Source: utility"] }] },
+      { key: "main", title: "Main distribution", kids: [{ key: "msb", title: "Main switchboard (MSB)" }] },
+      { key: "sub", title: "Sub-distribution", kids: [{ key: "smdb", title: "SMDB-CH" }, { key: "mcc", title: "MCC-AHU" }] },
+      { key: "eq", title: "HVAC equipment", notes: "The loads.", kids: [
+        { key: "chg", title: "Chillers", kids: [{ key: "ch1", title: "Chiller CH-1" }, { key: "ch2", title: "Chiller CH-2" }] },
+        { key: "ahug", title: "AHUs", kids: [{ key: "ahu1", title: "AHU-01", special: ["Place: 10, 20"] }] }] },
+      { key: "ctl", title: "Controls", kids: [{ key: "bms", title: "BMS", special: ["Control: BMS"] }] }],
+      [pw("mv", "msb"), pw("msb", "smdb"), pw("msb", "mcc"), pw("smdb", "ch1"), pw("ch2", "smdb"), pw("mcc", "ahu1"), { from: "bms", to: "ch1", rel: "w-bus" }]);
+    // a chiller with its own diagram moves with it; nothing inside the diagram moves
+    let g = await ok("mp_get", { p_token: sbu, p_map_id: w.id });
+    const id = (t: string) => g.nodes.find((n: any) => n.title === t).id;
+    await ok("mp_wiring_add", { p_token: sbu, p_node_id: id("Chiller CH-1"), p_template: "chiller" });
+    const before = (await ok("mp_get", { p_token: sbu, p_map_id: w.id })).nodes;
+    const r = await ok("mp_rearrange", { p_token: sbu, p_map_id: w.id });
+    expect(r).toMatchObject({ ok: true, moved: 3, removed: 3 });
+    g = await ok("mp_get", { p_token: sbu, p_map_id: w.id });
+    const kids = (t: string) => g.nodes.filter((n: any) => n.parent === id(t)).map((n: any) => n.title);
+    expect(kids(g.nodes.find((n: any) => !n.parent).title)).toEqual(["How this map works", "Supply", "Main distribution", "Sub-distribution", "Controls"]);
+    expect(kids("SMDB-CH")).toEqual(["Chiller CH-1", "Chiller CH-2"]);         // fed from either end of the wire
+    expect(kids("MCC-AHU")).toEqual(["AHU-01"]);
+    expect(kids("Chiller CH-1")).toEqual(["Chiller control panel", "On the unit", "Site (by others)"]);
+    const root = g.nodes.find((n: any) => !n.parent);
+    expect(root.special).toEqual([]);
+    expect(root.notes).toMatch(/HVAC equipment: The loads\.$/);
+    for (const n of g.nodes) {                                                   // links, special notes (places) and notes of every kept branch as they were
+      const b = before.find((x: any) => x.id === n.id);
+      expect(n.links).toEqual(b.links); expect(n.special).toEqual(n.id === root.id ? [] : b.special);
+    }
+    expect(g.nodes.length).toBe(before.length - 3);
+    expect(await ok("mp_rearrange", { p_token: sbu, p_map_id: w.id })).toMatchObject({ ok: true, moved: 0, removed: 0 });   // twice: nothing more
+
+    const pipe = (from: string, to: string, rel = "p-supply"): Wire => ({ from, to, rel, cable: "DN 50", len: "10 m" });
+    const p = await make("Old water", "piping", [
+      { key: "plant", title: "Chiller plant", kids: [{ key: "ch", title: "Chiller CH-1", special: ["Source: chiller"] }, { key: "pump", title: "Pump P-1" }] },
+      { key: "sup", title: "Supply (CHWS)", kids: [{ key: "hs", title: "CHWS header" }, { key: "rs", title: "CHWS riser" }] },
+      { key: "units", title: "Units", notes: "Each with a 2-way valve.", kids: [{ key: "ahug", title: "AHUs", kids: [{ key: "a1", title: "AHU-01" }, { key: "a2", title: "AHU-02" }] }] },
+      { key: "ret", title: "Return (CHWR)", kids: [{ key: "hr", title: "CHWR header" }] }],
+      [pipe("ch", "hs"), pipe("hs", "rs"), pipe("rs", "a1"), pipe("rs", "a2"), pipe("a1", "hr", "p-return"), pipe("a2", "hr", "p-return"), pipe("hr", "pump", "p-return"), pipe("pump", "ch", "p-return")]);
+    expect(await ok("mp_rearrange", { p_token: sbu, p_map_id: p.id })).toMatchObject({ ok: true, moved: 2, removed: 2 });
+    g = await ok("mp_get", { p_token: sbu, p_map_id: p.id });
+    expect(kids("CHWS riser")).toEqual(["AHU-01", "AHU-02"]);
+    expect(kids("CHWS header")).toEqual([]);                                     // a header feeds on: it stays
+    expect(g.nodes.find((n: any) => !n.parent).notes).toMatch(/Units: Each with a 2-way valve\.$/);
+    // refused: not a wiring or piping map; signed out
+    const km = await newMap(sbu, "Plain knowledge");
+    expect(await refused("mp_rearrange", { p_token: sbu, p_map_id: km.id })).toBe("Only a wiring or piping map is arranged by what feeds what.");
+    expect(await refused("mp_rearrange", { p_token: "nope", p_map_id: p.id })).toBe("SESSION_EXPIRED");
+  });
+
   it("piping maps: the Chilled water template (chillers to AHUs and FCUs and back), to verify, supply and return pipes with the inputs", async () => {
     const sbu = await login("sbu");
     const made = await ok("mp_create", { p_token: sbu, p_name: "Chilled water", p_kind: "piping", p_template: "chilled-water" });
@@ -477,8 +556,14 @@ describe("mp_* routes", () => {
     expect((await ok("mp_list", { p_token: sbu })).maps.find((m: any) => m.id === made.id).kind).toBe("piping");
     const by = (t: string) => g.nodes.filter((n: any) => n.title === t);
     const rootId = g.nodes.find((x: any) => !x.parent).id;
-    expect(g.nodes.filter((n: any) => n.parent === rootId).map((n: any) => n.title)).toEqual(["How this map works", "Condenser water", "Chiller plant", "Supply (CHWS)", "Units", "Return (CHWR)"]);
-    expect(g.nodes.find((x: any) => x.id === rootId).special).toEqual(["Layout: columns"]);
+    // a feed tree: each unit under the riser or branch pipe that feeds it (the 2D places are the same as before)
+    expect(g.nodes.filter((n: any) => n.parent === rootId).map((n: any) => n.title)).toEqual(["How this map works", "Condenser water", "Chiller plant", "Supply (CHWS)", "Return (CHWR)"]);
+    expect(g.nodes.find((x: any) => x.id === rootId).special).toEqual([]);
+    const kidsOf = (t: string) => g.nodes.filter((n: any) => n.parent === by(t)[0].id).map((n: any) => n.title);
+    expect(kidsOf("Supply (CHWS)")).toEqual(["CHWS header, plant room", "CHWS riser to AHU plant rooms", "CHWS branch, Level 1", "CHWS branch, Level 2"]);
+    expect(kidsOf("CHWS riser to AHU plant rooms")).toEqual(["AHU-01, Level 1", "AHU-02, Level 1", "AHU-03, Level 2", "AHU-04, Level 2"]);
+    expect(kidsOf("CHWS branch, Level 2")).toEqual(["FCU group L2-A1 (FCU-L2-01 to 08)", "FCU group L2-A2 (FCU-L2-09 to 16)"]);
+    expect(by("AHU-01, Level 1")[0].special.at(-1)).toBe("Place: 1250, 400");
     expect(g.nodes.filter((n: any) => n.parent !== rootId && n.parent).every((n: any) => n.verified === false)).toBe(true);
     // the inputs the map reads
     expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", expect.stringMatching(/^Place: \d+, \d+$/)]);
@@ -486,6 +571,7 @@ describe("mp_* routes", () => {
     expect(by("Chilled water pump P-3 (standby)")[0].special).toEqual(["Pump: standby", "Pump flow: 30 l/s", "Pump head: 18 m", "Pressure drop: 15 kPa", expect.stringMatching(/^Place: \d+, \d+$/)]);
     expect(by("Expansion tank ET-1")[0].special[0]).toBe("Fill pressure: 1.7 bar");
     expect(by("Cooling tower CT-1")[0].special.slice(0, 2)).toEqual(["Source: cooling tower", "Leaving: 32 °C"]);
+    expect(await ok("mp_rearrange", { p_token: sbu, p_map_id: made.id })).toMatchObject({ ok: true, moved: 0, removed: 0 });
     // pipes: chilled or condenser water, supply or return, each with a size and a length, site piping;
     // chilled water goes round: chiller > supply > unit > return > pump > chiller; condenser water: tower > pump > chiller > tower
     const pipes = g.nodes.flatMap((n: any) => n.links.map((l: any) => ({ from: n.title, to: g.nodes.find((x: any) => x.id === l.node)!.title, ...l })));

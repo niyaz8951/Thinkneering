@@ -109,6 +109,7 @@
     mpNodeMove: function (t, id, dir) { return rpc("mp_node_move", { p_token: t, p_node_id: id, p_dir: dir }); },
     mpNodeDelete: function (t, id) { return rpc("mp_node_delete", { p_token: t, p_node_id: id }); },
     mpWiringAdd: function (t, nodeId, template) { return rpc("mp_wiring_add", { p_token: t, p_node_id: nodeId, p_template: template }); },
+    mpRearrange: function (t, mapId) { return rpc("mp_rearrange", { p_token: t, p_map_id: mapId }); },
     mpImport: function (t, parentId, items) { return rpc("mp_import", { p_token: t, p_parent_id: parentId, p_items: items }); },
     mpNodeImages: function (t, nodeId) { return rpc("mp_node_images", { p_token: t, p_node_id: nodeId }); },
     mpImageGet: function (t, id) { return rpc("mp_image_get", { p_token: t, p_image_id: id }); },
