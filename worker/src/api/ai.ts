@@ -394,7 +394,7 @@ export const routes: Routes = {
     }
     const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(mapId).first<MapRow & { kind: string }>();
     if (!m || mpRights(s, m) === "none") fail("That map is not available to you in Maps.");
-    if (kindOf(m) !== role) fail(`That map is ${kindOf(m) === "vocabulary" ? "a vocabulary" : kindOf(m) === "wiring" ? "a wiring map" : "a knowledge map"}. Choose an AI rule book, or change the map's type in Maps (the map's settings).`);
+    if (kindOf(m) !== role) fail(`That map is ${kindOf(m) === "vocabulary" ? "a vocabulary" : kindOf(m) === "wiring" ? "a wiring map" : kindOf(m) === "piping" ? "a piping map" : "a knowledge map"}. Choose an AI rule book, or change the map's type in Maps (the map's settings).`);
     // a map belongs to one factory: linked for another factory, it is refused; linked for "all factories" of this
     // product (before 20 Oct 2026), it moves here
     const elsewhere = await env.DB.prepare(

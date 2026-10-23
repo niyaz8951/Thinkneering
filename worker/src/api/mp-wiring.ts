@@ -23,8 +23,8 @@ import { uuid } from "../lib/sql";
 export const WIRING_TEMPLATES = ["electricity"];
 export const WIRING_NAMES: Record<string, string> = { electricity: "Electricity" };
 
-interface WNode { key: string; title: string; notes?: string; special?: string[]; kids?: WNode[] }
-interface Wire { from: string; to: string; rel: string; from_t?: string; to_t?: string; cable?: string; signal?: string; by?: "daikin" | "others" }
+export interface WNode { key: string; title: string; notes?: string; special?: string[]; kids?: WNode[] }
+export interface Wire { from: string; to: string; rel: string; from_t?: string; to_t?: string; cable?: string; signal?: string; by?: "daikin" | "others" }
 export interface WiringSeed { guide: WNode; nodes: WNode[]; wires: Wire[] }
 
 const COLS = "Layout: columns";
@@ -245,21 +245,21 @@ export function productStatements(env: Env, mapId: string, equipment: { id: stri
 }
 
 /* The statements that put a template's branches and wires under the root of a new map. The guide is verified when
-   the maker may verify; the diagram branches always wait "to verify" (they are typical, not the project's drawing). */
-export function wiringStatements(env: Env, mapId: string, rootId: string, template: string, userId: string, at: string, mayVerify: boolean): D1PreparedStatement[] {
-  const seed = wiringSeed(template);
+   the maker may verify; the diagram branches always wait "to verify" (they are typical, not the project's drawing).
+   Shared by the wiring and the piping templates (mp-piping.ts): a wire and a pipe are both a link with details. */
+export function seedStatements(env: Env, mapId: string, rootId: string, seed: WiringSeed, what: string, userId: string, at: string, mayVerify: boolean): D1PreparedStatement[] {
   const ids = new Map<string, string>(), titles = new Map<string, string>();
   const walk = (n: WNode) => { ids.set(n.key, uuid()); titles.set(n.key, n.title); (n.kids || []).forEach(walk); };
   walk(seed.guide); seed.nodes.forEach(walk);
   const links = new Map<string, Record<string, string>[]>();
   for (const w of seed.wires) {
     const to = ids.get(w.to), from = ids.get(w.from);
-    if (!to || !from) throw new Error(`wiring template ${template}: unknown branch ${!to ? w.to : w.from}`);
+    if (!to || !from) throw new Error(`${what}: unknown branch ${!to ? w.to : w.from}`);
     const l: Record<string, string> = { kind: "node", node: to, map: mapId, label: titles.get(w.to)!, rel: w.rel };
     for (const k of ["from_t", "to_t", "cable", "signal", "by"] as const) if (w[k]) l[k] = w[k] as string;
     const list = links.get(w.from) || []; list.push(l); links.set(w.from, list);
   }
-  for (const [k, list] of links) if (list.length > 12) throw new Error(`wiring template ${template}: ${k} has ${list.length} wires (12 at most)`);
+  for (const [k, list] of links) if (list.length > 12) throw new Error(`${what}: ${k} has ${list.length} links (12 at most)`);
   const stmts: D1PreparedStatement[] = [];
   const add = (n: WNode, parent: string, sort: number, verified: boolean) => {
     const id = ids.get(n.key)!;
@@ -272,4 +272,7 @@ export function wiringStatements(env: Env, mapId: string, rootId: string, templa
   add(seed.guide, rootId, 0, mayVerify);
   seed.nodes.forEach((n, i) => add(n, rootId, i + 1, false));
   return stmts;
+}
+export function wiringStatements(env: Env, mapId: string, rootId: string, template: string, userId: string, at: string, mayVerify: boolean): D1PreparedStatement[] {
+  return seedStatements(env, mapId, rootId, wiringSeed(template), `wiring template ${template}`, userId, at, mayVerify);
 }

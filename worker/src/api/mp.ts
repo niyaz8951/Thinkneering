@@ -15,7 +15,8 @@
    Images: the pages still send and expect JPEG data: URLs. The bytes live in R2
    (maps/<map>/<image>.jpg and -thumb.jpg); D1 keeps the keys and the caption. Decoded on write,
    re-encoded on read; deleting a branch, a map or an image deletes its R2 objects in the same request. */
-import { WIRING_TEMPLATES, wiringStatements, PRODUCT_TEMPLATES, productStatements } from "./mp-wiring";
+import { WIRING_TEMPLATES, wiringStatements, seedStatements, PRODUCT_TEMPLATES, productStatements } from "./mp-wiring";
+import { PIPING_TEMPLATES, pipingSeed } from "./mp-piping";
 import { seedTree, addSeed } from "../ai/map";
 import { vocabSeed } from "../ai/vocab";
 import type { Env, Params } from "../env";
@@ -129,8 +130,11 @@ function mpSpecial(v: unknown): string[] {
    A link saved without one (before 23 Oct 2026) is "see" (See also). */
 export const MP_RELS = ["requires", "equivalent", "excludes", "replaced", "part", "see",
   // wires of a wiring map (23 Oct 2026): power, control supply, analog signal, digital / volt-free contact, bus, earth
-  "w-power", "w-control", "w-analog", "w-digital", "w-bus", "w-earth"];
-/* What a wire carries besides its kind: the terminal at each end, the cable, the signal, who wires it. */
+  "w-power", "w-control", "w-analog", "w-digital", "w-bus", "w-earth",
+  // pipes of a piping map (23 Oct 2026): supply (away from the source) and return (back to it); the map works out the direction
+  "p-supply", "p-return"];
+/* What a wire carries besides its kind: the terminal at each end, the cable, the signal, who wires it.
+   A pipe keeps the same fields: the connection at each end, the pipe size (cable), a label (signal), who installs it. */
 const WIRE_FIELDS = ["from_t", "to_t", "cable", "signal"];
 
 /* Links as kept. A link leads to another branch (of a map the writer can open), to a page of the
@@ -154,7 +158,7 @@ async function mpLinks(env: Env, s: Session, v: unknown): Promise<Record<string,
       const extra: Record<string, string> = {};
       for (const f of WIRE_FIELDS) { const v = tidy(x[f]); if (v.length > 80) fail("A terminal, cable or signal is at most 80 characters."); if (v) extra[f] = v; }
       const by = str(x.by, 10).trim();
-      if (by && by !== "daikin" && by !== "others") fail("Choose who wires it: Daikin (factory) or others (site).");
+      if (by && by !== "daikin" && by !== "others") fail("Choose who does it: Daikin (factory) or others (site).");
       if (by) extra.by = by;
       out.push({ kind: "node", node: n.id, map: n.map_id, label: lbl || n.title, ...(rel ? { rel } : {}), ...extra });
     } else if (x.kind === "standard") {
@@ -207,15 +211,15 @@ async function oneNodeJson(env: Env, nodeId: string): Promise<Record<string, unk
 
 /* What a map is for: knowledge, rulebook or vocabulary (a vocabulary map is kind knowledge + purpose vocabulary:
    migration 0010). */
-export function kindOf(m: { kind?: string | null; purpose?: string | null }): "knowledge" | "rulebook" | "vocabulary" | "wiring" {
-  return m.purpose === "vocabulary" ? "vocabulary" : m.purpose === "wiring" ? "wiring" : m.kind === "rulebook" ? "rulebook" : "knowledge";
+export function kindOf(m: { kind?: string | null; purpose?: string | null }): "knowledge" | "rulebook" | "vocabulary" | "wiring" | "piping" {
+  return m.purpose === "vocabulary" ? "vocabulary" : m.purpose === "wiring" ? "wiring" : m.purpose === "piping" ? "piping" : m.kind === "rulebook" ? "rulebook" : "knowledge";
 }
-/* the purpose column for a kind: vocabulary and wiring maps are kind knowledge with a purpose (no migration of the CHECK on kind) */
-function purposeOf(kind: string): string { return kind === "vocabulary" || kind === "wiring" ? kind : ""; }
+/* the purpose column for a kind: vocabulary, wiring and piping maps are kind knowledge with a purpose (no migration of the CHECK on kind) */
+function purposeOf(kind: string): string { return kind === "vocabulary" || kind === "wiring" || kind === "piping" ? kind : ""; }
 function mapJson(s: Session, m: MapRow, name: (id: string | null | undefined) => string): Record<string, unknown> {
   return { id: m.id, name: m.name, share: m.share, kind: kindOf(m), rights: mpRights(s, m), mine: m.created_by === s.id, owner: name(m.created_by), updated_at: m.updated_at };
 }
-const KINDS = ["knowledge", "rulebook", "vocabulary", "wiring"];
+const KINDS = ["knowledge", "rulebook", "vocabulary", "wiring", "piping"];
 
 /* The name of a map as kept: tidy, 1 to 80 characters, unique (case-blind) among the owner's maps. */
 async function mapName(env: Env, v: unknown, ownerId: string | null, exceptId: string | null, emptyMsg: string, dupMsg: string): Promise<string> {
@@ -328,7 +332,8 @@ export const routes: Routes = {
                       VALUES (?, ?, NULL, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?)`).bind(rootId, id, name,
         kind === "rulebook" ? "An AI rule book. Link it in Compliance review > AI rules. Instructions = what the AI reads before every answer; Decision steps = the order it goes through; the Parts hold the rules; Learned = what it learned, to verify."
           : kind === "vocabulary" ? "A vocabulary: what specifications of one product ask, in their own words (one branch per component, one per requirement type under it). Link it in Compliance review > AI rules; Create from template there gives a full one."
-          : kind === "wiring" ? "Wiring: the electrical connections of a unit. Branches are equipment; the lines between them are wires, each with its terminals, cable, signal and who wires it." : "",
+          : kind === "wiring" ? "Wiring: the electrical connections of a unit. Branches are equipment; the lines between them are wires, each with its terminals, cable, signal and who wires it."
+          : kind === "piping" ? "Piping: water flowing between equipment. Branches are equipment, headers and pipe runs; the lines between them are pipes, Supply or Return, each with its connections, size and who installs it. Flows and temperatures are special notes (Flow, Leaving, Source)." : "",
         s.id, at, s.id, at, s.id, at)
     ];
     // an AI rule book starts from the template (instructions, decision steps, starter rules)
@@ -336,11 +341,13 @@ export const routes: Routes = {
     if (kind === "rulebook") seedTree("{product}", null).forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
     // a vocabulary made here starts with its guide and the standards (Create from template in AI rules gives a full one)
     if (kind === "vocabulary") vocabSeed("").forEach((x, i) => addSeed(env, stmts, id, rootId, x, i, s.id, at, canVerify(s) ? 1 : 0));
-    // a wiring map may start from the Electricity template (a building's supply to its chillers, AHUs and FCUs), all "to verify"
+    // a wiring map may start from the Electricity template (a building's supply to its chillers, AHUs and FCUs), a piping map
+    // from the Chilled water template (chillers to AHUs and FCUs and back); all "to verify"
     const template = str(p.p_template, 20);
     if (template) {
-      if (kind !== "wiring" || !WIRING_TEMPLATES.includes(template)) fail("Start a wiring map blank or from the Electricity template.");
-      stmts.push(...wiringStatements(env, id, rootId, template, s.id, at, canVerify(s)));
+      if (kind === "piping" && PIPING_TEMPLATES.includes(template)) stmts.push(...seedStatements(env, id, rootId, pipingSeed(template), `piping template ${template}`, s.id, at, canVerify(s)));
+      else if (kind === "wiring" && WIRING_TEMPLATES.includes(template)) stmts.push(...wiringStatements(env, id, rootId, template, s.id, at, canVerify(s)));
+      else fail(kind === "piping" ? "Start a piping map blank or from the Chilled water template." : "Start a wiring map blank or from the Electricity template.");
     }
     for (let i = 0; i < stmts.length; i += 400) await env.DB.batch(stmts.slice(i, i + 400));
     return { ok: true, id };
