@@ -15,7 +15,7 @@
    Images: the pages still send and expect JPEG data: URLs. The bytes live in R2
    (maps/<map>/<image>.jpg and -thumb.jpg); D1 keeps the keys and the caption. Decoded on write,
    re-encoded on read; deleting a branch, a map or an image deletes its R2 objects in the same request. */
-import { WIRING_TEMPLATES, wiringStatements } from "./mp-wiring";
+import { WIRING_TEMPLATES, wiringStatements, PRODUCT_TEMPLATES, productStatements } from "./mp-wiring";
 import { seedTree, addSeed } from "../ai/map";
 import { vocabSeed } from "../ai/vocab";
 import type { Env, Params } from "../env";
@@ -513,6 +513,35 @@ export const routes: Routes = {
        [{ depth: 0, title, notes, special: [...] }, ...]
      depth 0 = directly under p_parent_id; a line can be at most one level deeper than the line before it.
      Everything imported starts as "to verify". */
+  /* A product's wiring diagram under an equipment branch of a wiring map (23 Oct 2026): p_template one of
+     PRODUCT_TEMPLATES. The branch must have nothing under it yet; it gets "Layout: columns", the unit's columns (all to
+     verify) and a Power wire on to the unit's incoming isolator or terminal block. Map editors only. */
+  async mp_wiring_add(env, p) {
+    const s = await mpUser(env, p.p_token);
+    const n = await mpNode(env, s, p.p_node_id, "edit");
+    const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(n.map_id).first<MapRow>();
+    if (!m || kindOf(m) !== "wiring") fail("A wiring diagram goes into a wiring map.");
+    if (!n.parent_id) fail("Choose the equipment branch the diagram is for.");
+    const template = str(p.p_template, 20);
+    if (!PRODUCT_TEMPLATES[template]) fail("Choose the unit: AHU, FCU or chiller.");
+    const under = await env.DB.prepare("SELECT count(*) AS n FROM mp_nodes WHERE parent_id = ?").bind(n.id).first<{ n: number }>();
+    if ((under?.n || 0) > 0) fail("That branch has branches under it already. Add the diagram to an equipment branch with nothing under it.");
+    const own = parseList<Record<string, string>>(n.links);
+    if (own.length >= 12) fail("That branch holds 12 links already. Remove one first.");
+    const c = await env.DB.prepare("SELECT count(*) AS n FROM mp_nodes WHERE map_id = ?").bind(n.map_id).first<{ n: number }>();
+    const at = now();
+    const built = productStatements(env, n.map_id, { id: n.id, links: own }, template, s.id, at, 0);
+    if ((c?.n || 0) + built.count > 2000) fail("A map holds up to 2000 branches. Start a second map for the rest.");
+    const special = parseList<string>(n.special);
+    if (!special.some((x) => /^\s*layout\s*:\s*columns?\s*$/i.test(x))) special.push("Layout: columns");
+    const v = canVerify(s);
+    await env.DB.batch([...built.stmts,
+      env.DB.prepare("UPDATE mp_nodes SET special = ?, links = ?, verified = CASE WHEN ? THEN verified ELSE 0 END, updated_by = ?, updated_at = ? WHERE id = ?")
+        .bind(JSON.stringify(special), JSON.stringify(built.links), v ? 1 : 0, s.id, at, n.id),
+      touch(env, n.map_id, s.id)]);
+    return { ok: true, added: built.count };
+  },
+
   async mp_import(env, p) {
     const s = await mpUser(env, p.p_token);
     const par = await mpNode(env, s, p.p_parent_id, "edit");

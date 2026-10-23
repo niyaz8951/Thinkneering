@@ -99,6 +99,8 @@ svg path.mpx.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5
 @keyframes mp-run { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 svg path.mpx-pulse { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1 22; animation: mp-flow-slow 2.4s linear infinite; }
 @keyframes mp-flow-slow { to { stroke-dashoffset: -23; } }
+svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
+.mp-diag { font-size: 11px; font-weight: 700; color: var(--brand-strong); border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); border-radius: 999px; padding: 0 6px; }
 .mp-ctl .mp-rowwrap { display: flex; flex-wrap: wrap; gap: 6px; }
 /* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
 .mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);

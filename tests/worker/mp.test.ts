@@ -22,7 +22,7 @@ describe("mp_* routes", () => {
     expect(await refused("mp_list", { p_token: "nope" })).toBe("SESSION_EXPIRED");
     const sales = await login("sales");              // Sales tile only; Maps is on SBU
     for (const name of ["mp_list", "mp_create", "mp_get", "mp_map_save", "mp_delete", "mp_node_add", "mp_node_save", "mp_node_verify", "mp_node_move",
-                        "mp_node_delete", "mp_import", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
+                        "mp_node_delete", "mp_import", "mp_wiring_add", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
       expect(await refused(name, { p_token: sales, p_name: "X", p_q: "xx" })).toBe("Maps is not available for your account.");
     }
     const sbu = await login("sbu");
@@ -408,6 +408,27 @@ describe("mp_* routes", () => {
     expect((await ok("mp_get", { p_token: sbu, p_map_id: blank.id })).nodes).toHaveLength(1);
     await ok("mp_map_save", { p_token: sbu, p_map_id: blank.id, p_kind: "knowledge" });
     expect((await ok("mp_get", { p_token: sbu, p_map_id: blank.id })).map.kind).toBe("knowledge");
+    // a product's own wiring diagram under an equipment branch, joined to the building's feeder
+    const ahu1 = by("AHU-01, Level 1")[0];
+    const add = await ok("mp_wiring_add", { p_token: sbu, p_node_id: ahu1.id, p_template: "ahu-ec" });
+    expect(add.added).toBeGreaterThan(15);
+    const g2 = await ok("mp_get", { p_token: sbu, p_map_id: made.id });
+    const a1 = g2.nodes.find((n: any) => n.id === ahu1.id);
+    expect(a1.special).toEqual(["Schedule: occupied", "Layout: columns"]);
+    expect(g2.nodes.filter((n: any) => n.parent === ahu1.id).map((n: any) => n.title)).toEqual(["Unit control panel", "On the unit", "Site (by others)"]);
+    const entry = a1.links.find((l: any) => l.signal === "Incoming supply");
+    expect(g2.nodes.find((n: any) => n.id === entry.node).title).toBe("Main isolator (Q0)");
+    expect(g2.nodes.filter((n: any) => n.parent && g2.nodes.find((x: any) => x.id === n.parent)?.parent === ahu1.id).every((n: any) => n.verified === false)).toBe(true);
+    // refused: twice on the same branch, an unknown unit, a knowledge map, a reader
+    expect(await refused("mp_wiring_add", { p_token: sbu, p_node_id: ahu1.id, p_template: "fcu-ec" })).toMatch(/has branches under it already/);
+    expect(await refused("mp_wiring_add", { p_token: sbu, p_node_id: by("AHU-02, Level 1")[0].id, p_template: "vrv" })).toBe("Choose the unit: AHU, FCU or chiller.");
+    const km = await newMap(sbu, "Plain");
+    expect(await refused("mp_wiring_add", { p_token: sbu, p_node_id: (await ok("mp_node_add", { p_token: sbu, p_parent_id: km.root, p_title: "AHU" })).node.id, p_template: "ahu-ec" })).toBe("A wiring diagram goes into a wiring map.");
+    expect(await refused("mp_wiring_add", { p_token: await login("teamAdmin"), p_node_id: by("AHU-02, Level 1")[0].id, p_template: "ahu-ec" })).toMatch(/That map is not available/);
+    for (const tpl of ["ahu-dc", "fcu-ec", "fcu-dc", "chiller"]) {
+      const target = by({ "ahu-dc": "AHU-02, Level 1", "fcu-ec": "FCU circuit L1-A1 (FCU-L1-01 to 08)", "fcu-dc": "FCU circuit L1-A2 (FCU-L1-09 to 16)", chiller: "Chiller CH-1" }[tpl]!)[0];
+      expect((await ok("mp_wiring_add", { p_token: sbu, p_node_id: target.id, p_template: tpl })).added).toBeGreaterThan(5);
+    }
     // wire details are checked
     const root = g.nodes.find((n: any) => !n.parent).id, target = by("Main switchboard (MSB)")[0].id;
     const bad = async (l: unknown) => refused("mp_node_save", { p_token: sbu, p_node_id: root, p_patch: { links: [l] } });
