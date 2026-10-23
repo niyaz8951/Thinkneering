@@ -23,7 +23,7 @@ describe("mp_* routes", () => {
     expect(await refused("mp_list", { p_token: "nope" })).toBe("SESSION_EXPIRED");
     const sales = await login("sales");              // Sales tile only; Maps is on SBU
     for (const name of ["mp_list", "mp_create", "mp_get", "mp_map_save", "mp_delete", "mp_node_add", "mp_node_save", "mp_node_verify", "mp_node_move",
-                        "mp_node_delete", "mp_import", "mp_wiring_add", "mp_rearrange", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
+                        "mp_node_delete", "mp_import", "mp_wiring_add", "mp_rearrange", "mp_ai_flow", "mp_node_images", "mp_image_get", "mp_image_add", "mp_image_save", "mp_image_delete", "mp_search"]) {
       expect(await refused(name, { p_token: sales, p_name: "X", p_q: "xx" })).toBe("Maps is not available for your account.");
     }
     const sbu = await login("sbu");
@@ -549,6 +549,30 @@ describe("mp_* routes", () => {
     const km = await newMap(sbu, "Plain knowledge");
     expect(await refused("mp_rearrange", { p_token: sbu, p_map_id: km.id })).toBe("Only a wiring or piping map is arranged by what feeds what.");
     expect(await refused("mp_rearrange", { p_token: "nope", p_map_id: p.id })).toBe("SESSION_EXPIRED");
+  });
+
+  it("mp_ai_flow: an AI rule book's decision flow (counts per deciding step, what people did); refused for other maps and signed out", async () => {
+    const admin = await login("admin");
+    const made = await ok("ai_map_create", { p_token: admin, p_product_id: "ahu", p_factory_id: "ahu-riyadh" });
+    // two drafts of a Riyadh AHU record (the library, the model) and one decision by a person
+    const run = "run-flow-1", at = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO cm_runs (id, product_id, factory_id) VALUES (?, 'ahu', 'ahu-riyadh')").bind(run),
+      env.DB.prepare("INSERT INTO ai_drafts (id, run_id, seq, source, created_at) VALUES ('d1', ?, 1, 'library-similar', ?), ('d2', ?, 2, 'model', ?), ('d3', ?, 3, 'model', ?)").bind(run, at, run, at, run, at),
+      env.DB.prepare("INSERT INTO ai_feedback (id, product_id, factory_id, source, outcome) VALUES ('f1', 'ahu', 'ahu-riyadh', 'model', 'kept'), ('f2', 'ahu', 'ahu-riyadh', 'model', 'replaced')")
+    ]);
+    const r = await ok("mp_ai_flow", { p_token: admin, p_map_id: made.id });
+    expect(r).toMatchObject({ linked: true, can_try: true, days: 30, product: { id: "ahu" }, factory: { id: "ahu-riyadh" } });
+    expect(r.drafts).toEqual({ "library-similar": 1, model: 2 });
+    expect(r.feedback).toEqual({ model: { kept: 1, replaced: 1 } });
+    // a rule book not linked yet: no figures; another kind of map: refused; signed out: refused
+    const loose = await ok("mp_create", { p_token: admin, p_name: "Loose rules", p_kind: "rulebook" });
+    expect(await ok("mp_ai_flow", { p_token: admin, p_map_id: loose.id })).toMatchObject({ linked: false, can_try: false });
+    const km = await newMap(admin, "Plain");
+    expect(await refused("mp_ai_flow", { p_token: admin, p_map_id: km.id })).toBe("Only an AI rule book has a decision flow.");
+    expect(await refused("mp_ai_flow", { p_token: "nope", p_map_id: made.id })).toBe("SESSION_EXPIRED");
+    // another user who cannot open the private rule book
+    expect(await refused("mp_ai_flow", { p_token: await login("sbu"), p_map_id: made.id })).toMatch(/not available/);
   });
 
   it("piping maps: the Chilled water template (chillers to AHUs and FCUs and back), to verify, supply and return pipes with the inputs", async () => {

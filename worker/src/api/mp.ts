@@ -576,6 +576,34 @@ export const routes: Routes = {
     return { ok: true, moved: r.moves.length, removed: r.deletes.length };
   },
 
+  /* The Flow of an AI rule book (owner, 23 Oct 2026: "for AI the same flow view can show how a decision is taken"):
+     what the rule book is linked to, and how the last 30 days' clauses went through its decision steps: drafts made per
+     deciding step (ai_drafts of that product and factory) and what people did with them (ai_feedback: kept, edited,
+     replaced). Counts only, no clause text. Anyone who can read the map; can_try = may Follow a clause (ai_try). */
+  async mp_ai_flow(env, p) {
+    const s = await mpUser(env, p.p_token);
+    const m = await mpMap(env, s, p.p_map_id, "read");
+    if (kindOf(m) !== "rulebook") fail("Only an AI rule book has a decision flow.");
+    const link = await env.DB.prepare(`SELECT l.product_id, l.factory_id, pr.name AS product, f.name AS factory FROM ai_map_links l
+        JOIN cm_products pr ON pr.id = l.product_id LEFT JOIN cm_factories f ON f.id = l.factory_id
+       WHERE l.map_id = ? AND l.role = 'rulebook' ORDER BY l.factory_id IS NULL LIMIT 1`).bind(m.id)
+      .first<{ product_id: string; factory_id: string | null; product: string; factory: string | null }>();
+    const t = s.tool("compliance-maker"), canTry = !!(s.isSuper || (t && s.isTileAdmin(t.category_id)));
+    if (!link) return { ok: true, linked: false, can_try: false, days: 30, drafts: {}, feedback: {} };
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const drafts = await all<{ source: string; n: number }>(env.DB.prepare(
+      `SELECT d.source, count(*) AS n FROM ai_drafts d JOIN cm_runs r ON r.id = d.run_id
+        WHERE r.product_id = ? AND (? IS NULL OR r.factory_id = ?) AND d.created_at >= ? GROUP BY d.source`).bind(link.product_id, link.factory_id, link.factory_id, since));
+    const fb = await all<{ source: string; outcome: string; n: number }>(env.DB.prepare(
+      `SELECT source, outcome, count(*) AS n FROM ai_feedback WHERE product_id = ? AND (? IS NULL OR factory_id = ?) AND created_at >= ? GROUP BY source, outcome`)
+      .bind(link.product_id, link.factory_id, link.factory_id, since));
+    const feedback: Record<string, Record<string, number>> = {};
+    for (const x of fb) (feedback[x.source] ||= {})[x.outcome] = x.n;
+    return { ok: true, linked: true, can_try: canTry, days: 30,
+      product: { id: link.product_id, name: link.product }, factory: link.factory_id ? { id: link.factory_id, name: link.factory } : null,
+      drafts: Object.fromEntries(drafts.map((x) => [x.source, x.n])), feedback };
+  },
+
   async mp_import(env, p) {
     const s = await mpUser(env, p.p_token);
     const par = await mpNode(env, s, p.p_parent_id, "edit");

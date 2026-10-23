@@ -430,3 +430,22 @@ button.badge.mp-badgebtn:hover { text-decoration: underline; }
 .mp-n.mp-loose { border: 1px dashed var(--warn); border-radius: 8px; padding: 2px 6px; }
 .mp-guidebtn { border: 1px solid var(--border); background: var(--surface); color: var(--brand-strong); border-radius: 999px; padding: 2px 10px; font: inherit; font-weight: 650; cursor: pointer; margin-right: auto; }
 .mp-guidebtn:hover { border-color: var(--brand); }
+/* the Flow of an AI rule book */
+.mp-fsvg path.fx.dec { stroke: var(--brand); }
+.mp-fsvg path.fx.settled { stroke: var(--ok); }
+.mp-fsvg path.fx.feed { stroke: var(--text-soft); stroke-dasharray: 4 5; opacity: .7; }
+.mp-fsvg path.fx.learnx { stroke: var(--warn); }
+.mp-fsvg path.fx.loop.learnx { stroke-width: 2px; stroke-dasharray: 2 7; }
+.mp-mirror.learn { border-color: var(--warn); color: var(--warn); }
+.mp-n.mp-synth { border: 1.5px solid var(--border); border-radius: 12px; padding: 6px 10px; background: var(--surface); }
+.mp-n.mp-synth.start { border-color: var(--brand); }
+.mp-n.mp-off .mp-t { text-decoration: line-through; }
+.mp-wq.dec { --wq: var(--brand); }
+.mp-lane.dec b { color: var(--brand); }
+.mp-jform { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: 100%; }
+.mp-jform .input { height: 34px; padding: 4px 10px; font-size: 13px; }
+.mp-jform .input.mp-jclause { flex: 1 1 320px; width: auto; min-width: 0; }
+.mp-jform .input.mp-jpart { flex: 0 0 auto; width: auto; }
+.mp-jform .input.mp-jsec { flex: 0 1 180px; width: auto; min-width: 0; }
+.mp-jrow { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; width: 100%; }
+.mp-jrules { width: 100%; font-size: 12px; color: var(--text-soft); }

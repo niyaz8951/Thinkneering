@@ -210,6 +210,8 @@
   ];
   function isWiring() { return !!M && M.map.kind === "wiring"; }
   function isWater() { return !!M && M.map.kind === "piping"; }
+  function isRulebook() { return !!M && M.map.kind === "rulebook"; }
+  function flowMap() { return isNet() || isRulebook(); }
   function isNet() { return isWiring() || isWater(); }                // wires or pipes: drawn as a diagram, every line shown
   // a pipe's pressure drop and velocity, as worked out (key "a>b" in the way the water goes)
   function pipeFig(k) { var c = lastWater && lastWater.edge[k], r = c && lastWater.circuits[c]; return r && r.hyd && r.hyd.ok ? r.hyd.pipe[k] : null; }
@@ -727,6 +729,191 @@
       el("p", { text: (water ? "Add a unit fed from here" : "Add equipment fed from here") + (like ? ": made like " + like.title + (water ? " (same pipes, returning to " + (retOf ? N(retOf).title : "") + ")" : " (same feeder, its BMS and fire alarm wires)") + "." : ".") }),
       el("div", { "class": "mp-wform" }, inputs.concat([add])), err]);
   }
+  // ---------- the Flow of an AI rule book (owner, 23 Oct 2026: "for AI the same flow view can show how a decision is
+  // taken, as we view how water flows") ----------
+  // A clause goes through the Decision steps of the rule book in their order; the first that settles it sends its draft
+  // to the Checks, then to a person, who keeps, edits or replaces it; what people change the same way comes back as a
+  // Learned rule that the Map rules step uses: the loop closes round the top. Above the steps, what the AI reads: the
+  // Instructions (the model), the Parts' rules (Map rules, and the model as [R]), Product Options and AI notes (the
+  // datasheet step and the model), Learned (Map rules). Lines are as thick as the clauses that took them in the last 30
+  // days (mp_ai_flow: drafts per deciding step, what people did with them). Follow a clause (rule editors): ai_try
+  // walks a pasted clause through the steps without the model; its way lights up, each stop says what it found.
+  var aiFlow = { mapId: null, data: null, tried: null, busy: false, form: { clause: "", part: "0", section: "" } };
+  var DEC_KINDS = [[/^how to/i, null], [/^\s*\d*[.)]?\s*checks?\b/i, "checks"], [/product options|ai notes/i, "opt"], [/other projects?/i, "proj"], [/datasheet/i, "ds"],
+    [/library|compliance review/i, "lib"], [/earlier|same clause|this record/i, "rec"], [/\bmodel\b/i, "model"], [/\brules?\b|\bmaps?\b/i, "rule"]];
+  var DEC_SOURCES = { ds: ["datasheet", "options"], lib: ["library-similar", "library"], rec: ["record"], rule: ["rule"], proj: ["project"], model: ["model"] };
+  var DEC_WORDS = { ds: "datasheet", lib: "library", rec: "earlier answer", rule: "rule", proj: "other project", model: "AI model" };
+  function decKind(t) { for (var i = 0; i < DEC_KINDS.length; i++) if (DEC_KINDS[i][0].test(t)) return DEC_KINDS[i][1]; return null; }
+  function rulesUnder(n) { var c = 0, off = 0; each(n.id, function (x) { if (x.id !== n.id && (x.notes || noteVal(x, "answer"))) { c++; if (!x.verified) off++; } }); return { n: c, off: off }; }
+  function renderDecision() {
+    var stage = $("mpStage"), jb = $("mpJourney");
+    stage.textContent = ""; stage.classList.remove("mp-pipes");
+    if (aiFlow.mapId !== M.map.id) {
+      aiFlow = { mapId: M.map.id, data: null, tried: null, busy: false, form: aiFlow.form };
+      Api.mpAiFlow(T, M.map.id).then(function (r) { aiFlow.data = r; if (st.view === "flow") renderView(); }, function (e) { aiFlow.data = { error: e.message, drafts: {}, feedback: {} }; if (st.view === "flow") renderView(); });
+    }
+    var D = aiFlow.data || { drafts: {}, feedback: {} };
+    var top = N(M.root).kids.map(N), find = function (re) { return top.filter(function (n) { return re.test(n.title.trim()); })[0]; };
+    var stepsB = find(/^(decision steps|steps)\b/i), instrB = find(/^instructions/i), learnB = find(/^learned/i);
+    var partsB = top.filter(function (n) { return n !== stepsB && n !== instrB && n !== learnB && !/^settings/i.test(n.title) && !/how this map works/i.test(n.title) && n.kids.length; });
+    var steps = [], checks = null, opt = null;
+    (stepsB ? stepsB.kids.map(N) : []).forEach(function (n) { var k = decKind(n.title); if (k === "checks") checks = n; else if (k === "opt") opt = n; else if (k) steps.push({ n: n, k: k }); });
+    // the counts: drafts per deciding step, what people did with them
+    var dec = function (k) { return (DEC_SOURCES[k] || []).reduce(function (t, src) { return t + (D.drafts[src] || 0); }, 0); };
+    var fbOf = function (k) { var o = { kept: 0, edited: 0, replaced: 0 }; (DEC_SOURCES[k] || []).concat(k === "lib" ? [] : []).forEach(function (src) { var f = D.feedback[src] || {}; o.kept += f.kept || 0; o.edited += f.edited || 0; o.replaced += f.replaced || 0; }); return o; };
+    var total = steps.reduce(function (t, x) { return t + dec(x.k); }, 0);
+    var people = { kept: 0, edited: 0, replaced: 0 }; Object.keys(D.feedback).forEach(function (src) { var f = D.feedback[src]; people.kept += f.kept || 0; people.edited += f.edited || 0; people.replaced += f.replaced || 0; });
+    var judged = people.kept + people.edited + people.replaced, pct = function (a, b) { return b ? Math.round(a / b * 100) + " %" : ""; };
+    // the tried clause: the step that settled it
+    var T2 = aiFlow.tried, settledBy = null;
+    if (T2 && T2.ok) settledBy = T2.direct ? "rule" : T2.steps.some(function (x) { return /^Library/.test(x.step) && /is copied/.test(x.result); }) ? "lib" : T2.steps.some(function (x) { return /^AI model/.test(x.step) && /^Writes/.test(x.result); }) ? "model" : "none";
+    // nodes
+    var nodes = [], edges = [], els = {}, fig = {};
+    function synth(id, title, words, cls) {
+      var e = el("div", { "class": "mp-n mp-fn mp-synth" + (cls ? " " + cls : "") }, [el("span", { "class": "mp-t", text: title }), words ? el("span", { "class": "mp-wq dec", text: words }) : null]);
+      stage.appendChild(e); els[id] = e; return id;
+    }
+    function real(n, words, cls) {
+      var e = nodeEl(n, "mp-n mp-fn" + (cls ? " " + cls : "") + (n.id === st.sel ? " mp-sel" : ""));
+      if (!n.verified) e.classList.add("mp-dead");
+      if (words) e.appendChild(el("span", { "class": "mp-wq dec" + (/off/.test(words) ? "" : ""), text: words }));
+      stage.appendChild(e); els[n.id] = e; return n.id;
+    }
+    var linkedWords = D.error ? D.error : !aiFlow.data ? "…" : D.linked === false ? "not linked: Compliance review > AI rules links it" : total ? plural(total, "clause") + " drafted in " + D.days + " days" : "no draft in " + (D.days || 30) + " days";
+    var cl = synth("ai:clause", "A clause of a specification", (D.product ? D.product.name + (D.factory ? ", " + D.factory.name : "") + " · " : "") + linkedWords, "start");
+    nodes.push({ id: cl, lane: "steps" });
+    var prev = cl, left = total;
+    steps.forEach(function (x) {
+      var d = dec(x.k), f = fbOf(x.k), j = f.kept + f.edited + f.replaced;
+      var words = !x.n.verified ? "off (to verify): clauses pass straight on" : total ? "settles " + d + " (" + pct(d, total) + ")" + (j ? " · people kept " + pct(f.kept, j) : "") : "";
+      real(x.n, words, x.n.verified ? "" : "mp-off");
+      nodes.push({ id: x.n.id, lane: "steps" });
+      edges.push({ a: prev, b: x.n.id, circuit: "c", w: left, kind: "next" });
+      left -= d; prev = x.n.id;
+      if (x.k !== "model") edges.push({ a: x.n.id, b: "ai:checks", circuit: "c", w: d, kind: "settled", k: x.k });
+    });
+    var ck = checks ? real(checks, "every draft: six answers, sources cited, figures checked, priority", "") : synth("ai:checks", "Checks", "every draft");
+    if (ck !== "ai:checks") { edges.forEach(function (e) { if (e.b === "ai:checks") e.b = ck; }); }
+    nodes.push({ id: ck, lane: "steps" });
+    edges.push({ a: prev, b: ck, circuit: "c", w: left, kind: "settled", k: "model" });
+    var dr = synth("ai:draft", "Draft for a person", "blue until a person keeps it");
+    nodes.push({ id: dr, lane: "steps" }); edges.push({ a: ck, b: dr, circuit: "c", w: total, kind: "next" });
+    var pp = synth("ai:person", "A person keeps, edits or replaces it", judged ? "kept " + pct(people.kept, judged) + " · edited " + pct(people.edited, judged) + " · replaced " + pct(people.replaced, judged) : "no decision yet");
+    nodes.push({ id: pp, lane: "steps" }); edges.push({ a: dr, b: pp, circuit: "c", w: judged || total, kind: "next" });
+    // what the AI reads
+    var ruleStep = steps.filter(function (x) { return x.k === "rule"; })[0], model = steps.filter(function (x) { return x.k === "model"; })[0], dsStep = steps.filter(function (x) { return x.k === "ds"; })[0];
+    if (instrB && model) { real(instrB, plural(instrB.kids.length, "section") + " the model reads first"); nodes.push({ id: instrB.id, lane: "reads" }); edges.push({ a: instrB.id, b: model.n.id, circuit: "in", kind: "feed" }); }
+    partsB.forEach(function (n) {
+      var r = rulesUnder(n); real(n, plural(r.n, "rule") + (r.off ? " (" + r.off + " off)" : "")); nodes.push({ id: n.id, lane: "reads" });
+      if (ruleStep) edges.push({ a: n.id, b: ruleStep.n.id, circuit: "in", kind: "feed" });
+      if (model) edges.push({ a: n.id, b: model.n.id, circuit: "in", kind: "feed" });
+    });
+    if (opt) { real(opt, opt.verified ? "approved values and AI notes" : "off", opt.verified ? "" : "mp-off"); nodes.push({ id: opt.id, lane: "reads" });
+      if (dsStep) edges.push({ a: opt.id, b: dsStep.n.id, circuit: "in", kind: "feed" }); if (model) edges.push({ a: opt.id, b: model.n.id, circuit: "in", kind: "feed" }); }
+    if (learnB && ruleStep) {
+      var lr = rulesUnder(learnB), lk = learnB.kids.length;
+      real(learnB, lk ? plural(lk, "rule") + " learned" + (lr.off ? ", " + lr.off + " to verify" : "") : "nothing learned yet");
+      nodes.push({ id: learnB.id, lane: "reads", source: { learn: true } });
+      edges.push({ a: learnB.id, b: ruleStep.n.id, circuit: "in", kind: "feed" });
+      edges.push({ a: pp, b: learnB.id, circuit: "learn", w: people.replaced, kind: "learn" });
+    }
+    nodes.forEach(function (x) { x.w = els[x.id].offsetWidth; x.h = els[x.id].offsetHeight; });
+    var L = window.MPFlow.layout(nodes, edges, ["reads", "steps"], [160, 30]);
+    var shift = 60 + (L.mirrors.length ? 26 + L.mirrors.length * 26 : 0);
+    Object.keys(L.pos).forEach(function (id) { L.pos[id].y += shift; L.pos[id].x += 30; });
+    L.mirrors.forEach(function (m) { m.y += shift; m.x += 30; });
+    L.lanes.forEach(function (b) { b.y += shift; });
+    var W2 = L.w + 110, H2 = L.h + shift + 30;
+    Object.keys(els).forEach(function (id) { var p = L.pos[id]; if (!p) { els[id].remove(); return; } els[id].style.left = p.x + "px"; els[id].style.top = p.y + "px"; });
+    // the way of the tried clause
+    var lit = null;
+    if (settledBy) {
+      lit = {}; lit[cl] = 1;
+      for (var i = 0; i < steps.length; i++) { lit[steps[i].n.id] = 1; if (steps[i].k === settledBy) break; }
+      if (settledBy !== "none") { lit[ck] = 1; lit[dr] = 1; }
+      Object.keys(els).forEach(function (id) { if (!lit[id]) els[id].classList.add("mp-fdim"); });
+    }
+    var svg = svgEl("svg", { "class": "mp-fsvg" }); stage.insertBefore(svg, stage.firstChild);
+    var wMax = Math.max(1, total);
+    L.edges.forEach(function (le) {
+      var e = le.src, A = L.pos[le.a], B = le.to ? L.mirrors.filter(function (m) { return m.id === le.to; })[0] : L.pos[le.b];
+      if (!A || !B || !e) return;
+      var x1 = A.x + A.w, y1 = A.y + A.h / 2, x2 = B.x, y2 = B.y + B.h / 2;
+      if (e.kind === "feed") { x1 = A.x + A.w / 2; y1 = A.y + A.h; x2 = B.x + B.w / 2; y2 = B.y; }
+      var dx = Math.max(30, Math.abs(x2 - x1) / 2), d = e.kind === "feed" ? "M" + x1 + " " + y1 + "C" + x1 + " " + (y1 + y2) / 2 + "," + x2 + " " + (y1 + y2) / 2 + "," + x2 + " " + y2
+        : "M" + x1 + " " + y1 + "C" + (x1 + dx) + " " + y1 + "," + (x2 - dx) + " " + y2 + "," + x2 + " " + y2;
+      if (e.kind === "settled" && le.b !== ck && !le.to) return;
+      var on = !lit || (lit[le.a] && lit[le.to ? le.to : le.b] && (e.kind !== "settled" || e.k === settledBy)) || (lit && e.kind === "settled" && e.k === settledBy && lit[le.a]);
+      var sw = e.kind === "feed" ? 1.4 : (2 + 8 * Math.min(1, (e.w || 0) / wMax)).toFixed(1);
+      var cls = "fx " + (e.kind === "feed" ? "feed" : e.kind === "settled" ? "settled" : e.kind === "learn" ? "learnx" : "dec") + (lit && !on ? " fdim" : "");
+      svg.appendChild(svgEl("path", { d: d, "class": cls, style: "stroke-width:" + sw + "px" }));
+      if (st.flow && e.kind !== "feed" && (e.w || 0) > 0 && !(lit && !on)) { var dots = svgEl("path", { d: d, "class": "mpx-flow" }); dots.style.animationDuration = "1.4s"; svg.appendChild(dots); }
+    });
+    // the loop: what people changed comes back as Learned rules
+    L.mirrors.forEach(function (m, k) {
+      var S = L.pos[m.of], lb = L.lanes[0]; if (!S || !lb) return;
+      var yr = lb.y - 10 - (k + 1) * 26, xr = m.x + m.w + 12, xl = S.x - 12, ym = m.y + m.h / 2, ys = S.y + S.h / 2;
+      var d = "M" + (m.x + m.w) + " " + ym + "H" + xr + "V" + yr + "H" + xl + "V" + ys + "H" + S.x;
+      svg.appendChild(svgEl("path", { d: d, "class": "fx loop learnx" }));
+      if (st.flow && people.replaced) svg.appendChild(svgEl("path", { d: d, "class": "mpx-flow slow" }));
+      var me = el("div", { "class": "mp-mirror learn", "data-node": m.of, title: "What people change the same way 3 times or more is written here as a rule, to verify" }, [el("span", { text: "↺ " + N(m.of).title })]);
+      me.style.left = m.x + "px"; me.style.top = m.y + "px"; me.style.width = m.w + "px"; stage.appendChild(me);
+      var lab = el("button", { type: "button", "class": "mp-xl mp-looplab", text: "↺ people's changes come back as Learned rules (3 the same way → a rule to verify)", onclick: function () { flush(); st.sel = m.of; st.peek = m.of; renderView(); } });
+      stage.appendChild(lab); lab.style.left = Math.max(xl + 10, (xl + xr) / 2 - lab.offsetWidth / 2) + "px"; lab.style.top = (yr - 11) + "px";
+      W2 = Math.max(W2, xr + 30);
+    });
+    L.lanes.forEach(function (b) {
+      var t = b.id === "reads" ? ["What the AI reads", "the rule book's branches; a branch to verify is off"] : ["How a clause is decided", "the Decision steps in their order: the first that settles it stops the way"];
+      var le2 = el("div", { "class": "mp-lane dec" }, [el("b", { text: t[0] }), document.createTextNode(" · " + t[1])]);
+      le2.style.left = "30px"; le2.style.top = (b.id === "reads" ? Math.max(2, b.y - 34 - (L.mirrors.length ? 26 + L.mirrors.length * 26 : 0)) : b.y - 30) + "px"; stage.appendChild(le2);
+    });
+    if (!stepsB) stage.appendChild(el("p", { "class": "mp-fempty", text: "This rule book has no Decision steps branch: Compliance review > AI rules > Update it adds the template's branches." }));
+    decisionStrip(jb, steps, settledBy);
+    var box = {}; Object.keys(L.pos).forEach(function (id) { if (N(id)) box[id] = L.pos[id]; });
+    svg.setAttribute("width", W2); svg.setAttribute("height", H2);
+    schematicFrame({ w: W2, h: H2, box: box }, true);
+  }
+  // above the map: paste a clause and follow it (rule editors); its stops, each with what it found
+  function decisionStrip(jb, steps, settledBy) {
+    jb.textContent = ""; var D = aiFlow.data;
+    if (!D || !D.linked || !D.can_try) { jb.hidden = true; return; }
+    jb.hidden = false;
+    var f = aiFlow.form;
+    var ta = el("input", { "class": "input mp-jclause", type: "text", placeholder: "Paste a clause to follow it through the steps", "aria-label": "Clause", value: f.clause, maxlength: "3000" });
+    var part = el("select", { "class": "input mp-jpart", "aria-label": "Part" }, [["0", "Any part"], ["1", "Part 1"], ["2", "Part 2"], ["3", "Part 3"]].map(function (x) { return el("option", { value: x[0], text: x[1] }); }));
+    part.value = f.part;
+    var sec = el("input", { "class": "input mp-jsec", type: "text", placeholder: "Section (optional)", "aria-label": "Section", value: f.section, maxlength: "120" });
+    var go = el("button", { type: "button", "class": "btn sm", text: aiFlow.busy ? "Following…" : "Follow", disabled: aiFlow.busy, onclick: function () {
+      f.clause = ta.value.trim(); f.part = part.value; f.section = sec.value.trim();
+      if (f.clause.length < 3) { Hub.toast("Paste a clause to follow.", true); return; }
+      aiFlow.busy = true; renderView();
+      Api.aiTry(T, { productId: D.product.id, factoryId: D.factory ? D.factory.id : "", clause: f.clause, section: f.section, part: +f.part }).then(function (r) {
+        aiFlow.busy = false; aiFlow.tried = r; renderView();
+      }, function (e) { aiFlow.busy = false; renderView(); Hub.toast(e.message, true); });
+    } });
+    ta.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go.click(); } });
+    jb.appendChild(el("div", { "class": "mp-jform" }, [el("span", { "class": "mp-jhead", text: "Follow a clause" }), ta, part, sec, go]));
+    var T2 = aiFlow.tried; if (!T2 || !T2.ok) return;
+    var res = function (re) { var x = T2.steps.filter(function (s2) { return re.test(s2.step); })[0]; return x ? x.result : ""; };
+    var stopOf = { ds: res(/^Project datasheet/), lib: res(/^Library/), rec: "Not part of a pasted clause: in a record, a person's earlier answer to the same clause is proposed again.",
+      rule: res(/^AI rules/), proj: "Not part of a pasted clause: in a record, the same clause answered in another project of this factory is proposed.", model: res(/^AI model/) };
+    var row = el("div", { "class": "mp-jrow" });
+    var add = function (title, words, cls, id) {
+      if (row.childNodes.length) row.appendChild(el("span", { "class": "mp-jar", "aria-hidden": "true", text: "→" }));
+      row.appendChild(el("button", { type: "button", "class": "mp-jstop" + (cls ? " " + cls : ""), title: words, onclick: id ? function () { flush(); st.sel = id; st.peek = id; renderView(); } : null },
+        [el("b", { text: title }), el("small", { text: words.length > 150 ? words.slice(0, 147) + "…" : words })]));
+    };
+    add("The clause", res(/^What the clause asks/) || "", "");
+    for (var i = 0; i < steps.length; i++) {
+      var x = steps[i], here = x.k === settledBy;
+      add(x.n.title.replace(/\s*\(.*\)\s*$/, ""), !x.n.verified ? "Off: passed straight on." : stopOf[x.k] || "", here ? "here" : "", x.n.id);
+      if (here) break;
+    }
+    add(settledBy === "none" ? "Left for a person" : "Draft for a person", settledBy === "lib" ? "Copied from the library, checked, blue until a person keeps it." : settledBy === "rule" ? "Answered by the rule as written, checked, blue until a person keeps it." :
+      settledBy === "model" ? "The model writes it from the sources it was given (" + (T2.rules.length ? T2.rules.length + " rules, " : "") + (T2.similar.length ? T2.similar.length + " library clauses, " : "") + (T2.notes.length ? T2.notes.length + " AI notes" : "no AI note") + "), then the checks." : "Nothing free settles it and the model is off: a person answers it.", "loop");
+    jb.appendChild(row);
+    if (T2.rules.length) jb.appendChild(el("div", { "class": "mp-jrules" }, [el("b", { text: "Rules that apply: " }), document.createTextNode(T2.rules.map(function (r) { return r.title + (r.answer ? " (" + r.answer + ")" : ""); }).join(" · "))]));
+  }
   // ---------- the Flow view of a water or electrical map (owner, 23 Oct 2026: "imagine you are a drop of water or an
   // electron: every place you stop on the way should be in the map, always going forward; an incredible way to close a
   // loop"; mp-flow.js lays it out). The equipment the 2D view draws, as the map's branches, in the order the water or
@@ -1155,6 +1342,7 @@
     var v = store("localStorage", userKey("view"));
     // (a water or electrical map opens on its Flow; its own choice is kept apart from the other maps')
     if (isNet()) { var vn = store("localStorage", userKey("view-net")); st.view = vn === "outline" || vn === "schematic" ? vn : "flow"; }
+    else if (isRulebook()) { var vr = store("localStorage", userKey("view-rb")); st.view = vr === "outline" || vr === "map" ? vr : "flow"; }
     else st.view = v === "map" || v === "outline" ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
@@ -1207,7 +1395,7 @@
     canvasMouse();
     head();
   }
-  function setView(v) { st.view = v; seen = {}; store("localStorage", userKey(isNet() ? "view-net" : "view"), v); wantScroll = true; renderView(); }
+  function setView(v) { st.view = v; seen = {}; store("localStorage", userKey(isNet() ? "view-net" : isRulebook() ? "view-rb" : "view"), v); wantScroll = true; renderView(); }
   function setEdit(on, quiet) {
     if (!canEdit()) return;
     flush();
@@ -2023,13 +2211,13 @@
     lastWater = isWater() && W() ? W().compute(M.nodes, st.iso) : null;
     lastPower = isWiring() ? power() : null;
     renderCrumbs(); renderPills();
-    if ((st.view === "schematic" || st.view === "flow") && !isNet()) st.view = "map";
+    if ((st.view === "schematic" && !isNet()) || (st.view === "flow" && !flowMap())) st.view = "map";
     if (st.view === "map" && isNet()) st.view = "flow";
     var map = st.view === "map", canv = st.view !== "outline";
     $("mpCanvas").hidden = !canv; $("mpOutline").hidden = canv; $("mpTools").hidden = !canv;
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", st.view === "outline" ? "true" : "false");
     $("mpView2d").hidden = !isNet(); $("mpView2d").setAttribute("aria-selected", st.view === "schematic" ? "true" : "false");
-    $("mpViewFlow").hidden = !isNet(); $("mpViewFlow").setAttribute("aria-selected", st.view === "flow" ? "true" : "false");
+    $("mpViewFlow").hidden = !flowMap(); $("mpViewFlow").setAttribute("aria-selected", st.view === "flow" ? "true" : "false");
     $("mpViewMap").hidden = isNet();                    // water and electrical maps: Flow | Outline | 2D view (the Outline keeps the tree)
     if (st.view !== "flow") { $("mpJourney").hidden = true; $("mpJourney").textContent = ""; }
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
@@ -2046,11 +2234,12 @@
     $("mpFlow").title = isWater() ? "Moving dots along the pipes that have flow" : "Moving dots along the power lines that have supply";
     var anyIso = Object.keys(st.iso).length > 0 || Object.keys(st.cmd).length > 0 || st.night || st.fire;
     $("mpReset").hidden = !anyIso || !canv;
-    $("mpHint").textContent = st.view === "flow" ? (COARSE.matches ? "Tap a branch to follow its way · two fingers to scroll" : "Click a branch to follow its way · double-click to read it · drag to move · Ctrl + wheel to zoom")
+    $("mpHint").textContent = st.view === "flow" && isRulebook() ? "Click a step to read it · paste a clause above the map to follow it through the steps · drag to move · Ctrl + wheel to zoom"
+      : st.view === "flow" ? (COARSE.matches ? "Tap a branch to follow its way · two fingers to scroll" : "Click a branch to follow its way · double-click to read it · drag to move · Ctrl + wheel to zoom")
       : st.view === "schematic" ? (COARSE.matches ? "Tap a symbol for its figures · two fingers to scroll" : "Click a symbol for its figures · double-click to read it · drag to move · Ctrl + wheel to zoom" + (st.edit ? " · Edit: drag a symbol to place it" : ""))
       : COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
-    if (st.view === "schematic") renderSchematic(); else if (st.view === "flow") renderFlow(); else if (map) renderMap(); else renderOutline();
+    if (st.view === "schematic") renderSchematic(); else if (st.view === "flow") (isRulebook() ? renderDecision() : renderFlow()); else if (map) renderMap(); else renderOutline();
     var open = []; Object.keys(M.nodes).forEach(function (id) { if (N(id).open) open.push(id); });
     store("sessionStorage", userKey("open") + ":" + M.map.id, JSON.stringify(open.slice(0, 600)));
   }
