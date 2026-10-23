@@ -154,12 +154,42 @@
   // Clicking it again closes it; Ctrl + click opens or closes one branch and leaves the others as they are.
   // ======================================================================
   var M = null;                                    // { map, nodes: {id: node}, root }
-  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null };
+  var st = { focus: null, sel: null, view: "map", edit: false, q: "", note: null, zoom: 1, special: false, peek: null, xlinks: "chosen" };
   // peek (23 Oct 2026, owner): a click on a branch with nothing under it opens its notes on the map itself, as the
   // next level would grow (map view only, not focus mode): read, or Edit / Done for those who may change the map
   var seen = {}, wantScroll = false, firstDraw = true, GX = 44, GY = 8, GTOP = 18, PAD = 60;
   var COARSE = window.matchMedia ? window.matchMedia("(pointer: coarse)") : { matches: false };
   function N(id) { return M.nodes[id]; }
+  // ---------- what a link between two branches means (23 Oct 2026) ----------
+  // One fixed list for every map (the server keeps the same ids, api/mp.ts MP_RELS): each kind has its own line,
+  // colour and words, so a line reads the same on every map; the words are on the line too (never colour alone).
+  // "back" is how the other end reads it. A link saved before 23 Oct 2026 has no kind: See also.
+  var RELS = [
+    { id: "requires", label: "Requires", back: "Required by", ends: "end", hint: "One needs the other: a VFD requires a motor of a certain insulation class." },
+    { id: "equivalent", label: "Equivalent to", back: "Equivalent to", ends: "both", hint: "The same requirement in other words or another standard: MERV 14 and F8." },
+    { id: "excludes", label: "Excludes", back: "Excludes", ends: "none", hint: "Cannot go together: EC plug fans exclude belt drives." },
+    { id: "replaced", label: "Replaced by", back: "Replaces", ends: "end", hint: "One took the place of the other: EN 779 was replaced by ISO 16890." },
+    { id: "part", label: "Part of", back: "Has part", ends: "end", hint: "Belongs to the other: a filter gauge is part of the filter section." },
+    { id: "see", label: "See also", back: "See also", ends: "none", hint: "Related, read them together." }
+  ];
+  function relOf(l) { var id = l && l.rel; for (var i = 0; i < RELS.length; i++) if (RELS[i].id === id) return RELS[i]; return RELS[RELS.length - 1]; }
+  // every link to a branch of this map: from -> to, with its kind; links to other maps are kept apart (out)
+  function linkIndex() {
+    var list = [], out = [];
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) {
+        if (l.kind !== "node" || !l.node || l.node === id) return;
+        if (N(l.node)) list.push({ from: id, to: l.node, l: l, rel: relOf(l) });
+        else if (l.map && l.map !== M.map.id) out.push({ from: id, l: l, rel: relOf(l) });
+      });
+    });
+    return { list: list, out: out };
+  }
+  function hasLines(id) {
+    if (!id || !N(id)) return false;
+    if ((N(id).links || []).some(function (l) { return l.kind === "node"; })) return true;
+    return Object.keys(M.nodes).some(function (k) { return (N(k).links || []).some(function (l) { return l.kind === "node" && l.node === id; }); });
+  }
   function canEdit() { return M && (M.map.rights === "edit" || M.map.rights === "own"); }
   function isOwn() { return M && M.map.rights === "own"; }
   function pathOf(id) { var p = []; while (id && N(id)) { p.unshift(id); id = N(id).parent; } return p; }
@@ -221,6 +251,7 @@
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
     st.special = store("localStorage", userKey("special")) === "1";
+    var xl = store("localStorage", userKey("xlinks")); if (xl === "all" || xl === "off" || xl === "chosen") st.xlinks = xl;
     if (canEdit() && store("sessionStorage", userKey("edit")) === M.map.id) { st.edit = true; st.sel = M.root; }
     store("sessionStorage", userKey("edit"), null);
     $("mpViewMap").addEventListener("click", function () { setView("map"); });
@@ -236,6 +267,11 @@
     $("mpFit").addEventListener("click", fit);
     $("mpFull").addEventListener("click", function () { full(!st.full); });
     $("mpSpecial").addEventListener("click", function () { st.special = !st.special; store("localStorage", userKey("special"), st.special ? "1" : "0"); renderView(); });
+    $("mpXlinks").addEventListener("click", function () {
+      st.xlinks = st.xlinks === "chosen" ? "all" : st.xlinks === "all" ? "off" : "chosen";
+      store("localStorage", userKey("xlinks"), st.xlinks); renderView();
+      Hub.toast(st.xlinks === "all" ? "Showing every link between branches." : st.xlinks === "off" ? "Links between branches hidden." : "Showing the links of the chosen branch.");
+    });
     var timer, q = $("mpQ");
     q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { search(q.value); }, 150); });
     window.addEventListener("hashchange", function () { applyHash(false); render(); });
@@ -283,7 +319,9 @@
   // choosing a branch only moves the highlight (the page is not redrawn, so a double-click lands on the same branch)
   function pick(n) {
     if (st.sel !== n.id) flush();
+    var was = st.sel;
     st.sel = n.id;
+    if (st.view === "map" && st.xlinks === "chosen" && was !== n.id && (hasLines(was) || hasLines(n.id))) { renderView(); refocus(n.id); return; }
     [].forEach.call(document.querySelectorAll("[data-node].mp-sel"), function (x) { x.classList.remove("mp-sel"); x.setAttribute("aria-selected", "false"); });
     var x = document.querySelector('[data-node="' + n.id + '"]');
     if (!x) { wantScroll = true; renderView(); x = document.querySelector('[data-node="' + n.id + '"]'); }
@@ -425,6 +463,7 @@
     Object.keys(paths).forEach(function (h) {
       var p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", paths[h]); p.setAttribute("class", h); svg.appendChild(p);
     });
+    maxX = Math.max(maxX, drawLinks(stage, svg, els));    // on top of the tree's lines
     var w = maxX + PAD, ht = total + PAD * 2;
     stage.style.width = w + "px"; stage.style.height = ht + "px";
     stage.style.transform = "scale(" + st.zoom + ")";
@@ -441,6 +480,85 @@
     wantScroll = false;
     $("mpZoomPct").textContent = Math.round(z * 100) + "%";
   }
+  // ---------- links between branches, drawn on the map ----------
+  // Links: chosen (default) = the lines of the chosen branch, with their words; all = every line of the branches in
+  // view (words only on the chosen branch's); off. A line ends at the branch, or at the nearest branch in view
+  // that holds it when it is folded away ("folded" in the words). A link to another map ends in a chip at the side.
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs) { var e = document.createElementNS(SVGNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
+  function shownAs(id, els) { while (id && N(id)) { if (els[id]) return id; id = N(id).parent; } return null; }
+  function drawLinks(stage, svg, els) {
+    if (st.xlinks === "off" || st.view !== "map") return 0;
+    var xi = linkIndex(), sel = st.sel && els[st.sel] ? st.sel : null, right = 0, done = {}, chips = {};
+    if (st.xlinks === "chosen" && !sel) return 0;
+    var defs = svgEl("defs", {});
+    RELS.forEach(function (r) {
+      if (r.ends === "none") return;
+      var m = svgEl("marker", { id: "mpx-" + r.id, "class": "mpx-m x-" + r.id, viewBox: "0 0 10 10", refX: "8.5", refY: "5", markerWidth: "9", markerHeight: "9", orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" });
+      m.appendChild(svgEl("path", { d: r.id === "replaced" ? "M1,1 L9,5 L1,9" : "M0,0 L10,5 L0,10 z" }));
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+    var placed = [];
+    function label(x, y, text, rel, go) {
+      // a line's words step down until they no longer sit on another line's words
+      for (var tries = 0; tries < 12 && placed.some(function (q) { return Math.abs(q.y - y) < 24 && Math.abs(q.x - x) < 220; }); tries++) y += 24;
+      placed.push({ x: x, y: y });
+      var c = el("button", { type: "button", "class": "mp-xl x-" + rel.id, title: rel.hint, text: text, onclick: go });
+      c.style.left = x + "px"; c.style.top = y + "px";
+      stage.appendChild(c);
+    }
+    xi.list.forEach(function (e) {
+      if (st.xlinks === "chosen" && e.from !== sel && e.to !== sel) return;
+      var a = shownAs(e.from, els), b = shownAs(e.to, els);
+      if (!a || !b || a === b) return;
+      var key = e.rel.ends === "end" ? a + ">" + b + e.rel.id : [a, b].sort().join("|") + e.rel.id;
+      if (done[key]) return; done[key] = 1;
+      var A = N(a), B = N(b), ay = A._y + A._h / 2, by = B._y + B._h / 2, x1, x2, c1, c2;
+      if (B._x >= A._x + A._w + 10) { x1 = A._x + A._w; x2 = B._x; var d = Math.max(40, (x2 - x1) / 2); c1 = x1 + d; c2 = x2 - d; }
+      else if (A._x >= B._x + B._w + 10) { x1 = A._x; x2 = B._x + B._w; var d2 = Math.max(40, (x1 - x2) / 2); c1 = x1 - d2; c2 = x2 + d2; }
+      else { x1 = A._x + A._w; x2 = B._x + B._w; c1 = c2 = Math.max(x1, x2) + 50 + Math.min(140, Math.abs(by - ay) * 0.25); }
+      right = Math.max(right, c1 + 20, c2 + 20);
+      var p = svgEl("path", { d: "M" + x1 + " " + ay + "C" + c1 + " " + ay + "," + c2 + " " + by + "," + x2 + " " + by, "class": "mpx x-" + e.rel.id });
+      if (e.rel.ends !== "none") p.setAttribute("marker-end", "url(#mpx-" + e.rel.id + ")");
+      if (e.rel.ends === "both") p.setAttribute("marker-start", "url(#mpx-" + e.rel.id + ")");
+      svg.appendChild(p);
+      if (sel && (e.from === sel || e.to === sel)) {
+        var mine = e.from === sel, other = mine ? e.to : e.from, proxy = mine ? b !== e.to : a !== e.from;
+        var mx = (x1 + 3 * c1 + 3 * c2 + x2) / 8, my = (ay + by) / 2;
+        label(mx, my, (mine ? e.rel.label : e.rel.back) + (proxy ? " · " + N(other).title + " (folded)" : ""), e.rel, function () { flush(); reveal(other); });
+      }
+    });
+    // links to other maps: a short line to a chip beside the chosen branch
+    if (sel) xi.out.forEach(function (e) {
+      if (e.from !== sel) return;
+      var A = N(sel), k = chips[sel] = (chips[sel] || 0) + 1;
+      var x1 = A._x + A._w, y1 = A._y + A._h / 2, x2 = x1 + 70, y2 = y1 + (k - 1) * 30 - 34;
+      if (st.peek === sel && A._px !== undefined) y2 = A._py + A._ph + 22 + (k - 1) * 30;   // below the notes card, not on it
+      var p = svgEl("path", { d: "M" + x1 + " " + y1 + "C" + (x1 + 35) + " " + y1 + "," + (x2 - 35) + " " + y2 + "," + x2 + " " + y2, "class": "mpx x-" + e.rel.id });
+      if (e.rel.ends !== "none") p.setAttribute("marker-end", "url(#mpx-" + e.rel.id + ")");
+      svg.appendChild(p);
+      var c = el("button", { type: "button", "class": "mp-xl mp-xout x-" + e.rel.id, title: "Opens the other map: " + e.rel.hint, onclick: function () { followBranch(e.l); } },
+        [el("span", { text: e.rel.label + " · " }), el("b", { text: e.l.label }), el("small", { text: " (other map) ›" })]);
+      c.style.left = x2 + "px"; c.style.top = y2 + "px";
+      stage.appendChild(c);
+      right = Math.max(right, x2 + 320);
+    });
+    return right;
+  }
+  // the kinds used on this map, each with a sample of its line
+  function legend(xi) {
+    var box = $("mpLegend"); box.textContent = ""; box.hidden = !xi;
+    if (!xi) return;
+    var used = {}; xi.list.concat(xi.out).forEach(function (e) { used[e.rel.id] = 1; });
+    RELS.forEach(function (r) {
+      if (!used[r.id]) return;
+      var s = svgEl("svg", { viewBox: "0 0 34 10", width: "34", height: "10", "aria-hidden": "true" });
+      s.appendChild(svgEl("path", { d: "M2 5 L32 5", "class": "mpx x-" + r.id }));
+      box.appendChild(el("span", { "class": "mp-lg", title: r.hint }, [s, document.createTextNode(r.label)]));
+    });
+  }
+
   // ---------- the notes card on the map (peek) ----------
   var peekEl = null, peekEdit = false;
   function peekCard(n) {
@@ -532,7 +650,7 @@
     var c = $("mpCanvas"), drag = null;
     c.addEventListener("pointerdown", function (e) {
       if (e.button !== 0 || e.pointerType === "touch") return;                 // a finger scrolls the page natively
-      if (e.target.closest && e.target.closest(".mp-peek")) return;             // selecting text in the notes card
+      if (e.target.closest && e.target.closest(".mp-peek, .mp-xl")) return;    // selecting text in the notes card, a line's words
       drag = { x: e.clientX, y: e.clientY, sl: c.scrollLeft, st: c.scrollTop, moved: false, id: e.pointerId };
     });
     c.addEventListener("pointermove", function (e) {
@@ -568,7 +686,7 @@
   var lastClick = { id: null, t: 0, closed: false };
   function branchClick(e, onMap) {
     if (e.detail > 1) return;
-    if (e.target.closest && e.target.closest(".mp-peek")) return;
+    if (e.target.closest && e.target.closest(".mp-peek, .mp-xl")) return;
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
     if (!nodeE) { if (onMap && (st.sel || st.peek)) { st.sel = null; if (st.peek) closePeek(true); renderView(); } return; }
     var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
@@ -584,7 +702,7 @@
   }
   function branchDblClick(e) {
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
-    if (e.target.closest && (e.target.closest("[data-act]") || e.target.closest(".mp-peek"))) return;
+    if (e.target.closest && (e.target.closest("[data-act]") || e.target.closest(".mp-peek, .mp-xl"))) return;
     var id = lastClick.id && Date.now() - lastClick.t < 900 && N(lastClick.id) ? lastClick.id : nodeE ? nodeE.getAttribute("data-node") : null;
     if (!id) return;
     e.preventDefault();
@@ -668,6 +786,11 @@
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", map ? "false" : "true");
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
     $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
+    var xi = linkIndex(), anyX = xi.list.length + xi.out.length > 0;
+    $("mpXlinks").hidden = !anyX;
+    $("mpXlinks").setAttribute("aria-pressed", anyX && st.xlinks !== "off" ? "true" : "false");
+    $("mpXlinksTxt").textContent = st.xlinks === "all" ? "Links: all" : st.xlinks === "off" ? "Links: off" : "Links: chosen";
+    legend(map && anyX && st.xlinks !== "off" ? xi : null);
     $("mpHint").textContent = COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
     if (map) renderMap(); else renderOutline();
@@ -844,11 +967,23 @@
     var shown = [];
     n.links.forEach(function (l, i) {
       var a = linkNode(l); if (!a) return;
-      shown.push(E ? el("div", { "class": "mp-linkrow" }, [a, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
+      var kindSel = null;
+      if (E && l.kind === "node") {
+        kindSel = el("select", { "class": "input mp-relsel", "aria-label": "What the link to " + l.label + " means" }, RELS.map(function (r) { return el("option", { value: r.id, text: r.label }); }));
+        kindSel.value = relOf(l).id;
+        kindSel.addEventListener("change", function () { var v = kindSel.value; setList(n, "links", n.links.map(function (x, j) { if (j !== i) return x; var y = {}; for (var k in x) y[k] = x[k]; y.rel = v; return y; })); });
+      }
+      shown.push(E ? el("div", { "class": "mp-linkrow" }, [a, kindSel, el("button", { type: "button", "class": "btn ghost sm", text: "Remove", "aria-label": "Remove link " + l.label,
         onclick: function () { setList(n, "links", n.links.filter(function (x, j) { return j !== i; })); } })]) : a);
     });
     if (shown.length || E) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "Links" })].concat(shown,
       E ? [el("div", {}, [el("button", { type: "button", "class": "btn ghost sm", text: "Add link", onclick: function () { linkSheet(n); } })])] : [])));
+    // the other end: branches of this map that link here
+    var inbound = linkIndex().list.filter(function (e) { return e.to === n.id; });
+    if (inbound.length) box.appendChild(el("section", { "class": "mp-nsec" }, [el("h3", { text: "Linked from" })].concat(inbound.map(function (e) {
+      return el("button", { type: "button", "class": "mp-link", onclick: function () { openNote(e.from); } }, [el("i", { "class": "mp-relsw x-" + e.rel.id, "aria-hidden": "true" }),
+        el("span", { "class": "t", text: N(e.from).title }), el("small", { text: e.rel.back })]);
+    }))));
     // what grows from it
     if (n.kids.length || E) {
       var kids = el("section", { "class": "mp-nsec" }, [el("h3", { text: n.kids.length ? plural(n.kids.length, "branch", "branches") + " under it" : "Branches under it" })]);
@@ -972,7 +1107,8 @@
   // ---------- links ----------
   function linkNode(l) {
     var t;
-    if (l.kind === "node") return el("button", { type: "button", "class": "mp-link", onclick: function () { followBranch(l); } }, [ico("link"), el("span", { "class": "t", text: l.label }), el("small", { text: "Branch" })]);
+    if (l.kind === "node") return el("button", { type: "button", "class": "mp-link", onclick: function () { followBranch(l); } }, [el("i", { "class": "mp-relsw x-" + relOf(l).id, "aria-hidden": "true" }), el("span", { "class": "t", text: l.label }),
+      el("small", { text: relOf(l).label + (N(l.node) ? "" : " · other map") })]);
     if (l.kind === "standard") {
       if (!tool("standards")) return null;                                   // never point at a tool the account does not have
       return el("a", { "class": "mp-link", href: Hub.url("tools/standards/standard.html#" + encodeURIComponent(l.id)) }, [ico("link"), el("span", { "class": "t", text: l.label }), el("small", { text: "Standard" })]);
@@ -1040,7 +1176,16 @@
               brSel.textContent = ""; branchOptions(nodes, root, null).forEach(function (o) { brSel.appendChild(o); });
             }, function (e) { brSel.textContent = ""; err.textContent = e.message; });
           });
-          get = function () { return brSel.value ? { kind: "node", node: brSel.value } : "Choose the branch to link to."; };
+          var relSel = el("select", { "class": "input", id: "mpLinkRel" }, RELS.map(function (r) { return el("option", { value: r.id, text: r.label }); }));
+          relSel.value = "see";
+          var relHint = el("p", { "class": "hint" });
+          var showHint = function () {                // the link read as a sentence: "Drive provided requires Insulation class."
+            var r = relOf({ rel: relSel.value }), o = brSel.options[brSel.selectedIndex], to = o && o.value ? o.text.trim() : "the branch";
+            relHint.textContent = n.title + " " + r.label.toLowerCase() + " " + to + ". " + r.hint;
+          };
+          relSel.addEventListener("change", showHint); brSel.addEventListener("change", showHint); showHint();
+          area.appendChild(el("label", { "class": "field" }, [el("span", { text: "What the link means" }), relSel, relHint]));
+          get = function () { return brSel.value ? { kind: "node", node: brSel.value, rel: relSel.value } : "Choose the branch to link to."; };
         } else if (kind.value === "standard") {
           var stSel = el("select", { "class": "input", id: "mpLinkStd" }, [el("option", { value: "", text: "Loading…" })]);
           area.appendChild(field("Standard", stSel));
@@ -1073,7 +1218,7 @@
         if (text) l.label = text; else if (!l.label) l.label = "";
         close();
         var before = n.links;
-        n.links = n.links.concat([{ kind: l.kind, label: l.label || "…", node: l.node, id: l.id, url: l.url }]);
+        n.links = n.links.concat([{ kind: l.kind, label: l.label || "…", node: l.node, id: l.id, url: l.url, rel: l.rel }]);
         render(); flush();
         send(n.id, { links: before.concat([l]) }, function () { n.links = before; }).then(function () { if (st.sel === n.id) render(); });
       }

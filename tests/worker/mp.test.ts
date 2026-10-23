@@ -203,6 +203,13 @@ describe("mp_* routes", () => {
     expect(await bad([{ kind: "web", url: "ftp://x.com/a" }])).toBe("A web link starts with https:// and has no spaces.");
     expect(await bad([{ kind: "web", url: "https://x.com/a b" }])).toBe("A web link starts with https:// and has no spaces.");
     expect(await bad([{ kind: "mail", label: "x" }])).toBe("Choose what the link leads to.");
+    // what the link means (23 Oct 2026): one of the fixed kinds, kept with the link; none = See also
+    const typed = (await ok("mp_node_save", { p_token: sbu, p_node_id: mine.root, p_patch: { links: [
+      { kind: "node", node: target.id, rel: "requires" }, { kind: "node", node: target.id, rel: "equivalent", label: "Same class" }] } })).node;
+    expect(typed.links).toEqual([
+      { kind: "node", node: target.id, map: shared.id, label: "Shared branch", rel: "requires" },
+      { kind: "node", node: target.id, map: shared.id, label: "Same class", rel: "equivalent" }]);
+    expect(await bad([{ kind: "node", node: target.id, rel: "loves" }])).toBe("Choose what the link between the two branches means.");
     expect(await bad(new Array(13).fill({ kind: "standard", id: "a" }))).toBe("A branch holds up to 12 links.");
   });
 

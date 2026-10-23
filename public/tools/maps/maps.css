@@ -45,6 +45,29 @@
 .mp-stage > svg path.b0 { stroke: var(--brand); } .mp-stage > svg path.b1 { stroke: var(--ok); }
 .mp-stage > svg path.b2 { stroke: var(--brand-sky); } .mp-stage > svg path.b3 { stroke: color-mix(in srgb, var(--brand) 40%, var(--text)); }
 .mp-stage > svg path.u { stroke: var(--warn); }
+/* links between branches (23 Oct 2026): one style per meaning, the words on the line too (never colour alone) */
+.x-requires { --xc: var(--brand); } .x-equivalent { --xc: var(--ok); } .x-excludes { --xc: var(--danger); }
+.x-replaced { --xc: var(--warn); } .x-part { --xc: var(--text-soft); } .x-see { --xc: var(--text-soft); }
+svg path.mpx { fill: none; stroke: var(--xc); stroke-width: 2; stroke-linecap: round; opacity: .95; }
+svg path.mpx.x-requires { stroke-dasharray: 8 5; }
+svg path.mpx.x-equivalent { stroke-dasharray: 0.1 5; stroke-width: 2.6; }
+svg path.mpx.x-excludes { stroke-dasharray: 11 4 2 4; }
+svg path.mpx.x-part { stroke-width: 1.5; }
+svg path.mpx.x-see { stroke-dasharray: 0.1 6; stroke-width: 2; opacity: .75; }
+.mp-stage > svg marker.mpx-m path { fill: var(--xc); stroke: none; opacity: 1; }
+.mp-stage > svg marker.mpx-m.x-replaced path { fill: none; stroke: var(--xc); stroke-width: 1.8; stroke-dasharray: none; }
+.mp-xl { position: absolute; transform: translate(-50%, -50%); z-index: 2; max-width: 260px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--xc);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12px; font-weight: 650; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.mp-xl:hover { background: color-mix(in srgb, var(--xc) 14%, var(--surface)); }
+.mp-xl.mp-xout { transform: translate(0, -50%); max-width: 320px; }
+.mp-xl.mp-xout small { color: var(--text-soft); font-weight: 500; }
+.mp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: flex-end; margin: 0 4px 6px; font-size: 12px; color: var(--text-soft); }
+.mp-legend[hidden] { display: none; }
+.mp-lg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.mp-relsw { flex: none; width: 18px; height: 0; border-top: 2.5px dashed var(--xc); }
+.mp-relsw.x-part, .mp-relsw.x-replaced { border-top-style: solid; } .mp-relsw.x-equivalent, .mp-relsw.x-see { border-top-style: dotted; }
+.mp-linkrow .mp-relsel { width: 150px; max-width: 40%; min-width: 0; flex: none; height: 34px; padding: 0 8px; font-size: 13px; }
+.mp-linkrow .mp-link { min-width: 0; }
 /* the notes card of a branch with nothing under it (peek, 23 Oct 2026) */
 .mp-peek { position: absolute; width: 340px; max-width: 340px; padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--border);
   border-left: 3px solid var(--bc, var(--brand)); border-radius: 12px; box-shadow: var(--shadow); color: var(--text); cursor: auto; user-select: text;
@@ -115,8 +138,8 @@
 #mpMap.mp-fullscreen { position: fixed; inset: 0; z-index: 80; background: var(--bg); padding: 10px 12px 12px; display: flex; flex-direction: column; }
 #mpMap.mp-fullscreen .mp-bar { margin-bottom: 8px; }
 #mpMap.mp-fullscreen .mp-meta { margin-bottom: 8px; }
-#mpMap.mp-fullscreen .mp-work { flex: 1; min-height: 0; }
-#mpMap.mp-fullscreen .mp-board { height: 100%; }
+#mpMap.mp-fullscreen .mp-work { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#mpMap.mp-fullscreen .mp-board { flex: 1; min-height: 0; }
 #mpMap.mp-fullscreen .mp-canvas { height: 100%; }
 
 /* the outline: the same branches as indented text */
@@ -211,6 +234,8 @@
   .mp-ntext { font-size: 16.5px; }
   .mp-ntext-in { font-size: 16px; }
   .mp-peek { width: 290px; }
+  .mp-legend { justify-content: flex-start; }
+  .mp-linkrow .mp-relsel { font-size: 16px; width: 130px; }
   .mp-peek-in { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -123,6 +123,11 @@ function mpSpecial(v: unknown): string[] {
   return out;
 }
 
+/* What a link between two branches means (23 Oct 2026, owner: "interlinking branches, each line style a meaning").
+   One fixed list for every map, so a line means the same everywhere; the map draws each kind in its own style.
+   A link saved without one (before 23 Oct 2026) is "see" (See also). */
+export const MP_RELS = ["requires", "equivalent", "excludes", "replaced", "part", "see"];
+
 /* Links as kept. A link leads to another branch (of a map the writer can open), to a page of the
    Standards tool, to a tool of the site, or to a web address. A link to a branch that is gone is dropped. */
 async function mpLinks(env: Env, s: Session, v: unknown): Promise<Record<string, string>[]> {
@@ -139,7 +144,9 @@ async function mpLinks(env: Env, s: Session, v: unknown): Promise<Record<string,
       if (!n) continue;
       const m = await env.DB.prepare("SELECT * FROM mp_maps WHERE id = ?").bind(n.map_id).first<MapRow>();
       if (!m || mpRights(s, m) === "none") fail("You cannot link to a branch of a map you cannot open.");
-      out.push({ kind: "node", node: n.id, map: n.map_id, label: lbl || n.title });
+      const rel = str(x.rel, 20).trim();
+      if (rel && !MP_RELS.includes(rel)) fail("Choose what the link between the two branches means.");
+      out.push({ kind: "node", node: n.id, map: n.map_id, label: lbl || n.title, ...(rel ? { rel } : {}) });
     } else if (x.kind === "standard") {
       const id = str(x.id, 80);
       if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(id)) fail("Choose the standard to link to.");
