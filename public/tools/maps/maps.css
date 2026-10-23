@@ -72,12 +72,12 @@ svg path.mpx.x-see { stroke-dasharray: 0.1 6; stroke-width: 2; opacity: .75; }
 /* wires of a wiring map (23 Oct 2026) */
 .x-w-power { --xc: var(--danger); } .x-w-control { --xc: var(--text-soft); } .x-w-analog { --xc: var(--brand); }
 .x-w-digital { --xc: var(--warn); } .x-w-bus { --xc: var(--brand-sky); } .x-w-earth { --xc: var(--ok); }
-svg path.mpx.x-w-power { stroke-width: 3.2; }
-svg path.mpx.x-w-control { stroke-width: 1.5; }
+svg path.mpx.x-w-power { stroke-width: 2.4; }
+svg path.mpx.x-w-control { stroke-width: 1.2; }
 svg path.mpx.x-w-analog { stroke-dasharray: 7 4; }
 svg path.mpx.x-w-digital { stroke-dasharray: 9 3 2 3; }
-svg path.mpx.x-w-bus { stroke-dasharray: 0.1 5; stroke-width: 3; }
-svg path.mpx.x-w-earth { stroke-dasharray: 12 3; stroke-width: 2.2; }
+svg path.mpx.x-w-bus { stroke-dasharray: 0.1 5; stroke-width: 2.4; }
+svg path.mpx.x-w-earth { stroke-dasharray: 12 3; stroke-width: 1.8; }
 .mp-relsw.x-w-power, .mp-relsw.x-w-control, .mp-relsw.x-w-earth { border-top-style: solid; } .mp-relsw.x-w-bus { border-top-style: dotted; }
 .mp-wirebox { display: grid; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
 .mp-wirebox[hidden] { display: none; }
@@ -91,7 +91,7 @@ svg path.mpx.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5
 /* circuits by temperature: chilled water in blues (supply Daikin blue, return light blue), condenser water warm (supply
    amber, return red); every return dashed, so a line never depends on colour alone */
 .x-p-supply { --xc: var(--brand); } .x-p-return { --xc: var(--brand-sky); } .x-p-cw-supply { --xc: var(--warn); } .x-p-cw-return { --xc: var(--danger); }
-svg path.mpx.x-p-supply, svg path.mpx.x-p-return, svg path.mpx.x-p-cw-supply, svg path.mpx.x-p-cw-return { stroke-width: 3.6; }
+svg path.mpx.x-p-supply, svg path.mpx.x-p-return, svg path.mpx.x-p-cw-supply, svg path.mpx.x-p-cw-return { stroke-width: 4.6; }
 svg path.mpx.x-p-return, svg path.mpx.x-p-cw-return { stroke-dasharray: 10 4; }
 .mp-relsw.x-p-supply, .mp-relsw.x-p-cw-supply { border-top-style: solid; border-top-width: 3px; }
 .mp-relsw.x-p-return, .mp-relsw.x-p-cw-return { border-top-style: dashed; border-top-width: 3px; }
@@ -120,7 +120,7 @@ svg path.mpx.x-p-return, svg path.mpx.x-p-cw-return { stroke-dasharray: 10 4; }
 .mp-n.mp-run .mp-t::before, .mp-n.mp-stop .mp-t::before, .mp-dot { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--text-soft); }
 .mp-n.mp-run .mp-t::before, .mp-dot.run { background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 50%, transparent); animation: mp-run 1.8s ease-out infinite; }
 @keyframes mp-run { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-svg path.mpx-pulse { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1 22; animation: mp-flow-slow 2.4s linear infinite; }
+svg path.mpx-pulse { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1 22; animation: mp-flow-slow 1.9s linear infinite; }
 @keyframes mp-flow-slow { to { stroke-dashoffset: -23; } }
 svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
 .mp-diag { font-size: 11px; font-weight: 700; color: var(--brand-strong); border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); border-radius: 999px; padding: 0 6px; }
@@ -164,6 +164,9 @@ svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
 .mp-nb { border: 0; background: none; color: var(--text-soft); cursor: pointer; padding: 1px 2px; border-radius: 5px; display: inline-flex; align-self: center; }
 .mp-nb:hover { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
 .mp-root .mp-nb, .mp-root .mp-lk { color: var(--on-brand); }
+.mp-al { border: 0; background: none; color: var(--brand-strong); cursor: pointer; padding: 1px 3px; border-radius: 5px; display: none; align-self: center; }
+.mp-al:hover, .mp-al:focus-visible { background: color-mix(in srgb, var(--brand) 16%, transparent); }
+.mp-n:hover .mp-al, .mp-n.mp-sel .mp-al, .mp-n:focus-within .mp-al, .mp-orow:hover .mp-al, .mp-orow.mp-sel .mp-al, .mp-orow:focus-within .mp-al { display: inline-flex; }
 .mp-ico { display: inline-flex; }
 .mp-ico svg { width: 14px; height: 14px; display: block; }
 .mp-lk { color: var(--text-soft); display: inline-flex; align-self: center; }
@@ -321,8 +324,9 @@ svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
 /* the 2D view of a piping map (23 Oct 2026, mp-schematic.js) */
 .mp-stage > svg.sx-svg { overflow: visible; pointer-events: auto; }
 .mp-stage > svg.sx-svg path { opacity: 1; }
-.mp-stage > svg.sx-svg path.sxp { stroke-width: 4; }
-.sxp { fill: none; stroke: var(--xc); stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+.mp-stage > svg.sx-svg path.sxp { stroke-width: 5; }
+.mp-stage > svg.sx-svg path.sxp[class*="x-w-"] { stroke-width: 2.4; }
+.sxp { fill: none; stroke: var(--xc); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
 .sxp.x-p-return, .sxp.x-p-cw-return { stroke-dasharray: 11 5; }
 .sxp.off { stroke: var(--text-soft); opacity: .45; stroke-dasharray: 5 5; }
 .sx-svg path.mpx-flow { stroke-width: 1.8; }
@@ -335,6 +339,14 @@ svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
 .sxn .sx-thin { stroke-width: 1; opacity: .7; }
 .sxn .sx-fill { fill: currentColor; stroke: none; }
 .sxn .sx-hdr { fill: color-mix(in srgb, var(--brand) 18%, var(--surface)); stroke: var(--brand); stroke-width: 2; }
+.sxn .sx-bus { fill: var(--text); stroke: var(--text); stroke-width: 1; }
+.sxn.sel .sx-bus { fill: var(--brand); stroke: var(--brand); }
+.sxn .sx-hit2 { fill: transparent; stroke: none; }
+.sxn .sx-T { fill: currentColor; stroke: none; font: 700 17px/1 var(--font); text-anchor: middle; dominant-baseline: central; }
+.sxp.minor { stroke-width: 1.3; opacity: .7; }
+.mp-stage > svg.sx-svg path.sxp.minor { stroke-width: 1.3; }
+.sxp.x-w-analog { stroke-dasharray: 7 4; } .sxp.x-w-digital { stroke-dasharray: 9 3 2 3; } .sxp.x-w-bus { stroke-dasharray: 1 5; stroke-width: 2.4; }
+.sxp.x-w-earth { stroke-dasharray: 12 3; }
 .sxn .sx-jn { fill: currentColor; stroke: var(--surface); stroke-width: 2; }
 .sxn .sx-hit { fill: transparent; stroke: none; }
 .sxn .sx-t { fill: currentColor; stroke: none; font: 700 8.5px/1 var(--font); letter-spacing: .04em; text-anchor: middle; opacity: .75; }
@@ -343,6 +355,9 @@ svg path.mpx-flow.rev, svg path.mpx-pulse.rev { animation-direction: reverse; }
 .sxn.sel { color: var(--brand); }
 .sxn.sel .sx-hit, .sxn:focus-visible .sx-hit { fill: color-mix(in srgb, var(--brand) 12%, transparent); stroke: var(--brand); stroke-width: 1.5; }
 .sxn.dead, .sx-label.dead { opacity: .45; }
+.sxn.out .sx-hit { stroke: var(--text-soft); stroke-dasharray: 3 3; stroke-width: 1; }
+.sx-label .sx-st { display: block; font-size: 11.5px; font-weight: 600; } .sx-label .sx-st.run { color: var(--ok); } .sx-label .sx-st.stop { color: var(--text-soft); }
+.sx-svg path.mpx-flow.w { stroke-width: 1.3; }
 .sxn.tray .sx-hit { stroke: var(--warn); stroke-dasharray: 4 3; stroke-width: 1.2; }
 .sx-label { position: absolute; width: max-content; max-width: 210px; padding: 1px 4px; border-radius: 6px; text-align: center; font-size: 12.5px; line-height: 1.3; color: var(--text);
   background: color-mix(in srgb, var(--surface) 88%, transparent); cursor: pointer; }

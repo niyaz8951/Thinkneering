@@ -45,7 +45,7 @@ const want = {
   "CHWS riser to AHU plant rooms": "pipe", "CHWS branch, Level 1": "pipe", "FCU group L1-A1 (FCU-L1-01 to 08)": "fcu",
   "CHWR riser from AHU plant rooms": "pipe", "CHWR header, plant room": "header",
   // column heads and groups that are not a component: no sign
-  "Supply": "", "Main distribution": "", "HVAC equipment": "", "Controls": "", "On the unit": "", "Site (by others)": "", "Units": "", "Chilled water system": ""
+  "Supply": "", "Main distribution": "", "HVAC equipment": "", "Controls": "", "On the unit": "", "Site (by others)": "", "Units": ""
 };
 for (const [t, id] of Object.entries(want)) {
   assert.ok(t in got, `not in the templates any more: ${t}`);

@@ -489,9 +489,88 @@
     var m = v.match(/-?\d+(?:\.\d+)?/g); if (!m || m.length < 2) return null;
     return { x: +m[0], y: +m[1], w: m[2] ? +m[2] : 0, h: m[3] ? +m[3] : 0 };
   }
+  // the 2D view of a wiring map: a single-line diagram of what is at the centre (the whole building, or a unit opened
+  // alone with what it joins outside). A unit with its own diagram is one symbol in the building's drawing; the wires to
+  // its parts end on it. Branches without a place are set out by MPSchematic.layout from the power wires.
+  function wiringParts() {
+    var pw = power(), S = window.MPSigns, items = [], drawn = {}, path = pathOf(st.focus), onPath = {}, inScope = {};
+    lastPower = pw;
+    path.forEach(function (id) { onPath[id] = 1; });
+    var wired = {};
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) { if (l.kind === "node" && N(l.node) && /^w-/.test(relOf(l).id)) { wired[id] = 1; wired[l.node] = 1; } });
+    });
+    // what stands for a branch in the drawing: itself, or the unit (a branch with its own diagram) it is part of
+    function rep(id) {
+      var p = pathOf(id), r = id;
+      for (var i = 0; i < p.length - 1; i++) { var a = p[i]; if (!onPath[a] && colsOf(N(a))) { r = a; break; } }
+      return r;
+    }
+    function hasWires(id) { var x = false; each(id, function (n) { if (wired[n.id]) x = true; }); return x; }
+    (function walk(id, top) {
+      var n = N(id);
+      if (!top) {
+        if (wired[id] || placeOf(n) || (colsOf(n) && hasWires(id))) inScope[id] = 1;
+        if (colsOf(n)) return;                     // a unit's own diagram: one symbol here
+      }
+      n.kids.forEach(function (k) { walk(k, false); });
+    })(st.focus, true);
+    var pairs = {}, pipes = [], outside = {};
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) {
+        var rel = relOf(l); if (l.kind !== "node" || !N(l.node) || !/^w-/.test(rel.id)) return;
+        var a = rep(id), b = rep(l.node);
+        if (a === b || (!inScope[a] && !inScope[b])) return;
+        [a, b].forEach(function (x) { if (!inScope[x]) outside[x] = 1; });
+        var power = FLOW_KINDS.indexOf(rel.id) >= 0, key = (a < b ? a + b : b + a) + rel.id;
+        var live = power && pw && pw.known ? !!pw.on[id] && !!pw.on[l.node] : !power;
+        var child = power && pw ? (!pw.known ? l.node : pw.from[l.node] === id ? l.node : pw.from[id] === l.node ? id : null) : null;
+        var flowing = !!child && (!pw.known || !!pw.draw[child]);
+        var unit = !power && pw ? (pw.ctl[l.node] === id ? l.node : pw.ctl[id] === l.node ? id : null) : null;
+        var pulse = unit && pw.state[unit] === "running" ? (unit === l.node ? 1 : -1) : 0;
+        var q = flowing ? (child === l.node ? 1 : -1) : 0;
+        if (pairs[key]) { var o = pairs[key]; if (!o.q && q) o.q = (o.a === a) === (q > 0) ? 1 : -1; o.live = o.live || live; if (!o.pulse && pulse) o.pulse = (o.a === a) === (pulse > 0) ? 1 : -1; return; }
+        var chosen = st.sel === id || st.sel === l.node || st.sel === a || st.sel === b, full = wireText(l, rel, id), other = b;
+        pipes.push(pairs[key] = { a: a, b: b, rel: rel.id, q: q, live: live, pulse: pulse, minor: !power, speed: "0.9", chosen: chosen,
+          label: chosen ? full : [l.signal || rel.label, l.cable || ""].filter(Boolean).join(" · "), title: full,
+          go: function () { flush(); st.sel = other; st.peek = other; renderView(); } });
+      });
+    });
+    Object.keys(inScope).concat(Object.keys(outside)).forEach(function (id) {
+      if (drawn[id]) return; drawn[id] = 1;
+      var n = N(id), pl = placeOf(n);
+      if (sxDrag && sxDrag.id === id && sxDrag.moved) pl = { x: sxDrag.x, y: sxDrag.y, w: sxDrag.w, h: sxDrag.h };
+      var kind = S ? S.of(n) : "";
+      items.push({ id: id, kind: kind, place: pl, sign: kind && S ? S.svg(kind) : "", title: n.title, sel: st.sel === id, outside: !!outside[id],
+        dead: !!(pw && pw.known && pw.part[id] && !pw.on[id]) });
+    });
+    // how far from a source along the power wires (switches as drawn, not as tried): the order of the rows
+    var adj = {}, far = {}, q = [];
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) { if (l.kind === "node" && N(l.node) && FLOW_KINDS.indexOf(l.rel) >= 0) { var a = rep(id), b = rep(l.node); (adj[a] = adj[a] || []).push(b); (adj[b] = adj[b] || []).push(a); } });
+    });
+    Object.keys(M.nodes).forEach(function (id) { var v = noteVal(N(id), "source"); if (v) { var r = rep(id); if (far[r] == null) { far[r] = /standby|generator/i.test(v) ? 0.5 : 0; q.push(r); } } });
+    q.sort(function (a, b) { return far[a] - far[b]; });
+    while (q.length) { var x = q.shift(); (adj[x] || []).forEach(function (y) { if (far[y] == null) { far[y] = Math.floor(far[x]) + 1; q.push(y); } }); }
+    window.MPSchematic.layout(items, pipes.map(function (p) { return { a: p.a, b: p.b, power: !p.minor }; }), function (id) { return far[id] == null ? 1e6 : far[id]; });
+    return { items: items, pipes: pipes, pw: pw };
+  }
+  function wireState(pw, id) {
+    if (!pw) return null;
+    var s = pw.ctl[id] ? pw.state[id] : pw.known && pw.part[id] && !pw.on[id] ? "nopower" : "";
+    var txt = { running: "running", stopped: "stopped by the BMS", night: "off at night", nopower: "no supply" }[s];
+    return txt ? el("span", { "class": "mp-wq sx-st " + (s === "running" ? "run" : "stop"), text: txt }) : null;
+  }
   function renderSchematic() {
     var stage = $("mpStage"), canvas = $("mpCanvas"), w = lastWater, items = [], drawn = {}, S = window.MPSigns;
     stage.textContent = ""; stage.classList.add("mp-pipes");
+    if (isWiring()) {
+      var wp = wiringParts();
+      lastSx = window.MPSchematic.draw(stage, { items: wp.items, pipes: wp.pipes, pipeLabels: st.sxLabels, flowOn: st.flow, edit: st.edit && canEdit(), el: el,
+        habit: { chiller: "tb", ahu: "tb", fcu: "tb", breaker: "tb", transformer: "tb", generator: "tb", utility: "tb" },
+        label: function (id) { var n = N(id); return [el("b", { text: n.title }), wireState(wp.pw, id)]; } });
+      return schematicFrame(lastSx);
+    }
     each(M.root, function (n) {
       if (n.id === M.root) return;
       var pl = placeOf(n);
@@ -521,7 +600,10 @@
     var res = window.MPSchematic.draw(stage, { items: items, pipes: pipes, pipeLabels: mode, flowOn: st.flow, edit: st.edit && canEdit(), el: el,
       label: function (id) { var n = N(id); return [el("b", { text: n.title })].concat(waterFigures(n, true)); } });
     lastSx = res;
-    var W2 = res.w, H2 = res.h;
+    schematicFrame(res);
+  }
+  function schematicFrame(res) {
+    var stage = $("mpStage"), canvas = $("mpCanvas"), W2 = res.w, H2 = res.h;
     // the card of the chosen branch, beside its symbol
     var pk = st.peek && res.box[st.peek] ? N(st.peek) : null;
     if (!pk) { st.peek = null; peekEl = null; peekEdit = false; }
@@ -535,7 +617,10 @@
     }
     stage.style.width = W2 + "px"; stage.style.height = H2 + "px"; stage.style.transform = "scale(" + st.zoom + ")";
     var sizer = $("mpSizer"); sizer.style.width = Math.ceil(W2 * st.zoom) + "px"; sizer.style.height = Math.ceil(H2 * st.zoom) + "px";
-    if (firstDraw) { canvas.scrollLeft = 0; canvas.scrollTop = 0; firstDraw = false; }
+    if (firstDraw) {                              // a single-line diagram opens on its source (top centre), a schematic on its top left
+      var top = null; if (isWiring()) Object.keys(res.box).forEach(function (k) { var x = res.box[k]; if (!x.tray && (!top || x.y < top.y)) top = x; });
+      canvas.scrollLeft = top ? Math.max(0, (top.x + top.w / 2) * st.zoom - canvas.clientWidth / 2) : 0; canvas.scrollTop = 0; firstDraw = false;
+    }
     $("mpZoomPct").textContent = Math.round(st.zoom * 100) + "%";
     seen = {};
   }
@@ -552,7 +637,7 @@
   function sxPointerDown(e) {
     var c = $("mpCanvas"), g = e.target.closest("[data-sx]"), id = g.getAttribute("data-node"), b = lastSx && lastSx.box[id];
     if (!b || !N(id)) return;
-    var pl = placeOf(N(id)) || { w: 0, h: 0 };
+    var pl = placeOf(N(id)) || (b.sized ? { w: b.w, h: b.h } : { w: 0, h: 0 });
     sxDrag = { id: id, px: e.clientX, py: e.clientY, bx: b.x, by: b.y, x: b.x, y: b.y, w: pl.w, h: pl.h, moved: false, pid: e.pointerId };
     var queued = false;
     function move(ev) {
@@ -660,7 +745,7 @@
   function wire() {
     if (wired) return; wired = true;
     var v = store("localStorage", userKey("view"));
-    st.view = v === "map" || v === "outline" || (v === "schematic" && isWater()) ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
+    st.view = v === "map" || v === "outline" || (v === "schematic" && isNet()) ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
     st.special = store("localStorage", userKey("special")) === "1";
@@ -692,7 +777,8 @@
       if (st.view === "schematic") {
         st.sxLabels = st.sxLabels === "chosen" ? "all" : st.sxLabels === "all" ? "off" : "chosen";
         store("localStorage", userKey("sxlabels"), st.sxLabels); renderView();
-        Hub.toast(st.sxLabels === "all" ? "Words on every pipe." : st.sxLabels === "off" ? "No words on the pipes." : "Words on the pipes of the chosen symbol.");
+        var wd2 = isWiring() ? "wire" : "pipe";
+        Hub.toast(st.sxLabels === "all" ? "Words on every " + wd2 + "." : st.sxLabels === "off" ? "No words on the " + wd2 + "s." : "Words on the " + wd2 + "s of the chosen symbol.");
         return;
       }
       st.xlinks = st.xlinks === "chosen" ? "all" : st.xlinks === "all" ? "off" : "chosen";
@@ -823,6 +909,9 @@
     if (!n.verified && n.id !== st.focus) out.push(el("span", { "class": "mp-tv", title: "To verify: not yet checked by an admin" }, [document.createTextNode("to verify")]));
     if (n.id !== st.focus && n.kids.length && colsOf(n) && pathOf(n.id).some(function (a) { return a !== n.id && N(a) && colsOf(N(a)); }))
       out.push(el("span", { "class": "mp-diag", title: "Has its own wiring diagram: click to open it" }, [document.createTextNode("diagram ›")]));
+    // show this branch alone (shown on the chosen branch and under the mouse; the crumbs lead back)
+    if (n.id !== st.focus && n.kids.length && st.view !== "schematic")
+      out.push(el("button", { type: "button", "class": "mp-al", title: "Show this branch alone", "aria-label": "Show " + n.title + " alone", "data-act": "alone" }, [ico("focus")]));
     return out;
   }
   // the sign of a component (mp-signs.js): from "Icon: ..." or the branch name; its name is the tooltip
@@ -852,7 +941,7 @@
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); stage.appendChild(svg);
     stage.classList.toggle("mp-pipes", isWater());
     (function walk(id) {
-      var n = N(id); now[id] = 1; n._inCol = false; n._colHead = false;
+      var n = N(id); now[id] = 1; n._inCol = false; n._colHead = false; n._flat = false; n._aside = false;
       var e = nodeEl(n, "mp-n" + (!first && !seen[id] ? " mp-grow" : ""));
       stage.appendChild(e); els[id] = e;
       // a branch laid out in columns (wiring maps): its columns always show what is in them
@@ -880,8 +969,19 @@
       if (n.open) n.kids.forEach(function (k) { right = Math.max(right, colAcross(k, x0, depth + 1)); });
       return right;
     }
+    // a diagram shown at the centre (the map itself or a unit opened alone) starts straight away: the centre top left,
+    // its leading notes-only branches (the guide) listed under it, the columns beside it from the same top, no rail
+    function asidesOf(n) { var out = []; for (var i = 0; i < n.kids.length && !N(n.kids[i]).kids.length; i++) out.push(n.kids[i]); return out.length < n.kids.length ? out : []; }
     (function across(id, x) {
       var n = N(id); n._x = x; maxX = Math.max(maxX, x + n._w);
+      if (n.open && colsOf(n) && id === st.focus) {
+        var side = asidesOf(n), right = x + n._w; n._flat = true;
+        side.forEach(function (k) { N(k)._aside = true; right = Math.max(right, colAcross(k, x, 1)); });
+        var fx = right + GCOL;
+        n.kids.forEach(function (k) { if (N(k)._aside) return; var r = colAcross(k, fx, 0); N(k)._colHead = true; maxX = Math.max(maxX, r); fx = r + GCOL; });
+        maxX = Math.max(maxX, right);
+        return;
+      }
       if (n.open && colsOf(n)) {
         var cx = x + n._w + GX + 24;
         n.kids.forEach(function (k) { var r = colAcross(k, cx, 0); N(k)._colHead = true; maxX = Math.max(maxX, r); cx = r + GCOL; });
@@ -895,9 +995,16 @@
     var total = (function lay(id, top) {
       var n = N(id), kh = 0, gap = id === st.focus ? GTOP : GY;
       if (n === pk && !n._inCol) { var ps = Math.max(n._h, n._ph); n._y = top + (ps - n._h) / 2; return ps; }   // the card takes its room
+      function colLay(cid, yy) { var c = N(cid); c._y = yy; yy += c._h + (c._colHead ? 10 : GY); if (c === pk) yy += pk._ph + 12; if (c.open) c.kids.forEach(function (g) { yy = colLay(g, yy); }); return yy; }
+      if (n._flat) {                              // the centre top left, the guide under it, the columns from the same top
+        n._y = top;
+        var fy = top + n._h + 12, fb = top + n._h;
+        n.kids.forEach(function (k) { if (N(k)._aside) fy = colLay(k, fy); else fb = Math.max(fb, colLay(k, top)); });
+        return Math.max(fy, fb) - top;
+      }
       if (n.open && colsOf(n)) {                  // columns: each one a list from the top; the branch in the middle of them
         var bh = 0;
-        n.kids.forEach(function (k) { var y = (function colLay(cid, yy) { var c = N(cid); c._y = yy; yy += c._h + (c._colHead ? 10 : GY); if (c === pk) yy += pk._ph + 12; if (c.open) c.kids.forEach(function (g) { yy = colLay(g, yy); }); return yy; })(k, 0); bh = Math.max(bh, y); });
+        n.kids.forEach(function (k) { var y = colLay(k, 0); bh = Math.max(bh, y); });
         var cs = Math.max(n._h, bh), y0 = top + (cs - bh) / 2;
         n.kids.forEach(function (k) { shift(k, y0); });
         n._y = top + (cs - n._h) / 2;
@@ -918,6 +1025,14 @@
     Object.keys(els).forEach(function (id) {
       var n = N(id), root = id === st.focus;
       if (!n.open) return;
+      if (n._flat) {                               // the guide hangs under the centre; the columns need no line to it
+        n.kids.forEach(function (k) {
+          var c = N(k); if (!c._aside) return;
+          var h = "b" + hue(k) + (c.verified ? "" : " u");
+          paths[h] = (paths[h] || "") + "M" + (n._x + 7) + " " + (n._y + n._h) + "V" + (c._y + c._h - 1) + "H" + c._x;
+        });
+        return;
+      }
       if (colsOf(n) && n.kids.length && N(n.kids[0])._colHead) {      // a rail over the column heads, a drop to each
         var heads = n.kids.map(N), ry = Math.min.apply(null, heads.map(function (h) { return h._y; })) - 12, hb = "b" + hue(n.kids[0]);
         var d = "M" + (n._x + n._w) + " " + (n._y + n._h / 2) + "H" + (heads[0]._x - 14) + "V" + ry + "H" + (heads[heads.length - 1]._x + 6);
@@ -1138,6 +1253,8 @@
       E ? el("span", { "class": "mp-status", id: "mpStatus", role: "status" }) : el("span", { "class": "mp-peek-h", text: "Notes" }),
       may ? el("button", { type: "button", "class": "btn " + (E ? "" : "ghost ") + "sm", text: E ? "Done" : "Edit", title: E ? "Stop editing" : "Write in the notes",
         onclick: function () { peekEdit = !E; if (!peekEdit) flush(); peekEl = null; renderView(); if (peekEdit && $("mpPeekText")) $("mpPeekText").focus({ preventScroll: true }); } }) : null,
+      n.kids.length && n.id !== st.focus ? el("button", { type: "button", "class": "btn ghost sm", title: "Show this branch alone" + (colsOf(n) ? ": its own diagram" : ""),
+        onclick: function () { var id = n.id; closePeek(true); focusOn(id); } }, [ico("focus"), document.createTextNode(" Alone")]) : null,
       el("button", { type: "button", "class": "mp-peek-x", text: "×", title: "Close", "aria-label": "Close the notes", onclick: function () { closePeek(); } })
     ]));
     if (E) {
@@ -1315,6 +1432,7 @@
     lastClick = { id: null, t: 0, closed: false };
     if (act && act.getAttribute("data-act") === "toggle") { toggleOne(n); return; }
     if (act && act.getAttribute("data-act") === "note") { openNote(n.id); return; }
+    if (act && act.getAttribute("data-act") === "alone") { focusOn(n.id); return; }
     // a finger has no double-click: a tap on the chosen branch reads it, as a second click would
     if ((COARSE.matches || e.pointerType === "touch") && st.sel === n.id) { openNote(n.id); return; }
     if (e.ctrlKey || e.metaKey) { toggleOne(n); return; }
@@ -1440,11 +1558,11 @@
     if (!outlineWired) { outlineWired = true; outlineMouse(); }
     lastWater = isWater() && W() ? W().compute(M.nodes, st.iso) : null;
     renderCrumbs(); renderPills();
-    if (st.view === "schematic" && !isWater()) st.view = "map";
+    if (st.view === "schematic" && !isNet()) st.view = "map";
     var map = st.view === "map", canv = st.view !== "outline";
     $("mpCanvas").hidden = !canv; $("mpOutline").hidden = canv; $("mpTools").hidden = !canv;
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", st.view === "outline" ? "true" : "false");
-    $("mpView2d").hidden = !isWater(); $("mpView2d").setAttribute("aria-selected", st.view === "schematic" ? "true" : "false");
+    $("mpView2d").hidden = !isNet(); $("mpView2d").setAttribute("aria-selected", st.view === "schematic" ? "true" : "false");
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
     $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
     var xi = linkIndex(), anyX = xi.list.length + xi.out.length > 0;
@@ -1452,7 +1570,7 @@
     $("mpXlinks").setAttribute("aria-pressed", anyX && st.xlinks !== "off" ? "true" : "false");
     var wd = isWiring() ? "Wires" : isWater() ? "Pipes" : "Links";
     var xm = st.view === "schematic" ? st.sxLabels : st.xlinks;
-    $("mpXlinksTxt").textContent = (st.view === "schematic" ? "Pipe words" : wd) + (xm === "all" ? ": all" : xm === "off" ? ": off" : ": chosen");
+    $("mpXlinksTxt").textContent = (st.view === "schematic" ? (isWiring() ? "Wire words" : "Pipe words") : wd) + (xm === "all" ? ": all" : xm === "off" ? ": off" : ": chosen");
     legend(canv && anyX && (st.xlinks !== "off" || st.view === "schematic") ? xi : null);
     var hasFlow = (isWiring() && xi.list.some(function (e) { return FLOW_KINDS.indexOf(e.rel.id) >= 0; })) || !!lastWater;
     $("mpFlow").hidden = !hasFlow || !canv; $("mpFlow").setAttribute("aria-pressed", st.flow ? "true" : "false");

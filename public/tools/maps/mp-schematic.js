@@ -1,10 +1,13 @@
 /* ============================================================
    Thinkneering Tools - Maps: the 2D view of a piping map (owner, 23 Oct 2026: "a 2D view like the picture of a typical
-   chilled water system, to understand water flow in and out").
+   chilled water system, to understand water flow in and out") and of a wiring map (same day: "2D view is great, can it be
+   done for electrical also?"): a single-line diagram, sources at the top, each board a busbar over what it feeds.
    Draws the map's equipment as schematic symbols where their special note "Place: x, y" (headers "Place: x, y, w, h")
    puts them, and its pipes as square-cornered lines between them, each circuit in its own colour and line (supply solid,
    return dashed), with the way the water goes (arrows and moving dots) and the figures maps.js passes in. Branches on a
-   pipe without a place wait in a row under the drawing ("not placed yet") until someone drags them (Edit).
+   pipe without a place wait in a row under the drawing ("not placed yet") until someone drags them (Edit). A wiring map
+   needs no places: layout() sets every branch without one as a single-line diagram (from the power wires), and a branch
+   dragged in Edit keeps the place it was given.
    Only drawing and dragging here: what the water does comes from mp-water.js, through maps.js.
    Symbols are drawn with currentColor and theme tokens only (day and night).
    ============================================================ */
@@ -15,11 +18,15 @@
 
   // the size of a symbol (px), by its sign
   var SIZE = { chiller: [140, 100], tower: [110, 100], ahu: [150, 60], fcu: [120, 46], pump: [52, 52], tank: [36, 64], separator: [36, 64],
-    valve: [36, 36], hx: [60, 80], pipe: [16, 16], header: [200, 14], coil: [60, 44], filter: [44, 52], fan: [52, 52], motor: [48, 48], controller: [56, 44] };
+    valve: [36, 36], hx: [60, 80], pipe: [16, 16], header: [200, 14], coil: [60, 44], filter: [44, 52], fan: [52, 52], motor: [48, 48], controller: [56, 44],
+    transformer: [40, 66], generator: [54, 54], breaker: [30, 52], utility: [64, 46], earth: [32, 32], drive: [50, 56], panel: [64, 50], terminal: [64, 30] };
+  // a size in the place ("Place: x, y, w, h") wins: a header or a board drawn as a bar, a box made wider for its wires
   function sizeOf(kind, place) {
-    if (kind === "header" && place && place.w) return [place.w, place.h || 14];
-    return SIZE[kind] || [56, 44];
+    var d = SIZE[kind] || [56, 44];
+    if (place && place.w) return [place.w, place.h || (kind === "header" || kind === "panel" ? 14 : d[1])];
+    return d;
   }
+  function isBar(kind, w, h) { return kind === "header" || (kind === "panel" && h <= 20 && w > h); }
   // the drawings: local coordinates 0..w, 0..h; classes sx-body (outline on the surface), sx-part (a filled part)
   function art(kind, w, h, signSvg) {
     switch (kind) {
@@ -43,9 +50,15 @@
       case "valve": return '<path class="sx-body" d="M3 10v18l15-9zM33 10v18l-15-9z"/><path d="M18 19V4M12 4h12"/>';
       case "hx": return '<rect class="sx-body" x="1" y="1" width="58" height="78" rx="4"/><path class="sx-thin" d="M14 1v78M24 1v78M34 1v78M44 1v78"/>';
       case "header": return '<rect class="sx-hdr" x="0" y="0" width="' + w + '" height="' + h + '" rx="' + Math.min(w, h) / 2 + '"/>';
+      case "panel": if (isBar(kind, w, h)) return '<rect class="sx-bus" x="0" y="0" width="' + w + '" height="' + h + '" rx="2"/>'; break;
+      // single-line symbols (IEC 60617 style): two windings, a G in a circle, a breaker's blade, an M in a circle
+      case "transformer": return '<circle class="sx-body" cx="20" cy="22" r="17"/><circle cx="20" cy="44" r="17"/>';
+      case "generator": return '<circle class="sx-body" cx="27" cy="27" r="25"/><text class="sx-T" x="27" y="27">G</text><path class="sx-thin" d="M18 40c3-4 6-4 9 0s6 4 9 0"/>';
+      case "breaker": return '<rect class="sx-hit2" x="0" y="0" width="30" height="52"/><path d="M15 0v13M15 39v13M15 39 27 15M11 9l8 8M19 9l-8 8"/>';
+      case "motor": return '<circle class="sx-body" cx="24" cy="24" r="22"/><text class="sx-T" x="24" y="25">M</text>';
       case "pipe": return '<circle class="sx-jn" cx="8" cy="8" r="6"/>';
     }
-    var s = Math.min(w, h) - 14;
+    var s = Math.min(w, h, 56) - 14;
     return '<rect class="sx-body" x="1" y="1" width="' + (w - 2) + '" height="' + (h - 2) + '" rx="6"/>' +
       (signSvg ? signSvg.replace("<svg ", '<svg x="' + (w - s) / 2 + '" y="' + (h - s) / 2 + '" width="' + s + '" height="' + s + '" ') : "");
   }
@@ -71,7 +84,8 @@
     opt.items.forEach(function (it) {
       if (!it.place) { unplaced.push(it); return; }
       var s = sizeOf(it.kind, it.place);
-      box[it.id] = { x: it.place.x, y: it.place.y, w: s[0], h: s[1], kind: it.kind };
+      var bar = isBar(it.kind, s[0], s[1]);
+      box[it.id] = { x: it.place.x, y: it.place.y, w: s[0], h: s[1], kind: it.kind, sized: !!it.place.w, bar: bar, bus: bar && it.kind === "panel" };
       maxX = Math.max(maxX, it.place.x + s[0]); maxY = Math.max(maxY, it.place.y + s[1]);
     });
     // not placed yet: a row under the drawing
@@ -107,7 +121,7 @@
     }
     // the point of a side nearest to the other end (kept off the corners): where a pipe to it would most likely leave
     function mid(b, side, o) {
-      var cl = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }, mx = b.w * 0.2, my = b.h * 0.2;
+      var cl = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }, mx = b.bus ? 8 : b.w * 0.2, my = b.h * 0.2;
       var x = cl(o.x, b.x + mx, b.x + b.w - mx), y = cl(o.y, b.y + my, b.y + b.h - my);
       return side === "t" ? { x: x, y: b.y } : side === "b" ? { x: x, y: b.y + b.h } : side === "l" ? { x: b.x, y: y } : { x: b.x + b.w, y: y };
     }
@@ -118,7 +132,7 @@
         ids.forEach(function (id) {
           if (id === skipA || id === skipB) return;
           var b = box[id];
-          if (b.kind === "header" || b.kind === "pipe") return;          // a pipe may pass behind a header or a junction
+          if (b.kind === "header" || b.kind === "pipe" || b.bar) return;          // a pipe may pass behind a header, a busbar or a junction
           if (x1 > b.x - 3 && x0 < b.x + b.w + 3 && y1 > b.y - 3 && y0 < b.y + b.h + 3) n++;
         });
       }
@@ -127,7 +141,7 @@
     function length(pts) { var t = 0; for (var i = 1; i < pts.length; i++) t += Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y); return t; }
     function stub(b) { return b.w <= 20 ? 0 : 14; }
     // schematic habit: a coil unit is piped from its sides, a chiller and a tower from above and below
-    var HABIT = { ahu: "lr", fcu: "lr", chiller: "tb", tower: "tb" };
+    var HABIT = opt.habit || { ahu: "lr", fcu: "lr", chiller: "tb", tower: "tb" };
     function habit(b, side) { var h = HABIT[b.kind]; return h && h.indexOf(side) < 0 ? 400 : 0; }
     var ends = {}, used = {};
     opt.pipes.forEach(function (p, i) {
@@ -145,7 +159,7 @@
       p._sa = best.sa; p._sb = best.sb;
       (ends[p.a + p._sa] = ends[p.a + p._sa] || []).push({ p: i, end: "a", o: cb });
       (ends[p.b + p._sb] = ends[p.b + p._sb] || []).push({ p: i, end: "b", o: ca });
-      used[p.a + p._sa] = used[p.b + p._sb] = 1;
+      if (!p.minor) used[p.a + p._sa] = used[p.b + p._sb] = 1;             // a thin control wire may cross a name
     });
     Object.keys(ends).forEach(function (k) {
       var list = ends[k], first = opt.pipes[list[0].p], id = list[0].end === "a" ? first.a : first.b, side = list[0].end === "a" ? first._sa : first._sb, b = box[id];
@@ -154,6 +168,12 @@
       var len = vert ? b.w : b.h, small = len <= 20, m = Math.min(len * 0.18, 24);
       list.forEach(function (e, i) {
         var f = small || list.length === 1 ? len / 2 : m + (len - 2 * m) * i / (list.length - 1);
+        // a busbar: each wire drops straight from it to what it feeds (in the bar's length), as a single-line diagram
+        // (bar to bar: both at the middle of the shorter one)
+        if (b.bus && vert) {
+          var pe = opt.pipes[e.p], ob = box[e.end === "a" ? pe.b : pe.a], tx = ob && ob.bus ? (ob.w <= b.w ? ob.x + ob.w / 2 : b.x + b.w / 2) : e.o.x;
+          f = Math.max(8, Math.min(len - 8, tx - b.x + (list.filter(function (u, j) { return j < i && Math.abs(u.o.x - e.o.x) < 6; }).length * 10)));
+        }
         var pt = side === "t" ? { x: b.x + f, y: b.y } : side === "b" ? { x: b.x + f, y: b.y + b.h } : side === "l" ? { x: b.x, y: b.y + f } : { x: b.x + b.w, y: b.y + f };
         if (small) pt = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
         opt.pipes[e.p][e.end === "a" ? "_pa" : "_pb"] = pt;
@@ -166,7 +186,7 @@
       var na = NORMAL[p._sa], nb = NORMAL[p._sb], pts = route(p._pa, p._sa, p._pb, p._sb, stub(box[p.a]), stub(box[p.b]));
       var A1 = pts[1], B1 = pts[pts.length - 2];
       var d = "M" + pts.map(function (q) { return Math.round(q.x * 10) / 10 + " " + Math.round(q.y * 10) / 10; }).join("L");
-      var path = svgEl("path", { d: d, "class": "sxp x-" + p.rel + (p.q ? "" : " off") });
+      var path = svgEl("path", { d: d, "class": "sxp x-" + p.rel + (p.minor ? " minor" : "") + (p.q || p.live ? "" : " off") });
       gPipes.appendChild(path);
       // the longest straight piece carries the arrow and the words
       var best = 0, mid = null, ang = 0;
@@ -174,11 +194,12 @@
         var L = Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y);
         if (L > best) { best = L; mid = { x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2 }; ang = Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x) * 180 / Math.PI; }
       }
+      if (p.pulse && opt.flowOn) gPipes.appendChild(svgEl("path", { d: d, "class": "mpx-pulse" + (p.pulse < 0 ? " rev" : "") }));
       if (p.q) {
         if (opt.flowOn) { var dots = svgEl("path", { d: d, "class": "mpx-flow" + (p.q < 0 ? " rev" : "") }); dots.style.animationDuration = p.speed + "s"; gPipes.appendChild(dots); }
         if (mid && best > 40) gPipes.appendChild(svgEl("path", { d: "M-6 -5 L5 0 L-6 5 z", "class": "sxa x-" + p.rel, transform: "translate(" + mid.x + " " + mid.y + ") rotate(" + (ang + (p.q < 0 ? 180 : 0)) + ")" }));
       }
-      if (p.label && mid) chips.push({ x: mid.x, y: mid.y, horiz: Math.abs(ang) < 45 || Math.abs(ang) > 135, p: p });
+      if (p.label && mid && (!p.minor || p.chosen || opt.pipeLabels === "all")) chips.push({ x: mid.x, y: mid.y, horiz: Math.abs(ang) < 45 || Math.abs(ang) > 135, p: p });
       // a unit's 2-way control valve, on its return
       if (p.valveAt) {
         var vp = p.valveAt === "a" ? A1 : B1, vn = p.valveAt === "a" ? na : nb, vx = vp.x + vn[0] * 6, vy = vp.y + vn[1] * 6;
@@ -191,7 +212,7 @@
     // headers first: long and fixed, their names go above them; the rest find room around them
     opt.items.slice().sort(function (u, v) { return (u.kind === "header" ? 0 : 1) - (v.kind === "header" ? 0 : 1); }).forEach(function (it) {
       var b = box[it.id]; if (!b) return;
-      var g = svgEl("g", { "class": "sxn" + (it.dead ? " dead" : "") + (it.sel ? " sel" : "") + (b.tray ? " tray" : ""), "data-node": it.id, "data-sx": "1", tabindex: "0",
+      var g = svgEl("g", { "class": "sxn" + (it.dead ? " dead" : "") + (it.sel ? " sel" : "") + (b.tray ? " tray" : "") + (it.outside ? " out" : ""), "data-node": it.id, "data-sx": "1", tabindex: "0",
         transform: "translate(" + b.x + " " + b.y + ")", role: "treeitem", "aria-label": it.title });
       g.appendChild(svgEl("rect", { "class": "sx-hit", x: -6, y: -6, width: b.w + 12, height: b.h + 12, rx: 8 }));
       var inner = svgEl("g", {}); inner.innerHTML = art(it.kind, b.w, b.h, it.sign);
@@ -202,7 +223,7 @@
       var lab = el("div", { "class": "sx-label" + (it.dead ? " dead" : "") + (it.sel ? " sel" : ""), "data-node": it.id }, opt.label(it.id));
       lab.style.left = "0px"; lab.style.top = "0px"; lab.style.visibility = "hidden";
       stage.appendChild(lab);
-      var lw = lab.offsetWidth, lh = lab.offsetHeight, hdr = it.kind === "header" && b.w >= b.h;
+      var lw = lab.offsetWidth, lh = lab.offsetHeight, hdr = b.bar && b.w >= b.h;
       var order = hdr ? ["t", "b"] : ["b", "r", "l", "t"], pick = null;
       order.forEach(function (sd, oi) {
         var r = sd === "b" ? { x: b.x + b.w / 2 - lw / 2, y: b.y + b.h + 6 } : sd === "t" ? { x: hdr ? b.x : b.x + b.w / 2 - lw / 2, y: b.y - 6 - lh }
@@ -236,5 +257,103 @@
     svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     return { w: W, h: H, box: box };
   }
-  root.MPSchematic = { draw: draw, sizeOf: sizeOf };
+
+  /* A single-line diagram for the branches that have no place (wiring maps): items [{ id, kind, place }], edges
+     [{ a, b, power }], rank(id) = how far from a source (lower first; sources 0). The power wires make a tree from the
+     sources down, one row per step, each branch centred over what it feeds; a board (panel) with branches under it is a
+     busbar across them. A source whose chain only joins a board already drawn (the standby generator to its incomer, to
+     the main switchboard) stands beside that board's own incoming chain. Branches with only control wires (the BMS) get a
+     row at the bottom, wide enough for their wires. Sets it.place = { x, y[, w, h] } on the items without one. */
+  function layout(items, edges, rank) {
+    var by = {}, padj = {}, cdeg = {}, cadj = {};
+    items.forEach(function (it) { by[it.id] = it; padj[it.id] = []; cdeg[it.id] = 0; cadj[it.id] = []; });
+    edges.forEach(function (e) {
+      if (!by[e.a] || !by[e.b] || e.a === e.b) return;
+      if (e.power) { if (padj[e.a].indexOf(e.b) < 0) { padj[e.a].push(e.b); padj[e.b].push(e.a); } }
+      else { cdeg[e.a]++; cdeg[e.b]++; cadj[e.a].push(e.b); cadj[e.b].push(e.a); }
+    });
+    var ids = items.map(function (it) { return it.id; }), order = {};
+    ids.forEach(function (id, i) { order[id] = i; });
+    var start = ids.filter(function (id) { return padj[id].length; }).sort(function (a, b) { return (rank(a) - rank(b)) || (order[a] - order[b]); });
+    var seen = {}, kids = {}, depth = {}, parent = {}, roots = [];
+    start.forEach(function (r) {
+      if (seen[r]) return;
+      seen[r] = 1; depth[r] = 0; roots.push(r);
+      var q = [r];
+      // down only: never from a branch to one nearer a source (the generator's incomer is not fed by the switchboard)
+      while (q.length) { var a = q.shift(); kids[a] = []; padj[a].forEach(function (b) { if (seen[b] || rank(b) < rank(a)) return; seen[b] = 1; parent[b] = a; depth[b] = depth[a] + 1; kids[a].push(b); q.push(b); }); }
+    });
+    // satellites: a whole tree that is one chain, whose last branch feeds a branch of a tree drawn before it
+    var tree = {}, sat = {};
+    roots.forEach(function (r) { (function m(id) { tree[id] = r; kids[id].forEach(m); })(r); });
+    roots.forEach(function (r, ri) {
+      if (!ri) return;
+      var leaf = r; while (kids[leaf].length === 1) leaf = kids[leaf][0];
+      if (kids[leaf].length) return;
+      var into = padj[leaf].filter(function (b) { return tree[b] !== r && roots.indexOf(tree[b]) < ri; })[0];
+      if (into) sat[r] = { leaf: leaf, into: into };
+    });
+    var bar = function (id) { return by[id].kind === "panel" && kids[id] && kids[id].length > 0; };
+    var size = function (id) { return sizeOf(by[id].kind, null); };
+    var slot = {}, cx = {};
+    function slotOf(id) {
+      var own = bar(id) ? 180 : Math.max(size(id)[0], 150) + 50, sum = 0;
+      kids[id].forEach(function (k) { sum += slotOf(k); });
+      return (slot[id] = Math.max(own, sum));
+    }
+    function placeX(id, x0) {
+      var ks = kids[id];
+      if (!ks.length) { cx[id] = x0 + slot[id] / 2; return; }
+      var sum = 0; ks.forEach(function (k) { sum += slot[k]; });
+      var x = x0 + (slot[id] - sum) / 2;
+      ks.forEach(function (k) { placeX(k, x); x += slot[k]; });
+      cx[id] = (cx[ks[0]] + cx[ks[ks.length - 1]]) / 2;
+    }
+    var x0 = 30;
+    roots.forEach(function (r) { if (sat[r]) return; slotOf(r); placeX(r, x0); x0 += slot[r]; });
+    var satAt = {};
+    roots.forEach(function (r) {
+      if (!sat[r]) return;
+      var s = sat[r], chain = [], id = r; while (true) { chain.push(id); if (!kids[id].length) break; id = kids[id][0]; }
+      var shift = depth[s.into] - 1 - depth[s.leaf];
+      satAt[s.into] = (satAt[s.into] || 0) + 1;
+      chain.forEach(function (c) { depth[c] += shift; cx[c] = cx[s.into] + 200 * satAt[s.into]; x0 = Math.max(x0, cx[c] + 120); });
+      if (depth[r] < 0) { var up = -depth[r]; Object.keys(depth).forEach(function (k) { depth[k] += up; }); }
+    });
+    // rows: each as high as its tallest symbol, with room for the names under them
+    var rowH = [], rowTop = [];
+    Object.keys(depth).forEach(function (id) { var h = bar(id) ? 20 : size(id)[1]; rowH[depth[id]] = Math.max(rowH[depth[id]] || 0, h); });
+    var y = 30;
+    for (var d = 0; d < rowH.length; d++) { rowTop[d] = y; y += (rowH[d] || 0) + 110; }
+    Object.keys(depth).forEach(function (id) {
+      var it = by[id]; if (it.place) return;
+      var top = rowTop[depth[id]], rh = rowH[depth[id]];
+      if (bar(id)) {
+        var ks = kids[id], a = cx[ks[0]], b = cx[ks[ks.length - 1]], w = Math.max(140, b - a + 80);
+        it.place = { x: Math.round((a + b) / 2 - w / 2), y: Math.round(top + (rh - 12) / 2), w: Math.round(w), h: 12 };
+        return;
+      }
+      var s = size(id);
+      it.place = { x: Math.round(cx[id] - s[0] / 2), y: Math.round(top + (rh - s[1]) / 2) };
+    });
+    // the rest (control wires only, or none): a row at the bottom, centred under the drawing
+    var rest = ids.filter(function (id) { return depth[id] == null && !by[id].place; });
+    // in the order of what they are wired to (fewest crossings): the mean place of their neighbours above, twice over
+    var at = {};
+    for (var pass = 0; pass < 2; pass++) rest.forEach(function (id) {
+      var xs = cadj[id].map(function (o) { return cx[o] != null ? cx[o] : at[o]; }).filter(function (v) { return v != null; });
+      at[id] = xs.length ? xs.reduce(function (t, v) { return t + v; }, 0) / xs.length : null;
+    });
+    rest.sort(function (a, b) { return (at[a] == null ? 1e9 : at[a]) - (at[b] == null ? 1e9 : at[b]) || order[a] - order[b]; });
+    if (rest.length) {
+      var ws = rest.map(function (id) { var s = size(id); return Math.max(s[0], Math.min(320, 22 * cdeg[id])); });
+      var total = ws.reduce(function (t, w) { return t + w + 140; }, -140), x = Math.max(30, 30 + (x0 - 30) / 2 - total / 2);
+      rest.forEach(function (id, i) {
+        var s = size(id), w = ws[i];
+        by[id].place = w > s[0] ? { x: Math.round(x), y: y + 10, w: Math.round(w), h: s[1] } : { x: Math.round(x), y: y + 10 };
+        x += w + 140;
+      });
+    }
+  }
+  root.MPSchematic = { draw: draw, sizeOf: sizeOf, layout: layout };
 })(typeof window !== "undefined" ? window : this);

@@ -32,7 +32,7 @@ function guide(): WNode {
     "A building's chilled water plant as one map, as a typical schematic: cooling towers, condenser water pumps and the chillers' condensers " +
     "(condenser water, open circuit), the chillers' evaporators, chilled water pumps, air separator and expansion tank (chilled water, closed circuit), " +
     "the supply headers, risers and branches, the AHUs and FCU groups, and the return back to the pumps. Choose 2D view (above the map) to see it drawn " +
-    "as a schematic, or open the diagram branch for its columns: Condenser water | Chiller plant | Supply (CHWS) | Units | Return (CHWR).\n\n" +
+    "as a schematic; the map's columns run Condenser water | Chiller plant | Supply (CHWS) | Units | Return (CHWR).\n\n" +
     "What you type (special notes, or the boxes of a unit's, chiller's or pump's card): chillers \"Source: chiller\", \"Leaving: 6.7 °C\", \"Design flow: 30 l/s\", " +
     "\"Pressure drop\" (evaporator), \"Condenser flow\", \"Condenser pressure drop\", \"COP\"; cooling towers \"Source: cooling tower\", \"Leaving: 32 °C\", " +
     "\"Design flow\", \"Static lift\" (basin to nozzles) and \"Pressure drop\" (nozzles); units \"Flow\", \"Leaving\" (or \"Load\") and \"Pressure drop\" " +
@@ -135,5 +135,5 @@ function building(): { node: WNode; wires: Wire[] } {
 
 export function pipingSeed(_template: string): WiringSeed {
   const b = building();
-  return { guide: guide(), nodes: [b.node], wires: b.wires };
+  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: b.node.special || [], notes: b.node.notes || "" } };
 }

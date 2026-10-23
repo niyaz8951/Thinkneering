@@ -25,7 +25,9 @@ export const WIRING_NAMES: Record<string, string> = { electricity: "Electricity"
 
 export interface WNode { key: string; title: string; notes?: string; special?: string[]; kids?: WNode[] }
 export interface Wire { from: string; to: string; rel: string; from_t?: string; to_t?: string; cable?: string; signal?: string; len?: string; by?: "daikin" | "others" }
-export interface WiringSeed { guide: WNode; nodes: WNode[]; wires: Wire[] }
+/* root: what the template writes on the map's centre (the columns start straight from it, owner 23 Oct 2026: "the map to
+   directly start from the first node") */
+export interface WiringSeed { guide: WNode; nodes: WNode[]; wires: Wire[]; root?: { special: string[]; notes: string } }
 
 const COLS = "Layout: columns";
 const SITE = "By the electrical design";
@@ -34,7 +36,7 @@ const OCC = "Schedule: occupied";
 function guide(): WNode {
   return { key: "guide", title: "How this map works", notes:
     "The power supply of a building's HVAC equipment, as one map: from the utility supply and the standby generator, through the main switchboard, " +
-    "sub-main boards and distribution boards, right up to the chillers, AHUs and FCUs. Open the diagram branch: its columns run from left to right, " +
+    "sub-main boards and distribution boards, right up to the chillers, AHUs and FCUs. The columns run from left to right, " +
     "Supply | Main distribution | Sub-distribution | Final distribution | HVAC equipment | Controls.\n\n" +
     "Current flow: moving dots run along every power line that has supply, from the source to the load. A grey line and a faded branch have no supply. " +
     "Click a panel or a piece of equipment: its card says where its power comes from, and Isolate / Reconnect tries what happens downstream " +
@@ -52,7 +54,10 @@ function guide(): WNode {
     "the unit's panel, parts and wires come in under it, joined to its feeder and to the BMS. In this view the unit stays one line marked \"diagram ›\"; " +
     "click it to open its diagram, and the chips under it lead back to its board and the BMS.\n\n" +
     "This is a typical example, not the project's drawing: every branch is \"to verify\". Rename the boards and equipment as the project's single-line diagram, " +
-    "add or delete branches, and fill each wire's cable and terminals (Edit, then the wire's Change). Cable schedule (above the map) gives every wire as an Excel list.",
+    "add or delete branches, and fill each wire's cable and terminals (Edit, then the wire's Change). Cable schedule (above the map) gives every wire as an Excel list.\n\n" +
+    "2D view (above the map): the same map as a single-line diagram, sources at the top, each board a busbar over what it feeds, the BMS at the bottom. " +
+    "Click a symbol for its card; in Edit drag a symbol to place it (saved as its \"Place: x, y\" note). Show this branch alone (the arrows button on a chosen branch) " +
+    "draws only that part, in the map and in the 2D view.",
     kids: [] };
 }
 
@@ -111,7 +116,7 @@ function building(): { node: WNode; wires: Wire[] } {
 
 export function wiringSeed(_template: string): WiringSeed {
   const b = building();
-  return { guide: guide(), nodes: [b.node], wires: b.wires };
+  return { guide: guide(), nodes: b.node.kids || [], wires: b.wires, root: { special: b.node.special || [], notes: b.node.notes || "" } };
 }
 
 /* ---------- a product's own wiring diagram, under its equipment branch (owner, 23 Oct 2026: "can he add his
@@ -271,6 +276,8 @@ export function seedStatements(env: Env, mapId: string, rootId: string, seed: Wi
   };
   add(seed.guide, rootId, 0, mayVerify);
   seed.nodes.forEach((n, i) => add(n, rootId, i + 1, false));
+  if (seed.root) stmts.push(env.DB.prepare("UPDATE mp_nodes SET special = ?, notes = CASE WHEN notes = '' THEN ? ELSE notes || char(10) || char(10) || ? END WHERE id = ?")
+    .bind(JSON.stringify(seed.root.special), seed.root.notes, seed.root.notes, rootId));
   return stmts;
 }
 export function wiringStatements(env: Env, mapId: string, rootId: string, template: string, userId: string, at: string, mayVerify: boolean): D1PreparedStatement[] {

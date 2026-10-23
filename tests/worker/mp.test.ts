@@ -379,11 +379,13 @@ describe("mp_* routes", () => {
     const g = await ok("mp_get", { p_token: sbu, p_map_id: made.id });
     expect(g.map.kind).toBe("wiring");
     const by = (t: string) => g.nodes.filter((n: any) => n.title === t);
-    const tops = g.nodes.filter((n: any) => n.parent === g.nodes.find((x: any) => !x.parent).id).map((n: any) => n.title);
-    expect(tops).toEqual(["How this map works", "Power distribution to HVAC equipment"]);
-    expect(by("Power distribution to HVAC equipment")[0]).toMatchObject({ special: ["Layout: columns"], verified: false });
-    const cols = g.nodes.filter((n: any) => n.parent === by("Power distribution to HVAC equipment")[0].id).map((n: any) => n.title);
-    expect(cols).toEqual(["Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment", "Controls"]);
+    // the columns start straight from the map's centre (no branch in between): the centre is laid out in columns
+    const top = g.nodes.find((x: any) => !x.parent);
+    const tops = g.nodes.filter((n: any) => n.parent === top.id).map((n: any) => n.title);
+    expect(tops).toEqual(["How this map works", "Supply", "Main distribution", "Sub-distribution", "Final distribution", "HVAC equipment", "Controls"]);
+    expect(top.special).toEqual(["Layout: columns"]);
+    expect(top.notes).toMatch(/^Wiring: the electrical connections[\s\S]*\n\nExample: a mall/);
+    expect(by("Supply")[0].verified).toBe(false);
     // the BMS commands every chiller, AHU and FCU circuit; AHUs and FCU circuits follow the occupied schedule
     const bms = by("BMS")[0];
     expect(bms.special).toEqual(["Control: BMS"]);
@@ -438,6 +440,35 @@ describe("mp_* routes", () => {
     expect(saved.links[0]).toMatchObject({ rel: "w-power", from_t: "X1:1", to_t: "L1", cable: "4C x 6 mm²", by: "others" });
   });
 
+  it("0015: maps made before get their columns straight under the centre; the branch in between goes; run twice, nothing more changes", async () => {
+    const sbu = await login("sbu");
+    const add = async (parent: string, title: string) => (await ok("mp_node_add", { p_token: sbu, p_parent_id: parent, p_title: title })).node.id;
+    const old = async (name: string, kind: string, mid: string) => {
+      const m = await ok("mp_create", { p_token: sbu, p_name: name, p_kind: kind });
+      const root = (await ok("mp_get", { p_token: sbu, p_map_id: m.id })).nodes[0].id;
+      const guide = await add(root, "How this map works"), x = await add(root, mid), extra = await add(root, "My notes");
+      await ok("mp_node_save", { p_token: sbu, p_node_id: x, p_patch: { special: ["Layout: columns"], notes: "Example: a mall." } });
+      const a = await add(x, "Supply"), b = await add(x, "Units"), deep = await add(b, "AHU-01");
+      return { id: m.id, root, guide, x, extra, a, b, deep };
+    };
+    const w = await old("Old electricity", "wiring", "Power distribution to HVAC equipment"), p = await old("Old water", "piping", "Chilled water system");
+    const k = await old("Plain map", "knowledge", "Chilled water system");             // not a wiring or piping map: left alone
+    const run = async () => { const m = (env as any).TEST_MIGRATIONS.find((x: any) => x.name.startsWith("0015")); for (const q of m.queries) await env.DB.prepare(q).run(); };
+    await run(); await run();
+    for (const m of [w, p]) {
+      const g = await ok("mp_get", { p_token: sbu, p_map_id: m.id });
+      const root = g.nodes.find((n: any) => n.id === m.root);
+      expect(g.nodes.filter((n: any) => n.parent === m.root).map((n: any) => n.id)).toEqual([m.guide, m.a, m.b, m.extra]);
+      expect(root.special).toEqual(["Layout: columns"]);
+      expect(root.notes).toMatch(/\n\nExample: a mall\.$/);
+      expect(g.nodes.some((n: any) => n.id === m.x)).toBe(false);
+      expect(g.nodes.find((n: any) => n.id === m.deep).parent).toBe(m.b);
+    }
+    const g = await ok("mp_get", { p_token: sbu, p_map_id: k.id });
+    expect(g.nodes.find((n: any) => n.id === k.x).special).toEqual(["Layout: columns"]);
+    expect(g.nodes.find((n: any) => n.id === k.a).parent).toBe(k.x);
+  });
+
   it("piping maps: the Chilled water template (chillers to AHUs and FCUs and back), to verify, supply and return pipes with the inputs", async () => {
     const sbu = await login("sbu");
     const made = await ok("mp_create", { p_token: sbu, p_name: "Chilled water", p_kind: "piping", p_template: "chilled-water" });
@@ -446,10 +477,8 @@ describe("mp_* routes", () => {
     expect((await ok("mp_list", { p_token: sbu })).maps.find((m: any) => m.id === made.id).kind).toBe("piping");
     const by = (t: string) => g.nodes.filter((n: any) => n.title === t);
     const rootId = g.nodes.find((x: any) => !x.parent).id;
-    expect(g.nodes.filter((n: any) => n.parent === rootId).map((n: any) => n.title)).toEqual(["How this map works", "Chilled water system"]);
-    const sys = by("Chilled water system")[0];
-    expect(sys).toMatchObject({ special: ["Layout: columns"], verified: false });
-    expect(g.nodes.filter((n: any) => n.parent === sys.id).map((n: any) => n.title)).toEqual(["Condenser water", "Chiller plant", "Supply (CHWS)", "Units", "Return (CHWR)"]);
+    expect(g.nodes.filter((n: any) => n.parent === rootId).map((n: any) => n.title)).toEqual(["How this map works", "Condenser water", "Chiller plant", "Supply (CHWS)", "Units", "Return (CHWR)"]);
+    expect(g.nodes.find((x: any) => x.id === rootId).special).toEqual(["Layout: columns"]);
     expect(g.nodes.filter((n: any) => n.parent !== rootId && n.parent).every((n: any) => n.verified === false)).toBe(true);
     // the inputs the map reads
     expect(by("Chiller CH-1")[0].special).toEqual(["Source: chiller", "Leaving: 6.7 °C", "Design flow: 30 l/s", "Pressure drop: 55 kPa", "Condenser flow: 38 l/s", "Condenser pressure drop: 55 kPa", "COP: 5.5", expect.stringMatching(/^Place: \d+, \d+$/)]);
