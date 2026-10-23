@@ -641,6 +641,92 @@
     lastSx = res;
     schematicFrame(res);
   }
+  // ---------- add equipment from what feeds it (Flow and 2D views, map editors; owner, 23 Oct 2026: the Flow replaces
+  // the Tree on water and electrical maps, so equipment is added where it is fed) ----------
+  // The new branch goes under the board, riser or branch pipe that feeds it (the feed tree), made like the last one there:
+  // its special notes (but its place), its feeder or supply pipe and return pipe of the same size, its control wires (BMS,
+  // fire alarm). All its links are kept on the new branch (a board or riser may hold 12 already).
+  function nextName(t) {
+    var m = /^(.*?)(\d{2,})(.*)$/.exec(t || ""); if (!m) return "";
+    var v = String(+m[2] + 1); while (v.length < m[2].length) v = "0" + v;
+    return m[1] + v + m[3];
+  }
+  function linksBetween(a, b) {
+    var out = [];
+    (N(a).links || []).forEach(function (l) { if (l.kind === "node" && l.node === b) out.push(l); });
+    (N(b).links || []).forEach(function (l) { if (l.kind === "node" && l.node === a) out.push(l); });
+    return out;
+  }
+  function feedForm(n, pw) {
+    if (!canEdit() || st.note || (st.view !== "flow" && st.view !== "schematic")) return null;
+    var water = isWater(), c = null;
+    if (water) { c = circuitsOf(n.id).filter(function (r) { return r.side[n.id] === "supply" && !r.isPump[n.id]; })[0]; if (!c) return null; }
+    else if (!(pw && pw.part[n.id] && !noteVal(n, "source") && ((pw.kids[n.id] || []).length || pw.max[n.id] != null || /panel|breaker/.test(signOf(n))))) return null;
+    var like = null;
+    n.kids.slice().reverse().some(function (k) { var ok = water ? c.isUnit[k] : pw.part[k] && pw.from[k] === n.id; if (ok) like = N(k); return ok; });
+    var fu = lastWater ? lastWater.unit.flow : "lps", fw = water ? W().FLOW_WORD[fu] : "", tu = lastWater && lastWater.unit.temp === "F" ? "°F" : "°C";
+    var name = el("input", { "class": "input", type: "text", maxlength: "120", autocomplete: "off", "aria-label": "Name", placeholder: water ? "e.g. AHU-05, Level 3" : "e.g. AHU-05, Level 3", value: like ? nextName(like.title) : "" });
+    var f1 = el("input", { "class": "input", type: "text", inputmode: "decimal", autocomplete: "off", "aria-label": water ? "Flow" : "Power" });
+    var f2 = water ? el("input", { "class": "input", type: "text", inputmode: "decimal", autocomplete: "off", "aria-label": "Leaving" }) : null;
+    if (like) {
+      if (water) { var lf = c.input.flow[like.id], ll = c.input.leaving[like.id]; if (lf != null) f1.value = String(+W().toUnit(lf, fu).toFixed(2)); if (ll != null) f2.value = String(+(tu === "°F" ? ll * 1.8 + 32 : ll).toFixed(1)); }
+      else if (pw.power[like.id] != null) f1.value = String(+pw.power[like.id].toFixed(2));
+    }
+    // water: the return it joins (that of the last unit here, else a choice of the return branches)
+    var retSel = null, retOf = null, retRel = c ? c.C.ret : null;
+    if (water) {
+      if (like) Object.keys(c.part).some(function (id) { var x = linksBetween(like.id, id).filter(function (l) { return l.rel === retRel; })[0]; if (x) retOf = id; return !!x; });
+      if (!retOf) {
+        var rets = Object.keys(c.part).filter(function (id) { return c.side[id] === "return" && !c.isPump[id]; });
+        if (!rets.length) return null;
+        retSel = el("select", { "class": "input", "aria-label": "Return to" }, rets.map(function (id) { return el("option", { value: id, text: N(id).title }); }));
+      }
+    }
+    var err = el("p", { "class": "mp-err", role: "alert" });
+    var add = el("button", { type: "button", "class": "btn sm", text: "Add", onclick: function () {
+      err.textContent = "";
+      var title = name.value.replace(/\s+/g, " ").trim(), v1 = parseFloat(f1.value.replace(",", ".")), v2 = f2 ? parseFloat(f2.value.replace(",", ".")) : NaN;
+      if (!title) { err.textContent = "Give it a name."; name.focus(); return; }
+      if (N(n.id).kids.some(function (k) { return N(k).title.toLowerCase() === title.toLowerCase(); })) { err.textContent = "There is one with that name here already."; return; }
+      if (f1.value.trim() && !(v1 > 0)) { err.textContent = (water ? "Flow" : "Power") + ": a number above zero."; return; }
+      if (f2 && f2.value.trim() && isNaN(v2)) { err.textContent = "Leaving: a temperature, for example 13."; return; }
+      var special = like ? like.special.filter(function (x) { return !/^\s*(place|icon)\s*:/i.test(x); }) : [];
+      if (water) {
+        if (f1.value.trim()) special = withNote(special, "Flow", +v1.toFixed(3) + " " + fw);
+        if (f2 && f2.value.trim()) special = withNote(withNote(special, "Load", ""), "Leaving", +v2.toFixed(2) + " " + tu);
+      } else if (f1.value.trim()) special = withNote(special, "Power", +v1.toFixed(3) + " kW");
+      var links = [], copy = function (l, other) { var x = { kind: "node", node: other, rel: l.rel }; ["from_t", "to_t", "cable", "signal", "len", "by"].forEach(function (k) { if (l[k] && k !== "from_t" && k !== "to_t") x[k] = l[k]; }); return x; };
+      if (water) {
+        var sp = like ? linksBetween(like.id, n.id).filter(function (l) { return l.rel === c.C.sup; })[0] : null;
+        links.push(sp ? copy(sp, n.id) : { kind: "node", node: n.id, rel: c.C.sup, signal: c.C.id === "cw" ? "CWS" : "CHWS", by: "others" });
+        var ret = retOf || retSel.value, rp = like && retOf ? linksBetween(like.id, retOf).filter(function (l) { return l.rel === retRel; })[0] : null;
+        links.push(rp ? copy(rp, ret) : { kind: "node", node: ret, rel: retRel, signal: c.C.id === "cw" ? "CWR" : "CHWR", by: "others" });
+      } else {
+        var fp2 = like ? linksBetween(like.id, n.id).filter(function (l) { return l.rel === "w-power"; })[0] : null;
+        links.push(fp2 ? copy(fp2, n.id) : { kind: "node", node: n.id, rel: "w-power", by: "others" });
+        if (like) Object.keys(M.nodes).forEach(function (id) {
+          if (id === like.id || id === n.id) return;
+          linksBetween(like.id, id).forEach(function (l) { if (CTL_KINDS.indexOf(l.rel) >= 0 && links.length < 12) links.push(copy(l, id)); });
+        });
+      }
+      add.disabled = true;
+      settled().then(function () { return Api.mpNodeAdd(T, n.id, title); }).then(function (r) {
+        return Api.mpNodeSave(T, r.node.id, { special: special, links: links }).then(function () { return r.node; });
+      }).then(function (made) {
+        return reload(function () { st.sel = made.id; st.peek = made.id; }).then(function () {
+          Hub.toast(title + " added, fed from " + n.title + (like ? ", like " + like.title : "") + ". To verify." + (water && isWater() && st.view === "schematic" ? " Drag it to its place in Edit." : ""));
+        });
+      }, function (e2) { add.disabled = false; err.textContent = e2.message; });
+    } });
+    var inputs = [el("label", { "class": "field mp-wfield" }, [el("span", { text: "Name" }), name]),
+      el("label", { "class": "field mp-wfield" }, [el("span", { text: water ? "Flow (" + fw + ")" : "Power (kW)" }), f1])];
+    if (f2) inputs.push(el("label", { "class": "field mp-wfield" }, [el("span", { text: "Leaving (" + tu + ")" }), f2]));
+    if (retSel) inputs.push(el("label", { "class": "field mp-wfield" }, [el("span", { text: "Returns to" }), retSel]));
+    [name, f1, f2].forEach(function (i) { if (i) i.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); add.click(); } }); });
+    return el("div", { "class": "mp-power mp-feed" }, [
+      el("p", { text: (water ? "Add a unit fed from here" : "Add equipment fed from here") + (like ? ": made like " + like.title + (water ? " (same pipes, returning to " + (retOf ? N(retOf).title : "") + ")" : " (same feeder, its BMS and fire alarm wires)") + "." : ".") }),
+      el("div", { "class": "mp-wform" }, inputs.concat([add])), err]);
+  }
   // ---------- the Flow view of a water or electrical map (owner, 23 Oct 2026: "imagine you are a drop of water or an
   // electron: every place you stop on the way should be in the map, always going forward; an incredible way to close a
   // loop"; mp-flow.js lays it out). The equipment the 2D view draws, as the map's branches, in the order the water or
@@ -832,8 +918,25 @@
       var b2 = el("button", { type: "button", "class": "mp-xl x-" + c.rel, text: c.text, title: c.text, onclick: function () { flush(); st.sel = c.go; st.peek = null; renderView(); } });
       b2.style.left = c.x + "px"; b2.style.top = (c.y - 10 + (i % 2 ? 14 : -14)) + "px"; stage.appendChild(b2);
     });
-    svg.setAttribute("width", W2); svg.setAttribute("height", H2);
     var box = {}; Object.keys(L.pos).forEach(function (id) { box[id] = L.pos[id]; });
+    // not connected yet: equipment under the centre on no pipe or wire (a branch just added), so nothing goes missing
+    var loose = [];
+    each(st.focus, function (n) { if (n.id !== st.focus && !n.kids.length && !L.pos[n.id] && !els[n.id] && (signOf(n) || !n.notes)) loose.push(n); });
+    if (loose.length) {
+      var ty0 = H2 + 20;
+      var tl = el("div", { "class": "mp-lane loose" }, [el("b", { text: "Not connected yet" }), document.createTextNode(" · " + (isWater() ? "give each its supply and return pipes" : "give each its Power wire") + " (its note: Add link > Another branch), or add equipment from the card of what feeds it")]);
+      tl.style.left = "30px"; tl.style.top = ty0 + "px"; stage.appendChild(tl);
+      var tx = 30, ty = ty0 + 30, rowH = 0, maxW = Math.max(W2 - 60, 900);
+      loose.forEach(function (n) {
+        var e = nodeEl(n, "mp-n mp-fn mp-loose" + (n.id === st.sel ? " mp-sel" : "")); stage.appendChild(e);
+        var w = e.offsetWidth, h = e.offsetHeight;
+        if (tx + w > maxW && tx > 30) { tx = 30; ty += rowH + 16; rowH = 0; }
+        e.style.left = tx + "px"; e.style.top = ty + "px"; box[n.id] = { x: tx, y: ty, w: w, h: h };
+        tx += w + 40; rowH = Math.max(rowH, h); W2 = Math.max(W2, tx + 20);
+      });
+      H2 = ty + rowH + 30;
+    }
+    svg.setAttribute("width", W2); svg.setAttribute("height", H2);
     lastFlow = { L: L, fp: fp, up: up, down: down, mirAt: mirAt };
     if (sel) journey(sel);
     schematicFrame({ w: W2, h: H2, box: box }, true);
@@ -1051,7 +1154,7 @@
     if (wired) return; wired = true;
     var v = store("localStorage", userKey("view"));
     // (a water or electrical map opens on its Flow; its own choice is kept apart from the other maps')
-    if (isNet()) { var vn = store("localStorage", userKey("view-net")); st.view = vn === "map" || vn === "outline" || vn === "schematic" || vn === "flow" ? vn : "flow"; }
+    if (isNet()) { var vn = store("localStorage", userKey("view-net")); st.view = vn === "outline" || vn === "schematic" ? vn : "flow"; }
     else st.view = v === "map" || v === "outline" ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
@@ -1537,6 +1640,10 @@
   function legend(xi) {
     var box = $("mpLegend"); box.textContent = ""; box.hidden = !xi;
     // a wiring or piping map: the signs used on it, with their names (a schematic's legend)
+    if (isNet() && st.view === "flow") {
+      var guideId = (N(M.root).kids || []).filter(function (k) { return /how this map works/i.test(N(k).title); })[0];
+      if (guideId) { box.appendChild(el("button", { type: "button", "class": "mp-guidebtn", text: "How this map works", onclick: function () { openNote(guideId); } })); box.hidden = false; }
+    }
     if (isNet() && st.view !== "outline" && window.MPSigns) {
       var seenS = {}, signs = [];
       each(st.focus, function (n) { var id = n.id === st.focus ? "" : signOf(n); if (id && !seenS[id]) { seenS[id] = 1; signs.push(id); } });
@@ -1610,6 +1717,7 @@
           onclick: function () { st.iso[n.id] = !open; peekEl = null; renderView(); } })]));
     }
     if (pw && pw.part[n.id]) box.appendChild(powerCard(n, pw));
+    var ff = feedForm(n, pw); if (ff) box.appendChild(ff);
     // a unit the BMS commands: its state and Start / Stop
     if (pw && pw.cmd && pw.cmd[n.id]) {
       var stt = pw.state[n.id] || "running", stopped = st.cmd[n.id] === false, master = pw.follow[n.id] ? N(pw.follow[n.id]).title : "";
@@ -1916,12 +2024,13 @@
     lastPower = isWiring() ? power() : null;
     renderCrumbs(); renderPills();
     if ((st.view === "schematic" || st.view === "flow") && !isNet()) st.view = "map";
+    if (st.view === "map" && isNet()) st.view = "flow";
     var map = st.view === "map", canv = st.view !== "outline";
     $("mpCanvas").hidden = !canv; $("mpOutline").hidden = canv; $("mpTools").hidden = !canv;
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", st.view === "outline" ? "true" : "false");
     $("mpView2d").hidden = !isNet(); $("mpView2d").setAttribute("aria-selected", st.view === "schematic" ? "true" : "false");
     $("mpViewFlow").hidden = !isNet(); $("mpViewFlow").setAttribute("aria-selected", st.view === "flow" ? "true" : "false");
-    $("mpViewMap").textContent = isNet() ? "Tree" : "Map";
+    $("mpViewMap").hidden = isNet();                    // water and electrical maps: Flow | Outline | 2D view (the Outline keeps the tree)
     if (st.view !== "flow") { $("mpJourney").hidden = true; $("mpJourney").textContent = ""; }
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
     $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
