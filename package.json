@@ -11,7 +11,7 @@
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "seed:local": "node scripts/dev-seed.mjs --fresh",
-    "test": "vitest run && node scripts/rows-parity.mjs && node scripts/ds-parse-check.mjs && node scripts/mp-water-check.mjs && node scripts/mp-signs-check.mjs && node scripts/mp-sld-check.mjs && node scripts/mp-power-check.mjs",
+    "test": "vitest run && node scripts/rows-parity.mjs && node scripts/ds-parse-check.mjs && node scripts/mp-water-check.mjs && node scripts/mp-signs-check.mjs && node scripts/mp-sld-check.mjs && node scripts/mp-power-check.mjs && node scripts/mp-flow-check.mjs",
     "test:parity": "node scripts/rows-parity.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

@@ -38,6 +38,7 @@
     <div class="card mp-bar">
       <input class="input" type="search" id="mpQ" placeholder="Search this map" autocomplete="off" aria-label="Search this map">
       <div class="tabs" role="tablist" aria-label="View">
+        <button class="tab" type="button" role="tab" id="mpViewFlow" aria-selected="false" hidden title="The way the water or the current goes, step by step, always forward; each loop closes back at its source">Flow</button>
         <button class="tab" type="button" role="tab" id="mpViewMap" aria-selected="true">Map</button>
         <button class="tab" type="button" role="tab" id="mpViewOut" aria-selected="false">Outline</button>
         <button class="tab" type="button" role="tab" id="mpView2d" aria-selected="false" hidden title="The map drawn as a schematic: pipes and equipment, or a single-line diagram of the wiring">2D view</button>
@@ -59,6 +60,7 @@
     <div id="mpMapState" class="empty" hidden></div>
     <div class="mp-work" id="mpWork">
       <div class="mp-legend" id="mpLegend" hidden aria-label="What the lines mean"></div>
+      <div class="mp-journey" id="mpJourney" hidden aria-live="polite"></div>
       <div class="mp-board" id="mpBoard">
         <div class="mp-canvas" id="mpCanvas"><div class="mp-sizer" id="mpSizer"><div class="mp-stage" id="mpStage" role="tree" aria-label="Map"></div></div></div>
         <div class="mp-outline" id="mpOutline" hidden></div>
@@ -83,6 +85,7 @@
 <script src="mp-power.js"></script>
 <script src="mp-water.js"></script>
 <script src="mp-schematic.js"></script>
+<script src="mp-flow.js"></script>
 <script src="maps.js"></script>
 </body>
 </html>

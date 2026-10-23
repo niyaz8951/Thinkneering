@@ -641,7 +641,271 @@
     lastSx = res;
     schematicFrame(res);
   }
-  function schematicFrame(res) {
+  // ---------- the Flow view of a water or electrical map (owner, 23 Oct 2026: "imagine you are a drop of water or an
+  // electron: every place you stop on the way should be in the map, always going forward; an incredible way to close a
+  // loop"; mp-flow.js lays it out). The equipment the 2D view draws, as the map's branches, in the order the water or
+  // the current reaches them: each line as thick as what it carries, water coloured by its temperature (cold supply to
+  // warm return), each loop closing round its lane back into its source, with what the source does to the water on it.
+  // Click a branch: its whole way lights up and the strip above follows one drop (or the current) stop by stop.
+  // Nothing here moves or changes the 2D view: it reads the same pipes, wires and figures and saves nothing.
+  var lastFlow = null;
+  function flowParts() {
+    var nodes = [], edges = [];
+    if (isWiring()) {
+      var wp = wiringParts(), inPower = {};
+      wp.pipes.forEach(function (p) { if (!p.minor) inPower[p.a] = inPower[p.b] = 1; });
+      wp.items.forEach(function (it) { nodes.push({ id: it.id, lane: inPower[it.id] ? "power" : "controls", source: noteVal(N(it.id), "source") ? { power: true } : null, outside: it.outside }); });
+      wp.pipes.forEach(function (p) {
+        var back = p.q < 0;
+        edges.push({ a: back ? p.b : p.a, b: back ? p.a : p.b, minor: p.minor, circuit: "power", p: p, pulse: back ? -p.pulse : p.pulse });
+      });
+      return { nodes: nodes, edges: edges, lanes: ["power", "controls"], pw: wp.pw };
+    }
+    var w = lastWater; if (!w) return null;
+    var inFocus = {}, drawn = {}, outside = {};
+    each(st.focus, function (n) { if (n.id !== st.focus || st.focus !== M.root) inFocus[n.id] = 1; });
+    Object.keys(w.part).forEach(function (id) { if (N(id) && inFocus[id]) drawn[id] = 1; });
+    var seenPipe = {};
+    Object.keys(M.nodes).forEach(function (id) {
+      (N(id).links || []).forEach(function (l) {
+        var rel = relOf(l); if (l.kind !== "node" || !rel.pipe || !N(l.node) || (!drawn[id] && !drawn[l.node])) return;
+        var key = [id, l.node].sort().join("|") + rel.id; if (seenPipe[key]) return; seenPipe[key] = 1;
+        [id, l.node].forEach(function (x) { if (!drawn[x]) outside[x] = 1; });
+        var fw = w.dir[id + ">" + l.node], bw = w.dir[l.node + ">" + id], a = bw && !fw ? l.node : id, b = a === id ? l.node : id;
+        edges.push({ a: a, b: b, circuit: /^p-cw-/.test(rel.id) ? "cw" : "chw", rel: rel, l: l, q: fw || bw || 0, owner: id });
+      });
+    });
+    var chw = w.circuits.chw, cw = w.circuits.cw;
+    Object.keys(drawn).concat(Object.keys(outside)).forEach(function (id) {
+      var src = chw && chw.isSrc[id] ? { chw: true } : cw && cw.isSrc[id] ? { cw: true } : null;
+      nodes.push({ id: id, source: src, outside: !!outside[id], lane: src ? Object.keys(src)[0] : chw && chw.part[id] ? "chw" : "cw" });
+    });
+    return { nodes: nodes, edges: edges, lanes: ["cw", "chw"] };
+  }
+  // the time a drop takes along one pipe: its water volume over the flow (pipe bore and length; nothing for coils)
+  function pipeSeconds(l, q) {
+    var d = W().dnOf(l && l.cable), len = W().lengthOf(l && l.len);
+    if (!d || !d.d || len == null || !(q > 0)) return null;
+    return Math.PI * d.d * d.d / 4 * len / (q / 1000);
+  }
+  function fmtTime(sec) { if (sec == null) return ""; if (sec < 60) return Math.round(sec) + " s"; var m = Math.floor(sec / 60), r = Math.round(sec - m * 60); return m + " min" + (r ? " " + r + " s" : ""); }
+  function renderFlow() {
+    var stage = $("mpStage"), fp = flowParts(), svg = svgEl("svg", { "class": "mp-fsvg" });
+    stage.textContent = ""; stage.classList.toggle("mp-pipes", isWater()); stage.appendChild(svg);
+    var journeyBox = $("mpJourney"); journeyBox.textContent = ""; journeyBox.hidden = true;
+    if (!fp || !fp.nodes.length) {
+      stage.appendChild(el("p", { "class": "mp-fempty", text: isWater() ? "Nothing flows here yet: join the equipment with pipes (a branch's note, Add link > Another branch)." : "Nothing is wired here yet: join the equipment with Power wires (a branch's note, Add link > Another branch)." }));
+      lastFlow = null; return schematicFrame({ w: 640, h: 160, box: {} }, true);
+    }
+    var pw = fp.pw || null, els = {};
+    fp.nodes.forEach(function (x) {
+      var n = N(x.id), e = nodeEl(n, "mp-n mp-fn" + (x.outside ? " mp-fout" : ""));
+      if (pw) {
+        if (pw.part[x.id] && pw.known && !pw.on[x.id]) e.classList.add("mp-dead");
+        if (pw.shed[x.id]) e.classList.add("mp-shed");
+        if (pw.sheds[x.id] || pw.over.indexOf(x.id) >= 0) e.classList.add("mp-over");
+        if (pw.cmd[x.id] && pw.state[x.id]) e.classList.add(pw.state[x.id] === "running" ? "mp-run" : "mp-stop");
+      } else if (lastWater) {
+        if (!anyFlow(x.id) && !isTank(x.id)) e.classList.add("mp-dead");
+        if (circuitsOf(x.id).some(function (r) { return (r.source[x.id] && r.source[x.id].atCap) || r.limitAt[x.id]; })) e.classList.add("mp-over");
+      }
+      if (x.id === st.sel) e.classList.add("mp-sel");
+      stage.appendChild(e); els[x.id] = e;
+    });
+    fp.nodes.forEach(function (x) { x.w = els[x.id].offsetWidth; x.h = els[x.id].offsetHeight; });
+    var L = window.MPFlow.layout(fp.nodes, fp.edges, fp.lanes, [150, 30]);
+    // room for the loops: those of the first lane run above it (with two lanes), the others below theirs
+    var side = function (lane) { return L.lanes.length > 1 && L.lanes[0].id === lane ? "top" : "bottom"; };
+    var count = {}; L.mirrors.forEach(function (m) { var k = m.lane + side(m.lane); count[k] = (count[k] || 0) + 1; });
+    var shift = 34 + (L.lanes.length > 1 && count[L.lanes[0].id + "top"] ? 26 + count[L.lanes[0].id + "top"] * 26 : 0);
+    var mirAt = {};
+    Object.keys(L.pos).forEach(function (id) { L.pos[id].y += shift; L.pos[id].x += 30; });
+    L.mirrors.forEach(function (m) { m.y += shift; m.x += 30; mirAt[m.id] = m; });
+    L.lanes.forEach(function (b) { b.y += shift; });
+    var W2 = L.w + 110, H2 = L.h + shift;
+    Object.keys(els).forEach(function (id) { var p = L.pos[id]; if (!p) { els[id].remove(); delete els[id]; return; } els[id].style.left = p.x + "px"; els[id].style.top = p.y + "px"; });
+    // what each line carries, for its width; water's temperatures for its colour
+    var qMax = 1e-9, tRange = {};
+    fp.edges.forEach(function (e) {
+      if (pw) { if (!e.minor) qMax = Math.max(qMax, pw.dem[e.b] || 0); return; }
+      qMax = Math.max(qMax, e.q || 0);
+      var t = lastWater.tEdge[e.a + ">" + e.b]; if (t == null) return;
+      var r = tRange[e.circuit] = tRange[e.circuit] || { lo: t, hi: t }; r.lo = Math.min(r.lo, t); r.hi = Math.max(r.hi, t);
+    });
+    function weight(e) { return pw ? (e.minor ? 0 : pw.dem[e.b] || 0) : e.q || 0; }
+    var sel = st.sel && (L.pos[st.sel]) ? st.sel : null, down = {}, up = {};
+    L.edges.forEach(function (le) { if (le.minor) return; var t = le.to || le.b; (down[le.a] = down[le.a] || []).push({ to: t, e: le }); (up[t] = up[t] || []).push({ from: le.a, e: le }); });
+    // the way of the chosen branch: everything that reaches it, everything it reaches (to the loop's end)
+    var lit = null;
+    if (sel) {
+      // (water: within the circuit the chosen branch belongs to; a chiller lights its chilled water, a cooling tower its condenser water)
+      var cc = null;
+      if (!pw) { var cs0 = circuitsOf(sel), s0 = cs0.filter(function (r) { return r.isSrc[sel]; })[0]; cc = s0 ? s0.C.id : cs0.length === 1 ? cs0[0].C.id : null; }
+      var okE = function (x) { return !cc || !x.e.src || x.e.src.circuit === cc; };
+      lit = {}; lit[sel] = 1;
+      var q1 = [sel, sel + "~loop"]; lit[sel + "~loop"] = !!mirAt[sel + "~loop"];
+      while (q1.length) { var a1 = q1.shift(); (up[a1] || []).forEach(function (x) { if (okE(x) && !lit[x.from]) { lit[x.from] = 1; q1.push(x.from); } }); }
+      var q2 = [sel];
+      while (q2.length) { var a2 = q2.shift(); (down[a2] || []).forEach(function (x) { if (okE(x) && !lit[x.to]) { lit[x.to] = 1; if (!mirAt[x.to]) q2.push(x.to); } }); }
+      Object.keys(els).forEach(function (id) { if (!lit[id]) els[id].classList.add("mp-fdim"); });
+    }
+    var layer = { pipes: svgEl("g", {}), dots: svgEl("g", {}), ctl: svgEl("g", {}) };
+    svg.appendChild(layer.ctl); svg.appendChild(layer.pipes); svg.appendChild(layer.dots);
+    var chips = [];
+    L.edges.forEach(function (le) {
+      var e = le.src, A = L.pos[le.a], B = le.to ? mirAt[le.to] : L.pos[le.b];
+      if (!A || !B || !e) return;
+      var mine = sel && (le.a === sel || le.b === sel);
+      if (le.minor) {                                   // a control line: from below, only for the chosen branch or with Wires: all
+        if (!mine) return;
+        var cx1 = A.x + A.w / 2, cy1 = A.y, cx2 = B.x + B.w / 2, cy2 = B.y + B.h;
+        if (A.y < B.y) { cx1 = A.x + A.w / 2; cy1 = A.y + A.h; cx2 = B.x + B.w / 2; cy2 = B.y; }
+        var dm = "M" + cx1 + " " + cy1 + "C" + cx1 + " " + (cy1 + cy2) / 2 + "," + cx2 + " " + (cy1 + cy2) / 2 + "," + cx2 + " " + cy2;
+        var pc = svgEl("path", { d: dm, "class": "fx ctl x-" + e.p.rel + (lit && !mine ? " fdim" : "") }); layer.ctl.appendChild(pc);
+        if (e.pulse && st.flow) layer.dots.appendChild(svgEl("path", { d: dm, "class": "mpx-pulse" + (e.pulse < 0 ? " rev" : "") }));
+        return;
+      }
+      var x1 = A.x + A.w, y1 = A.y + A.h / 2, x2 = B.x, y2 = B.y + B.h / 2, dx = Math.max(30, (x2 - x1) / 2);
+      var d = "M" + x1 + " " + y1 + "C" + (x1 + dx) + " " + y1 + "," + (x2 - dx) + " " + y2 + "," + x2 + " " + y2;
+      var wgt = weight(e), on = lit ? (lit[le.a] && lit[le.to || le.b]) : true;
+      var cls = "fx", style = "";
+      if (pw) {
+        cls += " pow" + (e.p.shed ? " shed" : e.p.q || e.p.live ? "" : " off");
+      } else {
+        cls += e.rel.id === "p-return" || e.rel.id === "p-cw-return" ? " ret" : "";
+        if (!e.q) cls += " off";
+        else {
+          var lim = waterLimit(e.a, e.b); if (lim === "lim") cls += " lim";
+          var t = lastWater.tEdge[e.a + ">" + e.b], r = tRange[e.circuit];
+          if (t != null && r && lim !== "lim") {
+            var pct = r.hi - r.lo > 0.05 ? Math.round((t - r.lo) / (r.hi - r.lo) * 100) : 0;
+            style = "stroke: color-mix(in srgb, " + (e.circuit === "cw" ? "var(--danger) " + pct + "%, var(--warn)" : "var(--brand-sky) " + pct + "%, var(--brand)") + ");";
+          }
+        }
+      }
+      var sw = (wgt > 0 ? 2 + 7 * Math.min(1, wgt / qMax) : 1.6).toFixed(1);
+      var path = svgEl("path", { d: d, "class": cls + (lit && !on ? " fdim" : ""), style: style + "stroke-width:" + sw + "px" });
+      layer.pipes.appendChild(path);
+      var flowing = pw ? !!e.p.q : !!e.q;
+      if (flowing && st.flow) {
+        var dots = svgEl("path", { d: d, "class": "mpx-flow" + (lit && !on ? " fdim" : "") });
+        dots.style.animationDuration = pw ? "0.9s" : (1.9 - 1.3 * Math.min(1, wgt / qMax)).toFixed(2) + "s";
+        layer.dots.appendChild(dots);
+      }
+      if (mine && st.xlinks !== "off") {                // the words of the chosen branch's lines, half way
+        var txt = pw ? (e.p.title || e.p.label) : wireText(e.l, e.rel, e.owner);
+        chips.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2, text: txt, rel: pw ? e.p.rel : e.rel.id, go: e.a === sel ? (le.to ? le.to.replace(/~loop$/, "") : le.b) : le.a });
+      }
+    });
+    // the loops close: out of the mirror, round the lane, back into the source
+    var k0 = {};
+    L.mirrors.forEach(function (m) {
+      var S = L.pos[m.of]; if (!S) return;
+      var lb = L.lanes.filter(function (b) { return b.id === m.lane; })[0], sd = side(m.lane), key = m.lane + sd, k = k0[key] = (k0[key] || 0) + 1;
+      var yr = sd === "bottom" ? lb.y + lb.h + 6 + k * 26 : lb.y - 6 - k * 26;
+      var xr = m.x + m.w + 10 + k * 8, xl = S.x - 10 - k * 8, ym = m.y + m.h / 2, ys = S.y + S.h / 2;
+      var d = "M" + (m.x + m.w) + " " + ym + "H" + xr + "V" + yr + "H" + xl + "V" + ys + "H" + S.x;
+      var src = circuitsOf(m.of).filter(function (r) { return r.source[m.of]; })[0], x = src ? src.source[m.of] : null, on2 = lit ? lit[m.of] && lit[m.id] : true;
+      var cls2 = "fx loop " + (src && src.C.id === "cw" ? "cw" : pw ? "pow" : "chw") + (x && x.q > 0 ? "" : " off") + (lit && !on2 ? " fdim" : "");
+      svg.appendChild(svgEl("path", { d: d, "class": cls2 }));
+      if (x && x.q > 0 && st.flow) { var dd = svgEl("path", { d: d, "class": "mpx-flow slow" + (lit && !on2 ? " fdim" : "") }); svg.appendChild(dd); }
+      var words = "↺ back into " + N(m.of).title + (x && x.q > 0 && x.back != null && x.out != null ? ": " + (src.C.id === "cw" ? "cooled " : "chilled ") + wRange(x.back, x.out) + (x.kw != null ? " · " + kwShort(x.kw) : "") + (x.atCap ? " · at capacity" : "") : x && !(x.q > 0) ? " (stopped)" : "");
+      var lab = el("button", { type: "button", "class": "mp-xl mp-looplab" + (x && x.atCap ? " warn" : "") + (lit && !on2 ? " mp-fdim" : ""), text: words, title: "The loop closes here: the water goes back into " + N(m.of).title + " and round again",
+        onclick: function () { flush(); st.sel = m.of; st.peek = m.of; renderView(); } });
+      stage.appendChild(lab);
+      lab.style.left = Math.max(xl + 10, (xl + xr) / 2 - lab.offsetWidth / 2) + "px"; lab.style.top = (yr - 11) + "px";
+      W2 = Math.max(W2, xr + 30); H2 = Math.max(H2, yr + 40);
+      // the mirror: where the loop ends, the same branch as where it starts
+      var me = el("div", { "class": "mp-mirror" + (lit && !on2 ? " mp-fdim" : "") + (src && src.C.id === "cw" ? " cw" : ""), "data-node": m.of, title: "Back into " + N(m.of).title + ": the loop closes" }, [el("span", { text: "↺ " + N(m.of).title })]);
+      me.style.left = m.x + "px"; me.style.top = m.y + "px"; me.style.width = m.w + "px";
+      stage.appendChild(me);
+    });
+    // the lanes: what runs in them, all of it at once
+    L.lanes.forEach(function (b) {
+      var sd = side(b.id), n2 = count[b.id + sd] || 0, ty = sd === "top" && n2 ? b.y - 34 - n2 * 26 : b.y - 30;
+      var t = laneWords(b.id, fp);
+      var le2 = el("div", { "class": "mp-lane " + b.id }, [el("b", { text: t[0] }), t[1] ? document.createTextNode(" · " + t[1]) : null]);
+      le2.style.left = "30px"; le2.style.top = Math.max(2, ty) + "px";
+      stage.appendChild(le2);
+    });
+    chips.forEach(function (c, i) {
+      var b2 = el("button", { type: "button", "class": "mp-xl x-" + c.rel, text: c.text, title: c.text, onclick: function () { flush(); st.sel = c.go; st.peek = null; renderView(); } });
+      b2.style.left = c.x + "px"; b2.style.top = (c.y - 10 + (i % 2 ? 14 : -14)) + "px"; stage.appendChild(b2);
+    });
+    svg.setAttribute("width", W2); svg.setAttribute("height", H2);
+    var box = {}; Object.keys(L.pos).forEach(function (id) { box[id] = L.pos[id]; });
+    lastFlow = { L: L, fp: fp, up: up, down: down, mirAt: mirAt };
+    if (sel) journey(sel);
+    schematicFrame({ w: W2, h: H2, box: box }, true);
+  }
+  // a lane's name and what flows in it now
+  function laneWords(lane, fp) {
+    if (lane === "controls") return ["Controls", "click one to see what it commands, or a unit to see what commands it"];
+    if (lane === "power") {
+      var pw = fp.pw, tot = 0; if (pw) Object.keys(pw.dem).forEach(function (k) { if (pw.on[k] && !pw.from[k]) tot += pw.dem[k]; });
+      return ["Power", tot > 0 ? fmtKw(tot) + " flowing from the supply to the loads" : "no current flowing"];
+    }
+    var r = lastWater && lastWater.circuits[lane]; if (!r) return [lane === "cw" ? "Condenser water" : "Chilled water", ""];
+    var t = r.total, vol = 0;
+    fp.edges.forEach(function (e) { if (e.circuit !== lane) return; var d = W().dnOf(e.l.cable), len = W().lengthOf(e.l.len); if (d && d.d && len != null) vol += Math.PI * d.d * d.d / 4 * len; });
+    var lap = t.q > 0 && vol > 0 ? vol / (t.q / 1000) : null;
+    return [r.C.name, t.q > 0 ? [wFlow(t.q), t.out != null && t.back != null ? wRange(t.out, t.back) : "", t.kw != null ? kwShort(t.kw) : "", lap ? "a drop goes round in about " + fmtTime(lap) + " (" + Math.round(vol * 1000).toLocaleString("en-US") + " l in the pipes)" : ""].filter(Boolean).join(" · ") : "no water flowing"];
+  }
+  // follow one drop (or the current) through the chosen branch: the biggest way in, the biggest way on, stop by stop
+  function journey(sel) {
+    var F2 = lastFlow; if (!F2) return;
+    var box = $("mpJourney"), pw = F2.fp.pw, wgt = function (e) { var s = e.src; return pw ? (s && !s.minor && s.p.q ? 1 + (pw.dem[s.b] || 0) : 0) : s ? s.q || 0 : 0; };
+    // one circuit: the one the chosen branch is the source of, else its own (a chiller's chilled water, a pump's condenser water)
+    var circ = "power";
+    if (!pw) { var cs = circuitsOf(sel), srcC = cs.filter(function (r) { return r.isSrc[sel]; })[0]; circ = srcC ? srcC.C.id : cs.length ? cs[0].C.id : "chw"; }
+    var inC = function (x) { return !x.e.src || x.e.src.circuit === circ; };
+    var isSrcC = function (id) { return pw ? !!noteVal(N(id), "source") : !!(lastWater.circuits[circ] && lastWater.circuits[circ].isSrc[id]); };
+    var back = [], at = sel, guard = 0;
+    while (guard++ < 60) {
+      if (at !== sel && isSrcC(at)) break;                                // the journey starts at the source of this circuit
+      var ins = (F2.up[at] || []).filter(function (x) { return inC(x) && back.indexOf(x.from) < 0 && x.from !== sel; });
+      if (at === sel && F2.mirAt[sel + "~loop"]) break;              // a source: the journey starts here and ends at its mirror
+      if (!ins.length) break;
+      ins.sort(function (a, b) { return wgt(b.e) - wgt(a.e); });
+      back.unshift({ id: ins[0].from, e: ins[0].e }); at = ins[0].from;
+    }
+    var stops = back.map(function (x) { return x.id; }).concat([sel]), edgesOn = back.map(function (x) { return x.e; }).concat([null]);
+    at = sel; guard = 0;
+    while (guard++ < 60) {
+      var outs = (F2.down[at] || []).filter(function (x) { return inC(x) && stops.indexOf(x.to) < 0; });
+      if (!outs.length) break;
+      outs.sort(function (a, b) { return wgt(b.e) - wgt(a.e); });
+      edgesOn[edgesOn.length - 1] = outs[0].e; stops.push(outs[0].to); edgesOn.push(null); at = outs[0].to;
+      if (F2.mirAt[at]) break;
+    }
+    var secs = 0, timeKnown = !pw, items = [];
+    stops.forEach(function (id, i) {
+      var mirror = /~loop$/.test(id), real = mirror ? id.replace(/~loop$/, "") : id, n = N(real); if (!n) return;
+      var fig = "";
+      if (pw) {
+        var d = pw.dem[real], mx = pw.max[real], stt = pw.state[real];
+        fig = mirror ? "" : pw.shed[real] ? "shed" : mx != null ? fmtKw(d || 0) + " of " + fmtKw(mx) : d ? fmtKw(d) : stt && stt !== "running" ? "off" : "";
+      } else {
+        var c = circuitsOf(real)[0], side2 = c && c.side[real];
+        if (c && mirror) fig = c.source[real] && c.source[real].back != null ? "in at " + wTemp(c.source[real].back) : "";
+        else if (c && side2 === "source") fig = c.source[real] && c.source[real].out != null ? "out at " + wTemp(c.source[real].out) : "";
+        else if (c && side2 === "unit") fig = c.tIn[real] != null && c.tOut[real] != null ? wRange(c.tIn[real], c.tOut[real]) : "";
+        else if (c) { var tt = side2 === "supply" ? c.tSupply[real] : c.tReturn[real]; fig = tt != null ? wTemp(tt) : ""; }
+        var pa = c && !mirror ? pressAt(c, real) : null; if (pa != null) fig += (fig ? " · " : "") + wBar(pa);
+        if (timeKnown && i > 0) { var e = edgesOn[i - 1], s2 = e && e.src ? pipeSeconds(e.src.l, e.src.q) : null; if (s2 == null) timeKnown = false; else secs += s2; }
+        if (timeKnown && i > 0) fig += (fig ? " · " : "") + fmtTime(secs);
+      }
+      if (i) items.push(el("span", { "class": "mp-jar", "aria-hidden": "true", text: "→" }));
+      items.push(el("button", { type: "button", "class": "mp-jstop" + (real === sel && !mirror ? " here" : "") + (mirror ? " loop" : ""), title: n.title,
+        onclick: function () { flush(); st.sel = real; st.peek = real; wantScroll = true; renderView(); } }, [el("b", { text: (mirror ? "↺ " : "") + n.title }), fig ? el("small", { text: fig }) : null]));
+    });
+    var head = pw ? "Follow the current" : "Follow a drop";
+    box.appendChild(el("span", { "class": "mp-jhead", text: head + (pw ? "" : timeKnown && secs ? " · " + fmtTime(secs) + " in the pipes" : "") }));
+    items.forEach(function (x) { box.appendChild(x); });
+    box.appendChild(el("button", { type: "button", "class": "mp-jx", text: "×", title: "Close", "aria-label": "Stop following", onclick: function () { st.sel = null; st.peek = null; renderView(); } }));
+    box.hidden = false;
+  }
+  function schematicFrame(res, left) {
     var stage = $("mpStage"), canvas = $("mpCanvas"), W2 = res.w, H2 = res.h;
     // the card of the chosen branch, beside its symbol
     var pk = st.peek && res.box[st.peek] ? N(st.peek) : null;
@@ -657,7 +921,7 @@
     stage.style.width = W2 + "px"; stage.style.height = H2 + "px"; stage.style.transform = "scale(" + st.zoom + ")";
     var sizer = $("mpSizer"); sizer.style.width = Math.ceil(W2 * st.zoom) + "px"; sizer.style.height = Math.ceil(H2 * st.zoom) + "px";
     if (firstDraw) {                              // a single-line diagram opens on its source (top centre), a schematic on its top left
-      var top = null; if (isWiring()) Object.keys(res.box).forEach(function (k) { var x = res.box[k]; if (!x.tray && (!top || x.y < top.y)) top = x; });
+      var top = null; if (isWiring() && !left) Object.keys(res.box).forEach(function (k) { var x = res.box[k]; if (!x.tray && (!top || x.y < top.y)) top = x; });
       canvas.scrollLeft = top ? Math.max(0, (top.x + top.w / 2) * st.zoom - canvas.clientWidth / 2) : 0; canvas.scrollTop = 0; firstDraw = false;
     }
     $("mpZoomPct").textContent = Math.round(st.zoom * 100) + "%";
@@ -786,7 +1050,9 @@
   function wire() {
     if (wired) return; wired = true;
     var v = store("localStorage", userKey("view"));
-    st.view = v === "map" || v === "outline" || (v === "schematic" && isNet()) ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
+    // (a water or electrical map opens on its Flow; its own choice is kept apart from the other maps')
+    if (isNet()) { var vn = store("localStorage", userKey("view-net")); st.view = vn === "map" || vn === "outline" || vn === "schematic" || vn === "flow" ? vn : "flow"; }
+    else st.view = v === "map" || v === "outline" ? v : (window.matchMedia && matchMedia("(max-width: 640px)").matches ? "outline" : "map");
     var z = parseFloat(store("localStorage", userKey("zoom") + ":" + M.map.id));
     if (z >= 0.3 && z <= 2) st.zoom = z;
     st.special = store("localStorage", userKey("special")) === "1";
@@ -803,6 +1069,7 @@
     $("mpViewMap").addEventListener("click", function () { setView("map"); });
     $("mpViewOut").addEventListener("click", function () { setView("outline"); });
     $("mpView2d").addEventListener("click", function () { firstDraw = true; setView("schematic"); });
+    $("mpViewFlow").addEventListener("click", function () { firstDraw = true; setView("flow"); });
     $("mpRead").addEventListener("click", function () { setEdit(false); });
     $("mpEdit").addEventListener("click", function () { setEdit(true); });
     $("mpImport").addEventListener("click", importSheet);
@@ -837,7 +1104,7 @@
     canvasMouse();
     head();
   }
-  function setView(v) { st.view = v; seen = {}; store("localStorage", userKey("view"), v); wantScroll = true; renderView(); }
+  function setView(v) { st.view = v; seen = {}; store("localStorage", userKey(isNet() ? "view-net" : "view"), v); wantScroll = true; renderView(); }
   function setEdit(on, quiet) {
     if (!canEdit()) return;
     flush();
@@ -1497,7 +1764,7 @@
   function branchClick(e, onMap) {
     if (e.detail > 1) return;
     if (e.target.closest && e.target.closest(".mp-peek, .mp-xl")) return;
-    if (onMap && st.view === "schematic") { sxClick(e); return; }
+    if (onMap && (st.view === "schematic" || st.view === "flow")) { sxClick(e); return; }
     var nodeE = e.target.closest ? e.target.closest("[data-node]") : null;
     if (!nodeE) { if (onMap && (st.sel || st.peek)) { st.sel = null; if (st.peek) closePeek(true); renderView(); } return; }
     var n = N(nodeE.getAttribute("data-node")), act = e.target.closest("[data-act]");
@@ -1648,18 +1915,21 @@
     lastWater = isWater() && W() ? W().compute(M.nodes, st.iso) : null;
     lastPower = isWiring() ? power() : null;
     renderCrumbs(); renderPills();
-    if (st.view === "schematic" && !isNet()) st.view = "map";
+    if ((st.view === "schematic" || st.view === "flow") && !isNet()) st.view = "map";
     var map = st.view === "map", canv = st.view !== "outline";
     $("mpCanvas").hidden = !canv; $("mpOutline").hidden = canv; $("mpTools").hidden = !canv;
     $("mpViewMap").setAttribute("aria-selected", map ? "true" : "false"); $("mpViewOut").setAttribute("aria-selected", st.view === "outline" ? "true" : "false");
     $("mpView2d").hidden = !isNet(); $("mpView2d").setAttribute("aria-selected", st.view === "schematic" ? "true" : "false");
+    $("mpViewFlow").hidden = !isNet(); $("mpViewFlow").setAttribute("aria-selected", st.view === "flow" ? "true" : "false");
+    $("mpViewMap").textContent = isNet() ? "Tree" : "Map";
+    if (st.view !== "flow") { $("mpJourney").hidden = true; $("mpJourney").textContent = ""; }
     $("mpRead").setAttribute("aria-selected", st.edit ? "false" : "true"); $("mpEdit").setAttribute("aria-selected", st.edit ? "true" : "false");
     $("mpSpecial").setAttribute("aria-pressed", st.special ? "true" : "false");
     var xi = linkIndex(), anyX = xi.list.length + xi.out.length > 0;
     $("mpXlinks").hidden = !anyX;
     $("mpXlinks").setAttribute("aria-pressed", anyX && st.xlinks !== "off" ? "true" : "false");
     var wd = isWiring() ? "Wires" : isWater() ? "Pipes" : "Links";
-    var xm = st.view === "schematic" ? st.sxLabels : st.xlinks;
+    var xm = st.view === "schematic" ? st.sxLabels : st.xlinks;    // (the Flow view uses the map's Wires / Pipes choice)
     $("mpXlinksTxt").textContent = (st.view === "schematic" ? (isWiring() ? "Wire words" : "Pipe words") : wd) + (xm === "all" ? ": all" : xm === "off" ? ": off" : ": chosen");
     legend(canv && anyX && (st.xlinks !== "off" || st.view === "schematic") ? xi : null);
     var hasFlow = (isWiring() && xi.list.some(function (e) { return FLOW_KINDS.indexOf(e.rel.id) >= 0; })) || !!lastWater;
@@ -1667,10 +1937,11 @@
     $("mpFlow").title = isWater() ? "Moving dots along the pipes that have flow" : "Moving dots along the power lines that have supply";
     var anyIso = Object.keys(st.iso).length > 0 || Object.keys(st.cmd).length > 0 || st.night || st.fire;
     $("mpReset").hidden = !anyIso || !canv;
-    $("mpHint").textContent = st.view === "schematic" ? (COARSE.matches ? "Tap a symbol for its figures · two fingers to scroll" : "Click a symbol for its figures · double-click to read it · drag to move · Ctrl + wheel to zoom" + (st.edit ? " · Edit: drag a symbol to place it" : ""))
+    $("mpHint").textContent = st.view === "flow" ? (COARSE.matches ? "Tap a branch to follow its way · two fingers to scroll" : "Click a branch to follow its way · double-click to read it · drag to move · Ctrl + wheel to zoom")
+      : st.view === "schematic" ? (COARSE.matches ? "Tap a symbol for its figures · two fingers to scroll" : "Click a symbol for its figures · double-click to read it · drag to move · Ctrl + wheel to zoom" + (st.edit ? " · Edit: drag a symbol to place it" : ""))
       : COARSE.matches ? "Tap a branch to open it, tap it again to read it" + (map ? " · two fingers to scroll" : "")
       : "Click a branch to open it · double-click to read it" + (map ? " · drag to move · Ctrl + wheel to zoom" : "") + (st.edit ? " · Tab adds a branch" : "");
-    if (st.view === "schematic") renderSchematic(); else if (map) renderMap(); else renderOutline();
+    if (st.view === "schematic") renderSchematic(); else if (st.view === "flow") renderFlow(); else if (map) renderMap(); else renderOutline();
     var open = []; Object.keys(M.nodes).forEach(function (id) { if (N(id).open) open.push(id); });
     store("sessionStorage", userKey("open") + ":" + M.map.id, JSON.stringify(open.slice(0, 600)));
   }
