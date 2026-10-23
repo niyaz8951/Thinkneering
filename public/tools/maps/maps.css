@@ -61,7 +61,8 @@
 .mp-peek-in:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus); }
 .mp-peek-sp { margin-top: 8px; font-size: 13px; }
 
-.mp-n { position: absolute; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; max-width: 300px; padding: 3px 4px 4px 3px;
+/* width: max-content: a branch is measured at its own width, not squeezed by a stage that has no width yet (first draw) */
+.mp-n { position: absolute; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; width: max-content; max-width: 300px; padding: 3px 4px 4px 3px;
   border-bottom: 2px solid var(--bc, var(--border)); border-radius: 7px 7px 0 0; color: var(--text); font-size: 14.5px; line-height: 1.35;
   cursor: pointer; user-select: none; transition: background-color .15s var(--ease), opacity .2s var(--ease); }
 .mp-n:hover { background: color-mix(in srgb, var(--bc, var(--brand)) 9%, transparent); }
